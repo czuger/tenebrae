@@ -5,27 +5,10 @@ body {
   font-family: Georgia, "Times New Roman", serif;
 }
 
-/* Le cadre défile ; la toile lui donne la taille de la carte une fois mise à l'échelle, le
-   transform du plateau ne comptant pas dans la mise en page. */
-#cadre {
-  position: fixed;
-  inset: 0;
-  overflow: auto;
-}
-
-#toile {
-  position: relative;
-}
-
+/* Le cadre, la toile, le plateau et la barre d'outils sont dans zoom.css, partagé avec le
+   plateau de jeu ; il ne reste ici que ce qui appartient à la correction de la carte. */
 #plateau {
-  position: relative;
-  transform-origin: top left;
-  width: max-content;
   cursor: crosshair;
-}
-
-#carte {
-  display: block;
 }
 
 #surlignage {
@@ -47,40 +30,6 @@ body {
   fill: rgba(214, 108, 74, 0.35);
   stroke: #d66c4a;
   stroke-width: 5;
-}
-
-#outils {
-  position: fixed;
-  top: 0.6rem;
-  left: 0.6rem;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.7rem;
-  border: 1px solid #6b5a44;
-  border-radius: 3px;
-  background: rgba(27, 23, 19, 0.92);
-  font-size: 0.85rem;
-}
-
-#outils button {
-  font: inherit;
-  padding: 0.15rem 0.6rem;
-  border: 1px solid #6b5a44;
-  border-radius: 2px;
-  background: #2a2320;
-  color: inherit;
-  cursor: pointer;
-}
-
-#outils button:hover {
-  background: #3a3028;
-}
-
-#echelle {
-  min-width: 3.5rem;
-  text-align: center;
 }
 
 #compteur {

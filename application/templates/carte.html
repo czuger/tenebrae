@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Ave Tenebrae — la carte</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='zoom.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='carte.css') }}">
 </head>
 <body>
@@ -13,12 +14,22 @@
   <input type="hidden" id="grille" value="{{ grille }}">
 
   <div id="cadre">
-    <div id="plateau">
-      <img id="carte" src="{{ url_for('image_de_la_carte') }}" alt="Carte d'Ave Tenebrae">
+    <div id="toile">
+      <div id="plateau">
+        <img id="carte" src="{{ url_for('image_de_la_carte') }}" alt="Carte d'Ave Tenebrae">
+      </div>
     </div>
   </div>
 
+  <div id="outils">
+    <button type="button" id="dezoomer" title="Reculer">−</button>
+    <span id="echelle">—</span>
+    <button type="button" id="zoomer" title="Approcher">+</button>
+    <button type="button" id="ajuster">ajuster</button>
+  </div>
+
   <script src="{{ url_for('static', filename='geometrie.js') }}"></script>
+  <script src="{{ url_for('static', filename='zoom.js') }}"></script>
   <script src="{{ url_for('static', filename='carte.js') }}"></script>
 </body>
 </html>

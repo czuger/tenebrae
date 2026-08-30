@@ -1,0 +1,64 @@
+/* L'habillage du zoom, partagé par les pages qui affichent la carte (voir zoom.js).
+
+   Le cadre défile ; la toile lui donne la taille de la carte une fois mise à l'échelle, le
+   transform du plateau ne comptant pas dans la mise en page. Les marges automatiques de la toile
+   centrent la carte tant qu'elle tient dans la fenêtre, et tombent à zéro dès qu'elle déborde —
+   sans quoi le défilement en perdrait le coin haut-gauche. */
+
+#cadre {
+  position: fixed;
+  inset: 0;
+  overflow: auto;
+  display: flex;
+}
+
+#toile {
+  position: relative;
+  margin: auto;
+}
+
+#plateau {
+  position: relative;
+  transform-origin: top left;
+  width: max-content;
+}
+
+#carte {
+  display: block;
+}
+
+/* La barre d'outils : reculer, l'échelle, approcher, ajuster — et ce que la page y ajoute. */
+#outils {
+  position: fixed;
+  top: 0.6rem;
+  left: 0.6rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid #6b5a44;
+  border-radius: 3px;
+  background: rgba(27, 23, 19, 0.92);
+  color: #f6e7c1;
+  font-size: 0.85rem;
+}
+
+#outils button {
+  font: inherit;
+  padding: 0.15rem 0.6rem;
+  border: 1px solid #6b5a44;
+  border-radius: 2px;
+  background: #2a2320;
+  color: inherit;
+  cursor: pointer;
+}
+
+#outils button:hover {
+  background: #3a3028;
+}
+
+#echelle {
+  min-width: 3.5rem;
+  text-align: center;
+}

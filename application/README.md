@@ -32,8 +32,9 @@ Dépendance : `Flask` (plus `pytest` et `pytest-playwright` pour les tests).
 ## Comment ça marche
 
 Le serveur ne dessine rien : il passe deux JSON au gabarit, dans des champs cachés
-(`#pions` et `#grille`), et `static/carte.js` s'en sert. La géométrie elle-même — cubique ↔
-pixels — vit dans `static/geometrie.js`, partagé avec la page de correction.
+(`#pions` et `#grille`), et `static/carte.js` s'en sert. Deux morceaux sont partagés avec la page
+de correction : la géométrie — cubique ↔ pixels — dans `static/geometrie.js`, et le zoom —
+molette, boutons, défilement — dans `static/zoom.js` et `static/zoom.css`.
 
 | Champ caché | Contenu |
 | --- | --- |
@@ -61,7 +62,23 @@ centre(q, r) = origine + matrice · (q, r)
 Le pion est ensuite **centré** sur ce point (`translate(-50%, -50%)`) puis **incliné au hasard de
 ± 5°**, pour que le plateau n'ait pas l'air posé à la règle. Les positions sont exprimées en
 pixels de `map.jpg` : la carte est portée à sa taille naturelle par `#plateau`, que le
-JavaScript met ensuite à l'échelle pour tenir dans la fenêtre.
+JavaScript met ensuite à l'échelle.
+
+## Approcher et reculer
+
+La carte fait 6173 × 5102 px et s'ouvre **ajustée à la fenêtre** — un pion y fait une quinzaine
+de pixels, on n'y lit rien. Le plateau se zoome donc comme la page de correction, et par le même
+code (`static/zoom.js`) :
+
+- la **molette** approche en gardant sous le curseur le point qu'il désignait ; les boutons `+`,
+  `−` et « ajuster » de la barre d'outils font la même chose depuis le centre de la fenêtre ;
+- l'échelle va de 5 % à 100 % — au-delà du scan, il n'y a plus rien à voir ;
+- **le zoom ne touche à rien d'autre.** Tout ce qui est posé sur la carte — pions, fantômes,
+  surlignage — est exprimé en pixels de `map.jpg`, dans le repère de `#plateau` : le mettre à
+  l'échelle emporte le tout, et le clic repasse par la même conversion. Il n'y a donc aucune
+  position à recalculer, et viser un hexagone marche à toute échelle ;
+- redimensionner la fenêtre **réajuste** la carte, tant qu'on n'a pas réglé l'échelle soi-même —
+  sans quoi le zoom qu'on vient de choisir serait défait.
 
 ## Cliquer, montrer, déplacer
 
@@ -112,9 +129,8 @@ Seul le choix d'un terrain fait un aller-retour.
 | `#terrains` | les 16 terrains, dans l'ordre de priorité de `game_box/carte.md` |
 | `#grille` | le même calage que le plateau, sans `taille_pion` |
 
-- **Zoom** : la carte s'ouvre ajustée à la fenêtre — un hexagone y fait 25 px, on ne juge pas un
-  bois à cette taille. La molette approche en gardant sous le curseur le point qu'il désignait ;
-  les boutons `+`, `−` et « ajuster » font la même chose depuis le centre.
+- **Zoom** : le même que celui du plateau (voir plus haut) — la carte s'ouvre ajustée à la
+  fenêtre, où un hexagone fait 25 px : on ne juge pas un bois à cette taille.
 - **Survol** : l'hexagone visé est surligné et un encadré donne `q,r,s — terrain`, suivi de
   `→ terrain corrigé` si la case a déjà été reprise.
 - **Clic** : une boîte de dialogue donne le terrain de la carte et seize boutons. Choisir celui que
@@ -186,8 +202,9 @@ python3 -m pytest
 ```
 
 `tests/test_map_fix.py` et `tests/test_map_fix_navigateur.py` couvrent la page de correction —
-le second dans Chromium : survol, dialogue, enregistrement, zoom. Tous deux détournent le chemin
-du fichier de corrections vers un répertoire temporaire : **aucun test n'écrit dans `game_box/`**.
+le second dans Chromium : survol, dialogue, enregistrement, boutons de zoom. Tous deux
+détournent le chemin du fichier de corrections vers un répertoire temporaire : **aucun test
+n'écrit dans `game_box/`**.
 
 `tests/test_serveur.py` interroge Flask sans navigateur : contenu des champs cachés, cohérence des
 coordonnées, fichiers servis, la mise en place servie case par case — elle doit être celle du
@@ -201,10 +218,12 @@ les pieds du test suivant. Ce que contient le scénario lui-même est éprouvé 
 
 `tests/test_plateau.py` ouvre la page dans Chromium avec Playwright : les 52 pions chargés et
 centrés à moins d'un pixel, inclinés de moins de 5°, carte qui reste à l'échelle après
-redimensionnement, puis le cycle complet clic → fantômes → déplacement. Les fantômes attendus
-sont ceux que le plateau du serveur calcule — il tourne dans le même processus, on le lit
-directement — et un test pose un adversaire au contact pour vérifier que le clic en montre alors
-moins.
+redimensionnement, le zoom — boutons, molette qui garde son point sous le pointeur, pions qui
+restent sur leur hexagone une fois approchés, échelle réglée à la main qu'un redimensionnement ne
+défait pas —, puis le cycle complet clic → fantômes → déplacement, à l'ajustement comme une fois
+approché. Les fantômes attendus sont ceux que le plateau du serveur calcule — il tourne dans le
+même processus, on le lit directement — et un test pose un adversaire au contact pour vérifier que
+le clic en montre alors moins.
 
 Les tests de navigateur demandent Chromium :
 

@@ -4,8 +4,6 @@
 // demander. Seul le choix d'un terrain fait un aller-retour, pour aller s'écrire dans
 // game_box/map_fix.json. La carte transcrite, elle, n'est jamais touchée.
 
-const ECHELLE_MIN = 0.05;
-const ECHELLE_MAX = 1;
 const ECART_INFOBULLE = 16; // pixels entre le pointeur et l'encadré
 
 const cadre = document.getElementById("cadre");
@@ -32,7 +30,6 @@ const terrains = JSON.parse(document.getElementById("terrains").value);
 const grille = JSON.parse(document.getElementById("grille").value);
 const { hexagoneDuPixel, sommets } = calage(grille);
 
-let echelle = 1;
 let vise = null; // l'hexagone sous le pointeur
 let enCoursDeCorrection = null; // celui dont le dialogue est ouvert
 
@@ -44,43 +41,6 @@ function terrainDeLaCarte(clef) {
 
 function terrainActuel(clef) {
   return corrections[clef] ?? hexagones[clef] ?? null;
-}
-
-// --- Échelle et défilement ---
-
-function echelleAjustee() {
-  return Math.min(window.innerWidth / carte.naturalWidth,
-                  window.innerHeight / carte.naturalHeight);
-}
-
-function appliquerLEchelle(valeur) {
-  echelle = Math.min(ECHELLE_MAX, Math.max(ECHELLE_MIN, valeur));
-  plateau.style.transform = `scale(${echelle})`;
-  // Le transform ne compte pas dans la mise en page : c'est la toile qui porte la taille visible,
-  // et donc les barres de défilement.
-  toile.style.width = `${carte.naturalWidth * echelle}px`;
-  toile.style.height = `${carte.naturalHeight * echelle}px`;
-  affichageEchelle.textContent = `${Math.round(echelle * 100)} %`;
-}
-
-function changerLEchelle(valeur, clientX, clientY) {
-  // Le point de la carte sous le pointeur doit y rester : on le relève avant, on replace le
-  // défilement après.
-  const point = pixelDuPointeur({ clientX, clientY }, carte);
-  appliquerLEchelle(valeur);
-  const cadreVisible = cadre.getBoundingClientRect();
-  cadre.scrollLeft = point.x * echelle + cadreVisible.x - clientX;
-  cadre.scrollTop = point.y * echelle + cadreVisible.y - clientY;
-}
-
-function centreDuCadre() {
-  const cadreVisible = cadre.getBoundingClientRect();
-  return [cadreVisible.x + cadreVisible.width / 2, cadreVisible.y + cadreVisible.height / 2];
-}
-
-function ajusterALaFenetre() {
-  appliquerLEchelle(echelleAjustee());
-  cadre.scrollTo(0, 0);
 }
 
 // --- Surlignage ---
@@ -229,7 +189,8 @@ function demarrer() {
   construireLesBoutons();
   dessinerLesCorrections();
   compter();
-  ajusterALaFenetre();
+  // La molette, les boutons « + », « − » et « ajuster » : la mécanique est dans zoom.js.
+  zoom({ cadre, toile, plateau, carte, affichage: affichageEchelle }).ajuster();
 
   plateau.addEventListener("mousemove", auSurvol);
   plateau.addEventListener("mouseleave", cacherLInfobulle);
@@ -238,17 +199,6 @@ function demarrer() {
     ouvrirLeChoix(hexagoneDuPixel(x, y));
   });
 
-  cadre.addEventListener("wheel", (evenement) => {
-    evenement.preventDefault();
-    changerLEchelle(echelle * Math.exp(-evenement.deltaY * 0.002),
-                    evenement.clientX, evenement.clientY);
-  }, { passive: false });
-
-  document.getElementById("zoomer").addEventListener("click",
-    () => changerLEchelle(echelle * 1.25, ...centreDuCadre()));
-  document.getElementById("dezoomer").addEventListener("click",
-    () => changerLEchelle(echelle / 1.25, ...centreDuCadre()));
-  document.getElementById("ajuster").addEventListener("click", ajusterALaFenetre);
   choixRetablir.addEventListener("click",
     () => corriger(terrainDeLaCarte(cle(enCoursDeCorrection))));
   document.getElementById("choix-annuler").addEventListener("click", () => choix.close());

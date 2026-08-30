@@ -6,13 +6,16 @@
 // pas son mouvement : c'est le serveur qui sait de combien de points il dispose.
 //
 // Les positions sont en pixels de map.jpg, donc dans le repère de #plateau, qui porte l'image à
-// sa taille naturelle et n'est mis à l'échelle qu'ensuite.
+// sa taille naturelle et n'est mis à l'échelle qu'ensuite : approcher ou reculer ne change donc
+// rien à ce qui est posé sur la carte. Le zoom lui-même est dans zoom.js, partagé avec la page de
+// correction.
 
 const ROTATION_MAXIMALE = 5; // degrés, en avant ou en arrière
 
 const plateau = document.getElementById("plateau");
 const carte = document.getElementById("carte");
 const cadre = document.getElementById("cadre");
+const toile = document.getElementById("toile");
 
 const pions = JSON.parse(document.getElementById("pions").value);
 const grille = JSON.parse(document.getElementById("grille").value);
@@ -22,6 +25,7 @@ const { centre: centreDeLHexagone, hexagoneDuPixel } = calage(grille);
 const pionsPoses = [];
 let fantomes = [];
 let selection = null;
+let vue = null; // le zoom, monté une fois la carte chargée
 
 function hexagoneClique(evenement) {
   const { x, y } = pixelDuPointeur(evenement, carte);
@@ -133,22 +137,13 @@ function auClic(evenement) {
   montrerLesDeplacements(pion);
 }
 
-function ajusterLEchelle() {
-  // La carte fait 6173 × 5102 px : on la réduit pour qu'elle tienne dans la fenêtre.
-  const largeur = carte.naturalWidth;
-  const hauteur = carte.naturalHeight;
-  if (!largeur || !hauteur) return;
-
-  const echelle = Math.min(window.innerWidth / largeur, window.innerHeight / hauteur);
-  plateau.style.transform = `scale(${echelle})`;
-  cadre.style.width = `${largeur * echelle}px`;
-  cadre.style.height = `${hauteur * echelle}px`;
-  cadre.style.margin = "0 auto";
-}
-
 function demarrer() {
   poserLesPions();
-  ajusterLEchelle();
+  // La carte fait 6173 × 5102 px : elle s'ouvre réduite à la fenêtre, et la molette ou les
+  // boutons « + », « − » et « ajuster » la rapprochent — jusqu'à la taille du scan, où un pion
+  // se lit vraiment.
+  vue = zoom({ cadre, toile, plateau, carte, affichage: document.getElementById("echelle") });
+  vue.ajuster();
   plateau.addEventListener("click", auClic);
 }
 
@@ -157,4 +152,9 @@ if (carte.complete) {
 } else {
   carte.addEventListener("load", demarrer);
 }
-window.addEventListener("resize", ajusterLEchelle);
+
+// Redimensionner la fenêtre réajuste la carte, tant qu'on n'a pas réglé l'échelle soi-même : ce
+// serait défaire le zoom qu'on vient de choisir.
+window.addEventListener("resize", () => {
+  if (vue && vue.suitLaFenetre()) vue.ajuster();
+});

@@ -13,7 +13,7 @@ from moteur import hexagone as moteur_hexagone
 from moteur.hexagone import CARTE_TRANSCRITE, Hex
 
 from test_map_fix import corrections, relire  # noqa: F401  (fixture réutilisée)
-from test_plateau import centre_attendu, cliquer_l_hexagone
+from test_plateau import cliquer_l_hexagone, point_de_l_hexagone
 
 # Un hexagone de plaine, loin des bords, et le terrain qu'on lui donnera.
 PLAINE = Hex.depuis_cle("10,20,-30")
@@ -39,14 +39,7 @@ def page_de_correction(page, serveur, corrections, monkeypatch):  # noqa: F811
 
 def survoler(page, hexagone):
     """Amène le pointeur au centre de l'hexagone."""
-    x, y = centre_attendu(hexagone.q, hexagone.r)
-    point = page.evaluate("""([x, y]) => {
-        const carte = document.getElementById('carte');
-        const cadre = carte.getBoundingClientRect();
-        const echelle = cadre.width / carte.naturalWidth;
-        return [cadre.x + x * echelle, cadre.y + y * echelle];
-    }""", [x, y])
-    page.mouse.move(point[0], point[1])
+    page.mouse.move(*point_de_l_hexagone(page, hexagone))
 
 
 def test_la_carte_tient_dans_la_fenetre(page_de_correction):

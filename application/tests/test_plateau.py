@@ -24,6 +24,7 @@ def plateau(page, serveur):
         "[...document.querySelectorAll('img.pion'), document.getElementById('carte')]"
         ".every((i) => i.complete && i.naturalWidth > 0)"
     )
+    page.wait_for_function("document.getElementById('echelle').textContent !== '—'")
     return page
 
 
@@ -123,6 +124,89 @@ def test_le_plateau_suit_le_redimensionnement(plateau):
         x, y = centre_attendu(pion["q"], pion["r"])
         assert math.isclose(pion["x"], x, abs_tol=1.0), pion
         assert math.isclose(pion["y"], y, abs_tol=1.0), pion
+
+
+# --- Zoom -----------------------------------------------------------------------------------
+
+
+def echelle_rendue(page):
+    """L'échelle à laquelle la carte est rendue, lue sur l'image elle-même."""
+    return page.evaluate(
+        "() => { const c = document.getElementById('carte');"
+        " return c.getBoundingClientRect().width / c.naturalWidth; }")
+
+
+def approcher(page, crans=1):
+    """Clique « + » et attend que l'échelle affichée change."""
+    for _ in range(crans):
+        avant = page.locator("#echelle").text_content()
+        page.locator("#zoomer").click()
+        page.wait_for_function(
+            "(depart) => document.getElementById('echelle').textContent !== depart", arg=avant)
+
+
+def test_les_boutons_de_zoom_changent_l_echelle(plateau):
+    ajustee = echelle_rendue(plateau)
+    approcher(plateau)
+    assert echelle_rendue(plateau) > ajustee
+
+    plateau.locator("#ajuster").click()
+    plateau.wait_for_function(
+        "(ajustee) => { const c = document.getElementById('carte');"
+        " return Math.abs(c.getBoundingClientRect().width / c.naturalWidth - ajustee) < 1e-6; }",
+        arg=ajustee)
+
+
+def test_la_molette_approche_la_carte(plateau):
+    """Approcher à la molette garde sous le pointeur le point de carte qu'il désignait."""
+    x, y = centre_attendu(28, 15)
+    pointeur = plateau.evaluate("""([x, y]) => {
+        const carte = document.getElementById('carte');
+        const cadre = carte.getBoundingClientRect();
+        const echelle = cadre.width / carte.naturalWidth;
+        return [cadre.x + x * echelle, cadre.y + y * echelle];
+    }""", [x, y])
+
+    ajustee = echelle_rendue(plateau)
+    plateau.mouse.move(*pointeur)
+    plateau.mouse.wheel(0, -300)
+    plateau.wait_for_function(
+        "(ajustee) => { const c = document.getElementById('carte');"
+        " return c.getBoundingClientRect().width / c.naturalWidth > ajustee; }", arg=ajustee)
+
+    # Le point de map.jpg désormais sous le pointeur : à quelques pixels d'écran près, le même.
+    vise = plateau.evaluate("""([cx, cy]) => {
+        const carte = document.getElementById('carte');
+        const cadre = carte.getBoundingClientRect();
+        const echelle = cadre.width / carte.naturalWidth;
+        return [(cx - cadre.x) / echelle, (cy - cadre.y) / echelle];
+    }""", list(pointeur))
+    assert math.isclose(vise[0], x, abs_tol=30), vise
+    assert math.isclose(vise[1], y, abs_tol=30), vise
+
+
+def test_les_pions_restent_sur_leur_hexagone_une_fois_approche(plateau):
+    """Le zoom ne touche qu'à l'échelle : les pions sont posés en pixels de map.jpg."""
+    approcher(plateau, crans=3)
+    poses = geometrie_des_pions(plateau)
+    assert poses[0]["echelle"] > 0
+
+    for pion in poses:
+        x, y = centre_attendu(pion["q"], pion["r"])
+        assert math.isclose(pion["x"], x, abs_tol=1.0), pion
+        assert math.isclose(pion["y"], y, abs_tol=1.0), pion
+
+
+def test_le_redimensionnement_ne_defait_pas_le_zoom(plateau):
+    """La carte suit la fenêtre tant qu'on n'a pas réglé l'échelle soi-même."""
+    approcher(plateau)
+    approchee = echelle_rendue(plateau)
+
+    plateau.set_viewport_size({"width": 900, "height": 600})
+    plateau.wait_for_function("() => window.innerWidth === 900 && window.innerHeight === 600")
+    plateau.evaluate("() => new Promise(requestAnimationFrame)")
+
+    assert math.isclose(echelle_rendue(plateau), approchee, rel_tol=1e-6)
 
 
 # --- Fantômes et déplacement ----------------------------------------------------------------
@@ -264,6 +348,16 @@ def test_chaque_fantome_est_centre_et_incline(plateau):
         assert abs(fantome["angle"]) <= 5.0, fantome
 
 
+def test_cliquer_un_pion_approche_montre_ses_deplacements(plateau):
+    """Le clic vise le bon hexagone quelle que soit l'échelle."""
+    pion, _, atteignables = pion_qui_peut_bouger(plateau)
+    approcher(plateau, crans=2)
+    pion.scroll_into_view_if_needed()
+
+    poses = montrer_les_fantomes(plateau, pion)
+    assert {(f["q"], f["r"], f["s"]) for f in poses} == {(h.q, h.r, h.s) for h in atteignables}
+
+
 def test_cliquer_un_fantome_deplace_le_pion(plateau):
     pion, depart, _ = pion_qui_peut_bouger(plateau)
     pion.click()
@@ -312,18 +406,39 @@ def test_cliquer_ailleurs_efface_les_fantomes(plateau):
         "() => [...document.querySelectorAll('img.pion:not(.fantome)')]"
         ".map((p) => `${p.dataset.q},${p.dataset.r},${p.dataset.s}`)"))
     interdits = {hexagone.cle for hexagone in atteignables} | {depart.cle} | occupes
-    ailleurs = next(Hex.depuis_cle(cle) for cle in CARTE if cle not in interdits)
-    cliquer_l_hexagone(plateau, ailleurs)
+    cliquer_l_hexagone(plateau, hexagone_decouvert(plateau, interdits))
     plateau.wait_for_function("document.querySelectorAll('img.fantome').length === 0")
 
 
-def cliquer_l_hexagone(page, hexagone):
-    """Clique au centre de l'hexagone, en pixels d'écran."""
+def point_de_l_hexagone(page, hexagone):
+    """Le centre de l'hexagone en pixels d'écran, à l'échelle où la carte est rendue."""
     x, y = centre_attendu(hexagone.q, hexagone.r)
-    point = page.evaluate("""([x, y]) => {
+    return page.evaluate("""([x, y]) => {
         const carte = document.getElementById('carte');
         const cadre = carte.getBoundingClientRect();
         const echelle = cadre.width / carte.naturalWidth;
         return [cadre.x + x * echelle, cadre.y + y * echelle];
     }""", [x, y])
-    page.mouse.click(point[0], point[1])
+
+
+def cliquer_l_hexagone(page, hexagone):
+    """Clique au centre de l'hexagone, en pixels d'écran."""
+    page.mouse.click(*point_de_l_hexagone(page, hexagone))
+
+
+def hexagone_decouvert(page, interdits):
+    """Le premier hexagone hors `interdits` qu'un clic atteint vraiment.
+
+    La barre d'outils est posée par-dessus le coin haut-gauche de la carte, et la fenêtre n'en
+    montre qu'une partie une fois qu'on a approché : un clic qui tombe là n'arriverait jamais au
+    plateau.
+    """
+    for cle in CARTE:
+        if cle in interdits:
+            continue
+        hexagone = Hex.depuis_cle(cle)
+        x, y = point_de_l_hexagone(page, hexagone)
+        if page.evaluate("([x, y]) => document.getElementById('plateau')"
+                         ".contains(document.elementFromPoint(x, y))", [x, y]):
+            return hexagone
+    raise AssertionError("aucun hexagone libre n'est cliquable")

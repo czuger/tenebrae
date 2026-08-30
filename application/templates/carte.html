@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ave Tenebrae — la carte</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='carte.css') }}">
+</head>
+<body>
+  <!-- Le serveur passe le tirage et le calage de la grille en JSON ; le JavaScript s'en sert
+       pour convertir les coordonnées cubiques en pixels et poser les pions. -->
+  <input type="hidden" id="pions" value="{{ pions }}">
+  <input type="hidden" id="grille" value="{{ grille }}">
+
+  <div id="cadre">
+    <div id="plateau">
+      <img id="carte" src="{{ url_for('image_de_la_carte') }}" alt="Carte d'Ave Tenebrae">
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='carte.js') }}"></script>
+</body>
+</html>

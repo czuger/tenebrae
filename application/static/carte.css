@@ -1,0 +1,27 @@
+body {
+  margin: 0;
+  background: #1b1713;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+#cadre {
+  position: relative;
+}
+
+#plateau {
+  position: relative;
+  transform-origin: top left;
+  width: max-content;
+}
+
+#carte {
+  display: block;
+}
+
+.pion {
+  position: absolute;
+  /* Le pion est centré sur le centre de l'hexagone, puis légèrement pivoté. */
+  transform-origin: center;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.55);
+  border-radius: 2px;
+}

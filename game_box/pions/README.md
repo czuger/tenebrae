@@ -1,11 +1,13 @@
 # Pions d'Ave Tenebrae — classement par faction et par utilité
 
 Ce répertoire rassemble les **127 photos de pions** de la 2ᵉ édition d'Ave Tenebrae (1986),
-extraites du répertoire `images/` et classées d'après le découpage détaillé dans
-`vintageboard-1-ave-tenebrae.html` (article « Vintageboard 1 : Ave Tenebrae », R-One Chaff).
+extraites du répertoire `base_material/images/` et classées d'après le découpage détaillé dans
+`base_material/vintageboard-1-ave-tenebrae.html` (article « Vintageboard 1 : Ave Tenebrae »,
+R-One Chaff).
 
-Les fichiers d'origine sont **conservés intacts** dans `images/` ; ce répertoire n'en contient
-que des copies renommées.
+Les fichiers d'origine sont **conservés intacts** dans `base_material/images/` ; ce répertoire
+n'en contient que des copies renommées. `base_material/` n'est pas versionné : la colonne
+« Photo d'origine » des tables ci-dessous ne se vérifie qu'avec les sources en local.
 
 ## Sommaire
 
@@ -328,9 +330,9 @@ que des copies renommées.
 - Les initiales des non-humains (`h`, `K`, `m`, `o`, `bug`) ne sont expliquées nulle part dans
   les règles ; les interprétations proposées sont celles de l'auteur de l'article.
 
-## Images de `images/` non reprises ici
+## Images de `base_material/images/` non reprises ici
 
-Ces 17 fichiers ne sont pas des pions et restent uniquement dans `images/` : couverture et
+Ces 17 fichiers ne sont pas des pions et restent uniquement dans `base_material/images/` : couverture et
 photos de boîte (`pic73874_md.jpg`, `20170707_194444.jpg`, `0f6274f5782e7183198dcabff5b13ed1267d.jpeg`,
 `HE_BGG_2.jpg`), vues de la carte et de ses régions (`20170707_194834.jpg`, `20170403_163236.jpg`,
 `20170710_134448.jpg`, `20170710_134527_001.jpg`, `20170710_134550.jpg`, `20170710_134613.jpg`,

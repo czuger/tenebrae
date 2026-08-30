@@ -14,11 +14,11 @@ from moteur.pion import ADVERSAIRES, CATALOGUE
 
 @pytest.fixture
 def plateau(page, serveur):
-    """Ouvre la page et attend que la carte et les dix pions soient chargés."""
+    """Ouvre la page et attend que la carte et les unités du scénario soient chargées."""
     page.set_viewport_size({"width": 1400, "height": 900})
     page.goto(serveur)
     page.wait_for_function(
-        "document.querySelectorAll('img.pion').length === %d" % app.NOMBRE_DE_PIONS
+        "document.querySelectorAll('img.pion').length === %d" % len(app.SCENARIO)
     )
     page.wait_for_function(
         "[...document.querySelectorAll('img.pion'), document.getElementById('carte')]"
@@ -66,8 +66,8 @@ def test_la_carte_est_affichee(plateau):
     assert (carte["l"], carte["h"]) == (6173, 5102)
 
 
-def test_dix_pions_sont_poses(plateau):
-    assert plateau.locator("img.pion").count() == app.NOMBRE_DE_PIONS
+def test_les_unites_du_scenario_sont_posees(plateau):
+    assert plateau.locator("img.pion").count() == len(app.SCENARIO)
 
 
 def test_les_images_de_pions_se_chargent(plateau):
@@ -92,8 +92,10 @@ def test_chaque_pion_est_incline_de_moins_de_cinq_degres(plateau):
 def test_les_inclinaisons_sont_tirees_au_hasard(plateau):
     """Des pions tous à la même inclinaison trahiraient une rotation figée."""
     angles = [round(pion["angle"], 3) for pion in geometrie_des_pions(plateau)]
-    assert len(set(angles)) == len(angles)
-    assert any(angle < 0 for angle in angles) or any(angle > 0 for angle in angles)
+    # Deux inclinaisons sur cinquante-deux peuvent coïncider au millième de degré près ; une
+    # rotation figée, elle, les rendrait toutes égales.
+    assert len(set(angles)) >= len(angles) - 3
+    assert any(angle < 0 for angle in angles) and any(angle > 0 for angle in angles)
 
 
 def test_les_pions_ont_la_taille_prevue(plateau):
@@ -133,7 +135,7 @@ def pions_qui_peuvent_bouger(page, convient=lambda pion: True):
     que les adversaires posés autour lui interdisent. Le serveur de test tourne dans ce processus,
     son plateau se lit donc directement.
     """
-    for indice in range(app.NOMBRE_DE_PIONS):
+    for indice in range(len(app.SCENARIO)):
         pion = page.locator("img.pion:not(.fantome)").nth(indice)
         position = pion.evaluate(
             "p => [Number(p.dataset.q), Number(p.dataset.r), Number(p.dataset.s)]")
@@ -147,7 +149,7 @@ def pion_qui_peut_bouger(page, convient=lambda pion: True):
     """Le premier pion de la page qui a des cases où aller."""
     for candidat in pions_qui_peuvent_bouger(page, convient):
         return candidat
-    raise AssertionError("aucun des dix pions ne peut se déplacer")
+    raise AssertionError("aucune unité du scénario ne peut se déplacer")
 
 
 def fantomes(page):
@@ -186,16 +188,19 @@ def contact_avec_un_adversaire(page):
     L'ennemi est posé sur le plateau du serveur sans image sur la carte : ce qu'on veut éprouver
     est la chaîne du clic à la règle, pas l'affichage de ce pion-là. On cherche une figure où il
     reste quelque chose à montrer — un pion acculé n'aurait aucun fantôme, et il n'y aurait rien
-    à comparer.
+    à comparer. Une unité prise au milieu de son armée n'a aucune case voisine libre : elle ne
+    fait pas l'affaire non plus, et on passe à la suivante.
     """
     for pion, depart, seul in pions_qui_peuvent_bouger(page, engage):
-        voisine = next(voisin for voisin in depart.voisins() if voisin in seul)
+        voisine = next((voisin for voisin in depart.voisins() if voisin in seul), None)
+        if voisine is None:
+            continue
         app.PLATEAU.poser(voisine, adversaire_de(app.PLATEAU.pion_sur(depart)))
         au_contact = app.PLATEAU.deplacements(depart)
         if 0 < len(au_contact) < len(seul):
             return pion, depart, seul, voisine
         app.PLATEAU.retirer(voisine)
-    pytest.skip("aucun pion du tirage n'a de voisin où poser un adversaire")
+    pytest.skip("aucune unité du scénario n'a de voisin où poser un adversaire")
 
 
 def test_les_fantomes_s_arretent_devant_l_adversaire(plateau):
@@ -219,7 +224,7 @@ def adversaire_de(pion):
 
 
 def test_le_libelle_du_pion_dit_son_camp_et_son_mouvement(plateau):
-    for indice in range(app.NOMBRE_DE_PIONS):
+    for indice in range(len(app.SCENARIO)):
         pion = plateau.locator("img.pion:not(.fantome)").nth(indice)
         titre, cle = pion.evaluate("p => [p.title, p.pion.cle]")
         pose = CATALOGUE[cle]
@@ -279,14 +284,14 @@ def test_cliquer_un_fantome_deplace_le_pion(plateau):
     assert abs(pose["angle"]) <= 5.0
 
 
-def test_les_dix_pions_restent_dix_apres_un_deplacement(plateau):
+def test_le_nombre_d_unites_ne_change_pas_apres_un_deplacement(plateau):
     pion, _, _ = pion_qui_peut_bouger(plateau)
     pion.click()
     plateau.wait_for_function("document.querySelectorAll('img.fantome').length > 0")
     plateau.locator("img.fantome").last.click()
     plateau.wait_for_function("document.querySelectorAll('img.fantome').length === 0")
 
-    assert plateau.locator("img.pion:not(.fantome)").count() == app.NOMBRE_DE_PIONS
+    assert plateau.locator("img.pion:not(.fantome)").count() == len(app.SCENARIO)
 
 
 def test_recliquer_le_pion_efface_les_fantomes(plateau):

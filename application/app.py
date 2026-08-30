@@ -1,8 +1,9 @@
 """Petite application Flask qui affiche la carte d'Ave Tenebrae avec des pions posés dessus.
 
-Le serveur tire dix hexagones au hasard, leur associe un pion au hasard, et passe le tout
-au gabarit sous forme de JSON (champ caché). C'est le JavaScript qui convertit les
-coordonnées cubiques en pixels et qui pose les pions sur la carte.
+Le serveur pose la mise en place d'un scénario — le n° 4, « La guerre des nains » —, lue une
+fois pour toutes dans `scenarios/`, et la passe au gabarit sous forme de JSON (champ caché).
+C'est le JavaScript qui convertit les coordonnées cubiques en pixels et qui pose les pions sur la
+carte. La mise en place est **fixe** : recharger la page repose les mêmes pions aux mêmes cases.
 
 Les règles, elles, ne sont pas ici : les déplacements possibles et leur validation viennent de
 `moteur.hexagone`, que les routes /deplacements et /deplacer se contentent d'exposer. Chaque pion
@@ -23,7 +24,6 @@ puis http://127.0.0.1:5000/
 """
 
 import json
-import random
 import sys
 from pathlib import Path
 
@@ -33,9 +33,10 @@ from flask import Flask, abort, render_template, request, send_from_directory
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from moteur import hexagone as moteur_hexagone  # noqa: E402
-from moteur.hexagone import CARTE, CARTE_TRANSCRITE, INHABITABLES, Hex  # noqa: E402
+from moteur.hexagone import CARTE_TRANSCRITE, Hex  # noqa: E402
 from moteur.pion import CATALOGUE  # noqa: E402
 from moteur.plateau import Plateau  # noqa: E402
+from moteur.scenario import scenario  # noqa: E402
 
 BOITE = Path(__file__).resolve().parent.parent / "game_box"
 PIONS = BOITE / "pions"
@@ -45,17 +46,9 @@ PIONS = BOITE / "pions"
 TERRAINS = ("ville", "fort", "chateau", "tour", "ruines", "village", "ile", "lac", "montagne",
             "colline", "bois", "faille", "riviere", "route", "chemin", "plaine")
 
-# Nombre de pions posés sur la carte à chaque chargement.
-NOMBRE_DE_PIONS = 10
-
-# Rayon, en cases, du secteur où le tirage se concentre. Dix pions lâchés sur les 2008 cases
-# posables ne se rencontreraient jamais, et les zones de contrôle resteraient invisibles ; dans un
-# rayon de 4, une soixantaine de cases sont posables et les camps se touchent.
-RAYON_DU_TIRAGE = 4
-
-# Terrains sur lesquels on ne pose pas de pion : ceux qu'une unité terrestre ne peut pas occuper,
-# plus les montagnes, dont la plupart sont inaccessibles au sol (voir moteur/README.md).
-TERRAINS_INTERDITS = INHABITABLES | {"montagne"}
+# Le scénario que le serveur met en place au chargement de « / » : « La guerre des nains »,
+# nains contre orques (voir `scenarios/README.md`).
+NUMERO_DU_SCENARIO = 4
 
 # Ce qui, dans `pions/`, ne montre pas un pion isolé : le répertoire des planches entières,
 # et les photos de planchettes de suivi prises « en vue d'ensemble ».
@@ -72,11 +65,6 @@ GRILLE_MATRICE = [[107.5724, -0.3407], [62.8901, 125.6828]]
 PION_TAILLE = 104
 
 application = Flask(__name__)
-
-
-def charger_hexagones():
-    """Rend la liste des hexagones où un pion peut se tenir, en clés « q,r,s »."""
-    return [cle for cle, elements in CARTE.items() if elements[0] not in TERRAINS_INTERDITS]
 
 
 def est_un_pion(chemin):
@@ -113,8 +101,12 @@ def nommer(chemin):
     return f"{faction.replace('-', ' ')} · {description.replace('-', ' ')}"
 
 
-HEXAGONES = charger_hexagones()
 CATALOGUE_DES_PIONS = charger_pions()
+PIONS_PAR_CLE = {pion["cle"]: pion for pion in CATALOGUE_DES_PIONS}
+
+# La mise en place jouée, lue une fois au démarrage. Un scénario fixé ne change pas d'un
+# chargement à l'autre : c'est ce qui permet d'éprouver les déplacements sur une position connue.
+SCENARIO = scenario(NUMERO_DU_SCENARIO)
 
 # L'état de partie du serveur : les pions actuellement posés. Il est refait à chaque chargement du
 # plateau et suivi à chaque déplacement — c'est de lui que sortent les zones de contrôle, qui
@@ -122,44 +114,29 @@ CATALOGUE_DES_PIONS = charger_pions()
 PLATEAU = Plateau()
 
 
-def secteur_du_tirage(nombre, rayon=RAYON_DU_TIRAGE):
-    """Un coin de carte au hasard, avec au moins `nombre` cases posables à `rayon` cases.
+def poser_la_mise_en_place():
+    """Refait le plateau du serveur d'après le scénario, et rend ses unités pour l'affichage.
 
-    Le tirage est groupé : dix pions dispersés sur toute la carte ne se rencontreraient jamais.
-    Un centre pris au bord n'a pas toujours assez de voisinage posable — on en tire un autre.
+    Le scénario ne donne qu'un couple « case → clé de pion » ; l'image, le nom, le mouvement et le
+    camp sont repris au catalogue, comme pour n'importe quel pion servi par l'application.
     """
-    while True:
-        centre = Hex.depuis_cle(random.choice(HEXAGONES))
-        secteur = [cle for cle in HEXAGONES if centre.distance(Hex.depuis_cle(cle)) <= rayon]
-        if len(secteur) >= nombre:
-            return secteur
-
-
-def tirer_les_pions(nombre=NOMBRE_DE_PIONS):
-    """Tire `nombre` cases voisines et pose un pion au hasard sur chacune."""
-    tirage = []
-    for cle in random.sample(secteur_du_tirage(nombre), nombre):
-        q, r, s = (int(valeur) for valeur in cle.split(","))
-        pion = random.choice(CATALOGUE_DES_PIONS)
-        tirage.append({"q": q, "r": r, "s": s, "cle": pion["cle"], "image": pion["chemin"],
-                       "nom": pion["nom"], "mouvement": pion["mouvement"],
-                       "camp": pion["camp"]})
-    return tirage
-
-
-def poser_le_tirage(tirage):
-    """Refait le plateau du serveur d'après un tirage, et le rend."""
     PLATEAU.vider()
-    for pose in tirage:
-        PLATEAU.poser(Hex(pose["q"], pose["r"], pose["s"]), CATALOGUE[pose["cle"]])
-    return tirage
+    poses = []
+    for case, cle in SCENARIO.placement.items():
+        hexagone = Hex.depuis_cle(case)
+        pion = PIONS_PAR_CLE[cle]
+        PLATEAU.poser(hexagone, CATALOGUE[cle])
+        poses.append({"q": hexagone.q, "r": hexagone.r, "s": hexagone.s, "cle": cle,
+                      "image": pion["chemin"], "nom": pion["nom"],
+                      "mouvement": pion["mouvement"], "camp": pion["camp"]})
+    return poses
 
 
 @application.route("/")
 def plateau():
     return render_template(
         "carte.html",
-        pions=json.dumps(poser_le_tirage(tirer_les_pions()), ensure_ascii=False),
+        pions=json.dumps(poser_la_mise_en_place(), ensure_ascii=False),
         grille=json.dumps({"origine": GRILLE_ORIGINE, "matrice": GRILLE_MATRICE,
                            "taille_pion": PION_TAILLE}),
     )

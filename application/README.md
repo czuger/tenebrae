@@ -1,8 +1,9 @@
 # `application/` — la carte affichée dans le navigateur
 
-Une application Flask qui sert `game_box/map.jpg`, tire **dix hexagones voisins au hasard**, pose
-un pion sur chacun, et laisse le navigateur faire la géométrie. Cliquer un pion montre en
-**fantômes** les cases où il peut aller ; cliquer un fantôme l'y déplace.
+Une application Flask qui sert `game_box/map.jpg`, y **met en place un scénario** — le n° 4,
+« La guerre des nains », 21 nains face à 31 orques — et laisse le navigateur faire la géométrie.
+Cliquer un pion montre en **fantômes** les cases où il peut aller ; cliquer un fantôme l'y
+déplace.
 
 Les règles ne sont pas ici : les déplacements viennent de `moteur/`, l'application ne fait que les
 servir. Le JavaScript ne décide jamais de la légalité d'un mouvement. **Chaque pion se déplace du
@@ -23,7 +24,8 @@ python3 app.py
 ```
 
 puis <http://127.0.0.1:5000/> pour le plateau, <http://127.0.0.1:5000/admin/map_fix> pour la
-correction de la carte. Chaque rechargement du plateau rejoue un tirage.
+correction de la carte. Chaque rechargement du plateau **remet le scénario en place** : les pions
+déplacés reviennent à leur case de départ.
 
 Dépendance : `Flask` (plus `pytest` et `pytest-playwright` pour les tests).
 
@@ -35,7 +37,7 @@ pixels — vit dans `static/geometrie.js`, partagé avec la page de correction.
 
 | Champ caché | Contenu |
 | --- | --- |
-| `#pions` | dix entrées `{q, r, s, cle, image, nom, mouvement, camp}` — la position en coordonnées cubiques, le pion tiré, ses points de mouvement et son camp |
+| `#pions` | une entrée `{q, r, s, cle, image, nom, mouvement, camp}` par unité du scénario — la position en coordonnées cubiques, le pion posé, ses points de mouvement et son camp |
 | `#grille` | `origine`, `matrice` et `taille_pion` : le calage de la grille sur `map.jpg` |
 
 ## Le plateau du serveur
@@ -45,9 +47,9 @@ serveur tient donc un `moteur.plateau.Plateau`, refait à chaque chargement de `
 par `/deplacer`. Sans lui, les zones se calculeraient sur des positions périmées dès le premier
 déplacement.
 
-C'est le premier état de partie du dépôt, et il reste mince : dix pions posés, pas de tour de jeu,
-pas de joueurs, rien qui survive au rechargement de la page. Deux onglets ouverts sur `/` se
-partagent le même plateau — le dernier chargement gagne.
+C'est le premier état de partie du dépôt, et il reste mince : les 52 unités du scénario posées,
+pas de tour de jeu, pas de joueurs, rien qui survive au rechargement de la page. Deux onglets
+ouverts sur `/` se partagent le même plateau — le dernier chargement gagne.
 
 Le JavaScript convertit chaque hexagone en pixels avec la formule relevée dans
 `game_box/carte.md` :
@@ -151,27 +153,27 @@ elle-même.
 
 Pas de gestion d'administration : la route est ouverte.
 
-## Choix du tirage
+## La mise en place
 
-- **Le tirage est groupé.** Un centre est pris au hasard parmi les cases posables, et les dix pions
-  sont tirés dans les cases situées à `RAYON_DU_TIRAGE` (4) ou moins — une soixantaine en général,
-  moins au bord de la carte, auquel cas un autre centre est tiré. Dix pions lâchés sur les 2008
-  cases posables ne se rencontreraient jamais, et les zones de contrôle resteraient invisibles.
-- Les hexagones sont tirés dans `game_box/carte.json`, **hors terrains infranchissables**
-  (`lac`, `montagne`, `faille`, `riviere` — voir le tableau des terrains) : 2008 hexagones sur 2280.
-- Les pions sont tirés dans `game_box/pions/`, **hors vues d'ensemble** : les 4 photos de
-  `21-vues-d-ensemble/` et les 2 planchettes de suivi de `19-magiciens/` ne montrent pas un pion
-  isolé. Restent 121 pions sur 127 — 56 des ténèbres, 47 de l'alliance, 18 neutres, ce qui met les
-  deux camps sur la carte à peu près à chaque tirage.
-- Le tirage ne tient aucun compte des scénarios : un pion peut sortir plusieurs fois, un
-  mort-vivant peut se retrouver en pleine forêt elfique, et les renforts arrivent avec le reste.
-- **Le mouvement est celui du carton** : chaque pion tiré emporte ses points, lus sur la photo et
+Le serveur ne tire plus rien au hasard : il lit la mise en place du scénario `NUMERO_DU_SCENARIO`
+(4) dans `scenarios/` par `moteur.scenario`, une fois au démarrage, et la repose à chaque
+chargement de `/`.
+
+- **Le placement vient du fichier, pas du serveur.** `scenarios/scenario-04-la-guerre-des-nains.json`
+  donne « case → clé de pion » ; l'application n'y ajoute que ce qu'il faut pour l'affichage —
+  l'image, le nom lisible, le mouvement et le camp, tous repris au catalogue de
+  `game_box/pions/`. Le détail du déploiement et ses réserves sont dans `scenarios/README.md`.
+- **La position est reproductible.** Recharger la page remet les 52 unités à leur case : c'est ce
+  qui permet d'éprouver un déplacement deux fois de suite et d'obtenir le même résultat. En
+  contrepartie, il n'y a aucun moyen de reprendre une partie en cours — le rechargement l'efface.
+- **Le mouvement est celui du carton** : chaque pion emporte ses points, lus sur la photo et
   rangés dans `game_box/pions/pions.json`. Le reste des valeurs — force, tir, portée — voyage
   jusqu'au moteur mais ne sert encore à rien.
-- **Le camp vient de la faction** (voir `moteur/README.md`) : il décide qui gêne qui. Les neutres —
-  volants, conjurations, marqueurs — n'ont pas d'adversaire et n'en sont pas.
-- Les 6 marqueurs (`PA`, `D`, flammes, brume…) restent du tirage : ils se posent sur la carte,
-  mais ne portent aucun mouvement et n'exercent aucune zone. Les cliquer ne montre aucun fantôme.
+- **Le camp vient de la faction** (voir `moteur/README.md`) : il décide qui gêne qui. Ici, les
+  nains sont l'alliance et les orques les ténèbres, et les deux masses se font face à 3 cases.
+- Les vues d'ensemble ne sont toujours pas servies : les 4 photos de `21-vues-d-ensemble/` et les
+  2 planchettes de suivi de `19-magiciens/` ne montrent pas un pion isolé, et `/pions/…` les
+  refuse. Le scénario ne les nomme pas non plus.
 - Une case n'accueille qu'un pion, et le plateau ne se souvient de rien d'un rechargement à
   l'autre.
 
@@ -188,18 +190,21 @@ le second dans Chromium : survol, dialogue, enregistrement, zoom. Tous deux dét
 du fichier de corrections vers un répertoire temporaire : **aucun test n'écrit dans `game_box/`**.
 
 `tests/test_serveur.py` interroge Flask sans navigateur : contenu des champs cachés, cohérence des
-coordonnées, terrains, fichiers servis, tirage groupé, et les deux routes de déplacement — dont la
+coordonnées, fichiers servis, la mise en place servie case par case — elle doit être celle du
+scénario, et la même d'un chargement à l'autre —, et les deux routes de déplacement, dont la
 vérification qu'elles n'ajoutent rien aux règles du moteur, que la portée suit le carton du pion
 posé, qu'un adversaire au contact la réduit, qu'un ami ne la réduit pas, et qu'un déplacement
 accepté change vraiment le plateau du serveur. Chaque test y part d'une **carte déserte** — le
-plateau survit d'une requête à l'autre, et le tirage groupé rendrait sinon les résultats
-dépendants du hasard.
+plateau survit d'une requête à l'autre, et les 52 unités du scénario se retrouveraient sinon sous
+les pieds du test suivant. Ce que contient le scénario lui-même est éprouvé à part, dans
+`moteur/tests/test_scenario.py`.
 
-`tests/test_plateau.py` ouvre la page dans Chromium avec Playwright : dix pions chargés et centrés
-à moins d'un pixel, inclinés de moins de 5°, carte qui reste à l'échelle après redimensionnement,
-puis le cycle complet clic → fantômes → déplacement. Les fantômes attendus sont ceux que le
-plateau du serveur calcule — il tourne dans le même processus, on le lit directement — et un test
-pose un adversaire au contact pour vérifier que le clic en montre alors moins.
+`tests/test_plateau.py` ouvre la page dans Chromium avec Playwright : les 52 pions chargés et
+centrés à moins d'un pixel, inclinés de moins de 5°, carte qui reste à l'échelle après
+redimensionnement, puis le cycle complet clic → fantômes → déplacement. Les fantômes attendus
+sont ceux que le plateau du serveur calcule — il tourne dans le même processus, on le lit
+directement — et un test pose un adversaire au contact pour vérifier que le clic en montre alors
+moins.
 
 Les tests de navigateur demandent Chromium :
 

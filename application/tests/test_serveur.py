@@ -1,4 +1,4 @@
-"""Ce que le serveur envoie : le tirage des pions et les fichiers de la boîte de jeu."""
+"""Ce que le serveur envoie : la mise en place du scénario et les fichiers de la boîte de jeu."""
 
 import json
 import re
@@ -14,9 +14,9 @@ from moteur.pion import ALLIANCE, CATALOGUE, TENEBRES
 def plateau_isole(carte_deserte):
     """Chaque test part d'une carte déserte, et la laisse déserte.
 
-    Le plateau du serveur survit d'une requête à l'autre : sans ce nettoyage, le tirage groupé
-    d'un test poserait des adversaires que le test suivant trouverait sous ses pieds. Les tests
-    qui veulent un plateau garni chargent « / » eux-mêmes.
+    Le plateau du serveur survit d'une requête à l'autre : sans ce nettoyage, les cinquante-deux
+    unités du scénario resteraient sous les pieds du test suivant. Les tests qui veulent un
+    plateau garni chargent « / » eux-mêmes.
     """
 
 
@@ -35,9 +35,20 @@ def test_la_page_repond(client):
     assert reponse.status_code == 200
 
 
-def test_la_page_porte_dix_pions(client):
+def test_la_page_porte_les_deux_armees_du_scenario(client):
+    """Le scénario n° 4 met 21 nains face à 31 orques : la page les porte toutes."""
     pions = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
-    assert len(pions) == app.NOMBRE_DE_PIONS
+    assert len(pions) == len(app.SCENARIO) == 52
+    camps = [pion["camp"] for pion in pions]
+    assert camps.count(ALLIANCE) == 21
+    assert camps.count(TENEBRES) == 31
+
+
+def test_la_page_pose_chaque_pion_sur_la_case_du_scenario(client):
+    """Le serveur n'invente rien : il sert le placement fixé dans `scenarios/`."""
+    pions = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
+    pose = {f"{pion['q']},{pion['r']},{pion['s']}": pion["cle"] for pion in pions}
+    assert pose == app.SCENARIO.placement
 
 
 def test_les_pions_sont_sur_des_hexagones_distincts(client):
@@ -54,36 +65,21 @@ def test_les_coordonnees_sont_cubiques(client):
         assert f"{pion['q']},{pion['r']},{pion['s']}" in CARTE
 
 
-def test_aucun_pion_sur_un_terrain_infranchissable(client):
-    pions = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
-    for pion in pions:
-        terrain = CARTE[f"{pion['q']},{pion['r']},{pion['s']}"][0]
-        assert terrain not in app.TERRAINS_INTERDITS
-
-
-def test_chaque_pion_tire_porte_son_mouvement(client):
-    """Le tirage dit quel pion est posé et de combien de points il dispose."""
+def test_chaque_pion_pose_porte_son_mouvement(client):
+    """La mise en place dit quel pion est posé et de combien de points il dispose."""
     pions = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
     for pion in pions:
         assert pion["cle"] in CATALOGUE
         assert pion["mouvement"] == CATALOGUE[pion["cle"]].points_de_mouvement
 
 
-def test_chaque_pion_tire_porte_son_camp(client):
+def test_chaque_pion_pose_porte_son_camp(client):
     pions = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
     for pion in pions:
         assert pion["camp"] == CATALOGUE[pion["cle"]].camp
 
 
-def test_le_tirage_est_groupe(client):
-    """Les dix pions tiennent dans un même secteur : sinon les camps ne se croiseraient pas."""
-    pions = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
-    cases = [Hex(pion["q"], pion["r"], pion["s"]) for pion in pions]
-    for case in cases:
-        assert all(case.distance(autre) <= 2 * app.RAYON_DU_TIRAGE for autre in cases)
-
-
-def test_le_tirage_garnit_le_plateau_du_serveur(client):
+def test_la_mise_en_place_garnit_le_plateau_du_serveur(client):
     """Le serveur retient ce qu'il a posé : c'est de là que sortent les zones de contrôle."""
     pions = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
     assert len(app.PLATEAU) == len(pions)
@@ -92,12 +88,16 @@ def test_le_tirage_garnit_le_plateau_du_serveur(client):
         assert pose is not None and pose.cle == pion["cle"]
 
 
-def test_un_nouveau_tirage_remplace_l_ancien(client):
-    """Rechargez la page : les pions d'avant ne restent pas sur la carte."""
+def test_recharger_la_page_remet_les_pions_a_leur_place(client):
+    """Un pion déplacé revient à sa case de départ au rechargement : la mise en place est fixe."""
+    depart = Hex.depuis_cle(next(iter(app.SCENARIO.placement)))
     client.get("/")
-    second = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
-    attendues = {f"{pion['q']},{pion['r']},{pion['s']}" for pion in second}
-    assert app.PLATEAU.pions.keys() == attendues
+    arrivee = app.PLATEAU.deplacements(depart)[0]
+    assert app.PLATEAU.deplacer(depart, arrivee)
+
+    client.get("/")
+    assert app.PLATEAU.pion_sur(arrivee) is None
+    assert app.PLATEAU.pions.keys() == app.SCENARIO.placement.keys()
 
 
 def test_les_mouvements_du_catalogue_sont_ceux_des_cartons():
@@ -122,11 +122,11 @@ def test_le_calage_de_la_grille_est_transmis(client):
     assert grille["taille_pion"] == app.PION_TAILLE
 
 
-def test_le_tirage_change_d_un_chargement_a_l_autre(client):
-    """Deux tirages de dix pions parmi 2008 hexagones ne doivent pas coïncider."""
+def test_la_mise_en_place_ne_change_pas_d_un_chargement_a_l_autre(client):
+    """Un scénario fixé se rejoue à l'identique : c'est ce qu'on lui demande."""
     premier = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
     second = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
-    assert premier != second
+    assert premier == second
 
 
 def test_la_carte_est_servie(client):
@@ -136,7 +136,7 @@ def test_la_carte_est_servie(client):
 
 
 def test_les_vues_d_ensemble_ne_sont_pas_servies(client):
-    """Planches entières et planchettes de suivi ne sont pas des pions : ni servies, ni tirées."""
+    """Planches entières et planchettes de suivi ne sont pas des pions : ni servies, ni posées."""
     for chemin in ("21-vues-d-ensemble/vues-d-ensemble-01-planches-de-pions.jpg",
                    "19-magiciens/magiciens-02-pions-de-magiciens-et-clercs-vue-d-ensemble.jpg"):
         assert (app.PIONS / chemin).exists()

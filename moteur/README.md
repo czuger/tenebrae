@@ -8,9 +8,11 @@ servir ce que ce paquet décide. Un déplacement n'est jamais jugé légal par l
 | `hexagone.py` | la carte lue en constante, et la classe `Hex` |
 | `pion.py` | le catalogue des pions lu en constante, et la classe `Pion` |
 | `plateau.py` | l'état de partie : quels pions sont posés, où, et dans quel camp |
+| `scenario.py` | les mises en place fixées dans `scenarios/`, et le `Plateau` qu'elles donnent |
 
 Les deux premiers sont des constantes — la carte et les cartons sont imprimés depuis 1986. Le
-troisième est le seul objet mutable du moteur : les positions, elles, changent.
+troisième est le seul objet mutable du moteur : les positions, elles, changent. Le quatrième dit
+d'où elles partent.
 
 ## La classe `Hex`
 
@@ -174,6 +176,29 @@ donne les adversaires, les adversaires donnent les zones de contrôle.
   (« une unité peut traverser une case occupée par une unité de la même armée ») et interdit
   l'empilement : les cases occupées sont donc retirées des destinations, pas du parcours.
 
+## Les scénarios
+
+```python
+from moteur.scenario import scenario
+
+guerre_des_nains = scenario(4)         # lu dans scenarios/scenario-04-…json
+guerre_des_nains.armees                # une entrée par joueur : camp, consigne, ancre, magie
+guerre_des_nains.camps                 # ('alliance', 'tenebres')
+guerre_des_nains.placement             # « q,r,s » → clé de pion
+len(guerre_des_nains)                  # 52 unités
+guerre_des_nains.plateau()             # un Plateau neuf, chaque pion sur sa case
+```
+
+Le fascicule décrit une mise en place en une phrase — « l'armée naine se masse au sud du volcan de
+Toth » — et ne dit jamais quel pion va sur quelle case. Le passage de la phrase aux hexagones a
+été fait une fois pour toutes, hors du code, et vit dans `scenarios/*.json` : **le moteur ne fait
+que lire ce fichier**. Le format, le détail du scénario n° 4 et les réserves qui vont avec sont
+dans `scenarios/README.md`.
+
+`plateau()` rend un `Plateau` **neuf** à chaque appel : deux parties ne partagent pas leurs
+positions. Une clé de pion inconnue du catalogue, ou une case hors carte, arrête la lecture —
+mieux vaut un scénario refusé qu'une armée amputée sans que personne ne le voie.
+
 ## Coût du mouvement
 
 D'après le *Tableau des terrains* du fascicule (`game_box/ave_tenebrae_regles.md`) :
@@ -246,6 +271,9 @@ Comme pour la carte et l'inventaire des pions, les doutes sont conservés, pas t
 - **Le camp est celui de la faction**, sans égard au scénario, et **le neutre n'a pas
   d'adversaire** : volants, conjurations et marqueurs n'arrêtent personne et ne sont arrêtés par
   personne.
+- **Un scénario n'est qu'une position de départ.** Ni tour de jeu, ni joueurs, ni renforts, ni
+  condition de victoire : `scenario.py` pose les pions et s'arrête là. Le potentiel de magie que
+  le fascicule donne à chaque camp est enregistré dans le fichier et rien ne le dépense.
 - **L'empilement n'est pas géré au-delà d'une unité par case** : le fascicule autorise 3 unités
   dans une ville, un village ou une citadelle, et ne compte ni les leaders ni les magiciens. Le
   plateau, lui, ne pose qu'un pion par case.

@@ -43,6 +43,32 @@ n'en contient que des copies renommées. `base_material/` n'est pas versionné :
   (allié d'opportunité), Morts-vivants, Démons, Juggernaut.
 - **Neutre / hors camp** : Volants (scénario 5), conjurations, marqueurs.
 
+## Valeurs lues sur les pions — `pions.json`
+
+`pions.json` reprend, pour chacune des 127 photos de ce répertoire, les valeurs **lues à l'œil sur
+la photo**. La clé est le nom de l'image sans répertoire ni extension ; le dictionnaire porte le
+chemin de l'image depuis la racine du dépôt.
+
+| Champ | Contenu | Position sur le pion |
+| --- | --- | --- |
+| `image` | chemin de la photo depuis la racine du dépôt | — |
+| `faction` | répertoire de classement (`01-yzent`, …) | — |
+| `force` | force d'attaque et de défense | haut, à gauche |
+| `mouvement` | points de mouvement | haut, à droite |
+| `tir` | force de combat par tir de missile | bas, à gauche |
+| `portee` | portée des missiles | bas, à droite |
+| `mouvement_vol` | mouvement en vol (chiffre entre parenthèses) | bas, au centre |
+| `facultes_speciales` | lettre de faculté spéciale (`P`, `s`, `PA`, `D`…) | haut, au centre |
+| `symbole` | type d'unité identifié d'après la table des symboles | centre |
+| `remarques` | lettres de non-humains, noms de leaders, doutes de lecture | — |
+
+Un champ absent du pion vaut `null`. 114 des 127 entrées portent une valeur de mouvement ; les 13
+autres sont les marqueurs, les deux feuilles de suivi, les quatre vues d'ensemble et les
+chauves-souris (qui n'ont qu'un mouvement en vol).
+
+Le fichier est **écrit à la main d'après les photos**, pas généré : le corriger revient à
+rouvrir la photo concernée.
+
 ## Yzent
 
 `01-yzent/` — Ennemi héréditaire du Vicomté de Reissland. Arrive par le nord-ouest de la carte (scénarios 1 et 3).
@@ -329,6 +355,16 @@ n'en contient que des copies renommées. `base_material/` n'est pas versionné :
   départ et lesquelles sont les renforts.
 - Les initiales des non-humains (`h`, `K`, `m`, `o`, `bug`) ne sont expliquées nulle part dans
   les règles ; les interprétations proposées sont celles de l'auteur de l'article.
+- **Lectures incomplètes dans `pions.json`** : sur cinq photos le pion est rogné ou la valeur
+  illisible, et le champ reste à `null` — `yzent-02` (bas du pion), `orques-07` (pas de valeurs de
+  tir imprimées), `morts-vivants-05` (un « 5 » isolé au bas centre), `conjurations-01` (pas de
+  mouvement au sol), `conjurations-07` (bas gauche). Le champ `remarques` le signale à chaque fois.
+- **Deux fichiers de `19-magiciens/` ne sont pas des pions** : ce sont les feuilles de suivi
+  Alliance et Forces Noires (succession des tours, table des résultats, pistes de points de magie
+  des mages). Les noms qu'elles portent sont relevés dans `remarques` de `pions.json` : THORNZ,
+  MIRZ, ORF, CHÊL, ELIM côté Alliance ; ORVARTH, VIZ, ÔM, HAART, GÔL, ZORN côté Forces Noires.
+  De même, `vues-d-ensemble-01-planches-de-pions.jpg` montre en fait la page « Symboles » du
+  fascicule, pas les planches de pions.
 
 ## Images de `base_material/images/` non reprises ici
 

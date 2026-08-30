@@ -1,16 +1,11 @@
 // Pose les pions sur la carte, et montre où ils peuvent aller.
 //
-// Ce fichier ne connaît aucune règle : il fait de la géométrie et de l'affichage. Un clic est
-// converti en coordonnées cubiques « q, r, s », puis le serveur dit ce qui est atteignable
+// Ce fichier ne connaît aucune règle : il fait de l'affichage. Un clic est converti en
+// coordonnées cubiques « q, r, s » par geometrie.js, puis le serveur dit ce qui est atteignable
 // (/deplacements) et ce qui est permis (/deplacer).
 //
-// Le calage de la grille sur map.jpg (voir game_box/carte.md) tient dans une origine et une
-// matrice 2 × 2 :
-//
-//     centre(q, r) = origine + matrice · (q, r)
-//
-// Les positions obtenues sont en pixels de map.jpg, donc dans le repère de #plateau, qui porte
-// l'image à sa taille naturelle et n'est mis à l'échelle qu'ensuite.
+// Les positions sont en pixels de map.jpg, donc dans le repère de #plateau, qui porte l'image à
+// sa taille naturelle et n'est mis à l'échelle qu'ensuite.
 
 const ROTATION_MAXIMALE = 5; // degrés, en avant ou en arrière
 
@@ -20,58 +15,16 @@ const cadre = document.getElementById("cadre");
 
 const pions = JSON.parse(document.getElementById("pions").value);
 const grille = JSON.parse(document.getElementById("grille").value);
-const matriceInverse = inverser(grille.matrice);
+const { centre: centreDeLHexagone, hexagoneDuPixel } = calage(grille);
 
 // Les images posées sur la carte : les pions, et les fantômes du pion sélectionné.
 const pionsPoses = [];
 let fantomes = [];
 let selection = null;
 
-function inverser([[a, b], [c, d]]) {
-  const determinant = a * d - b * c;
-  return [[d / determinant, -b / determinant], [-c / determinant, a / determinant]];
-}
-
-function centreDeLHexagone(q, r) {
-  const [origine, matrice] = [grille.origine, grille.matrice];
-  return {
-    x: origine[0] + matrice[0][0] * q + matrice[0][1] * r,
-    y: origine[1] + matrice[1][0] * q + matrice[1][1] * r,
-  };
-}
-
-function hexagoneDuPixel(x, y) {
-  // Le calage inversé donne des coordonnées fractionnaires ; l'arrondi cubique les ramène sur
-  // l'hexagone le plus proche en corrigeant celle des trois qui a le plus dérivé.
-  const dx = x - grille.origine[0];
-  const dy = y - grille.origine[1];
-  const q = matriceInverse[0][0] * dx + matriceInverse[0][1] * dy;
-  const r = matriceInverse[1][0] * dx + matriceInverse[1][1] * dy;
-  const s = -q - r;
-
-  let [aq, ar, as] = [Math.round(q), Math.round(r), Math.round(s)];
-  const [ecartQ, ecartR, ecartS] = [Math.abs(aq - q), Math.abs(ar - r), Math.abs(as - s)];
-  if (ecartQ > ecartR && ecartQ > ecartS) aq = -ar - as;
-  else if (ecartR > ecartS) ar = -aq - as;
-  else as = -aq - ar;
-  return { q: aq, r: ar, s: as };
-}
-
-function cle(hexagone) {
-  return `${hexagone.q},${hexagone.r},${hexagone.s}`;
-}
-
-function echelleAffichee() {
-  return carte.getBoundingClientRect().width / carte.naturalWidth;
-}
-
 function hexagoneClique(evenement) {
-  const cadreCarte = carte.getBoundingClientRect();
-  const echelle = echelleAffichee();
-  return hexagoneDuPixel(
-    (evenement.clientX - cadreCarte.x) / echelle,
-    (evenement.clientY - cadreCarte.y) / echelle,
-  );
+  const { x, y } = pixelDuPointeur(evenement, carte);
+  return hexagoneDuPixel(x, y);
 }
 
 function poser(image, hexagone) {

@@ -27,11 +27,37 @@ depart.en_dict()               # {'q': 13, 'r': -4, 's': -9, 'terrain': 'plaine'
 `fractions.Fraction` et non des flottants : une route vaut un tiers de point, et un chemin de cinq
 points ne doit pas dériver à l'arrondi.
 
-La carte est lue **une fois, à l'import du module**, dans la constante `CARTE` — le plateau est
-imprimé, il ne change pas en cours de partie. C'est `game_box/carte_details.json` qui est lu, et
-non `carte.json` : sa tête de liste donne le même terrain principal, mais lui seul conserve les
-58 routes et chemins que la règle de priorité de la carte masque sous un bois ou un massif. Sans
-lui, la route noire du nord n'existerait pas pour le mouvement.
+La carte est lue **une fois, à l'import du module** — le plateau est imprimé, il ne change pas en
+cours de partie. C'est `game_box/carte_details.json` qui est lu, et non `carte.json` : sa tête de
+liste donne le même terrain principal, mais lui seul conserve les 58 routes et chemins que la règle
+de priorité de la carte masque sous un bois ou un massif. Sans lui, la route noire du nord
+n'existerait pas pour le mouvement.
+
+## La carte du jeu — la transcription, corrigée
+
+La transcription automatique comporte des erreurs, relevées à l'œil sur la page `/admin/map_fix`
+de l'application et écrites dans `game_box/map_fix.json`. Le moteur les applique par-dessus :
+
+| Constante | Contenu |
+| --- | --- |
+| `CARTE_TRANSCRITE` | `carte_details.json` tel quel — ce que produit `extraction_carte.py` |
+| `CORRECTIONS_APPLIQUEES` | `map_fix.json` tel qu'il était au démarrage : `« q,r,s » → terrain` |
+| `CARTE` | la première recouverte par la seconde : **la carte sur laquelle le jeu se joue** |
+
+`corriger(transcription, corrections)` est une fonction pure. Une correction ne porte que sur le
+**terrain principal** : il prend la tête à la place de celui que la priorité de la carte y avait
+mis, et les éléments secondaires suivent.
+
+```
+carte_details : ["bois", "route"]   +   map_fix : "colline"   →   ("colline", "route")
+```
+
+C'est ce qui permet à un bois de la route noire d'être corrigé en colline sans couper la route.
+Une clé que la transcription ne connaît pas est ignorée : on ne crée pas d'hexagone hors carte.
+
+Les deux fichiers restent séparés — `carte_details.json` sort du script et n'est jamais retouché —
+et **le recouvrement n'a lieu qu'au démarrage** : corriger la carte pendant que le serveur tourne
+ne change rien tant qu'on ne l'a pas relancé. La page d'admin le dit.
 
 ## Coût du mouvement
 
@@ -73,5 +99,8 @@ Comme pour la carte et l'inventaire des pions, les doutes sont conservés, pas t
 - **Une unité posée sur un lac, une rivière ou la faille ne va nulle part** : ces terrains ne
   s'occupent pas plus qu'ils ne se traversent. Les forts et les châteaux, eux, se tiennent en
   garnison : on en part, on n'y entre pas.
+- **Une correction ne porte que sur le terrain principal.** Une route détectée à tort sous un bois
+  survit à la correction de ce bois et reste praticable à ⅓ de point : `map_fix.json` ne sait pas
+  retirer un élément secondaire. Cela se règle dans `game_box/extraction_carte.py`.
 - **Ni empilement, ni zones de contrôle, ni vol, ni pouvoirs** : toutes les unités sont terrestres
   et de mouvement 5, et deux unités peuvent viser la même case.

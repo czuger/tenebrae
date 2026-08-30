@@ -1,0 +1,187 @@
+body {
+  margin: 0;
+  background: #1b1713;
+  color: #f6e7c1;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+/* Le cadre défile ; la toile lui donne la taille de la carte une fois mise à l'échelle, le
+   transform du plateau ne comptant pas dans la mise en page. */
+#cadre {
+  position: fixed;
+  inset: 0;
+  overflow: auto;
+}
+
+#toile {
+  position: relative;
+}
+
+#plateau {
+  position: relative;
+  transform-origin: top left;
+  width: max-content;
+  cursor: crosshair;
+}
+
+#carte {
+  display: block;
+}
+
+#surlignage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+/* L'hexagone sous le pointeur. */
+#surlignage .vise {
+  fill: rgba(246, 231, 193, 0.18);
+  stroke: #f6e7c1;
+  stroke-width: 6;
+}
+
+/* Les cases déjà corrigées, pour les voir d'un coup d'œil. */
+#surlignage .corrige {
+  fill: rgba(214, 108, 74, 0.35);
+  stroke: #d66c4a;
+  stroke-width: 5;
+}
+
+#outils {
+  position: fixed;
+  top: 0.6rem;
+  left: 0.6rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid #6b5a44;
+  border-radius: 3px;
+  background: rgba(27, 23, 19, 0.92);
+  font-size: 0.85rem;
+}
+
+#outils button {
+  font: inherit;
+  padding: 0.15rem 0.6rem;
+  border: 1px solid #6b5a44;
+  border-radius: 2px;
+  background: #2a2320;
+  color: inherit;
+  cursor: pointer;
+}
+
+#outils button:hover {
+  background: #3a3028;
+}
+
+#echelle {
+  min-width: 3.5rem;
+  text-align: center;
+}
+
+#compteur {
+  padding-left: 0.5rem;
+  border-left: 1px solid #6b5a44;
+  color: #d9c9a5;
+}
+
+/* Le moteur ne relit map_fix.json qu'au démarrage : tant qu'on n'a pas relancé, le jeu ignore la
+   correction qu'on vient de faire. */
+#redemarrage {
+  padding-left: 0.5rem;
+  border-left: 1px solid #6b5a44;
+  color: #e8a184;
+}
+
+/* L'encadré qui suit le pointeur et dit le terrain. */
+#infobulle {
+  position: fixed;
+  z-index: 3;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid #6b5a44;
+  border-radius: 3px;
+  background: rgba(27, 23, 19, 0.94);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#infobulle .correction {
+  color: #e8a184;
+}
+
+#choix {
+  border: 1px solid #6b5a44;
+  border-radius: 4px;
+  background: #241f1b;
+  color: inherit;
+  padding: 1rem 1.2rem;
+}
+
+#choix::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+#choix-titre {
+  margin: 0 0 0.2rem;
+  font-size: 1.05rem;
+}
+
+#choix-etat {
+  margin: 0 0 0.8rem;
+  font-size: 0.85rem;
+  color: #d9c9a5;
+}
+
+#choix-terrains {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+}
+
+#choix-terrains button {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #6b5a44;
+  border-radius: 2px;
+  background: #2a2320;
+  color: inherit;
+  cursor: pointer;
+}
+
+#choix-terrains button:hover {
+  background: #3a3028;
+}
+
+/* Le terrain que porte la case en ce moment. */
+#choix-terrains button.actuel {
+  border-color: #f6e7c1;
+  background: #4a3d30;
+}
+
+#choix-pied {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+#choix-pied button {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid #6b5a44;
+  border-radius: 2px;
+  background: #2a2320;
+  color: inherit;
+  cursor: pointer;
+}
+
+#choix-pied button:hover {
+  background: #3a3028;
+}

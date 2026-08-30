@@ -169,6 +169,14 @@ Seuils par hexagone : `lac` ≥ 40 %, `montagne` ≥ 45 %, `colline` 15–45 %, 
 
 ## Réserves sur la transcription
 
+Les erreurs relevées à l'œil depuis, hexagone par hexagone, ne sont **pas corrigées ici** : elles
+s'écrivent dans `map_fix.json` (`« q,r,s » → terrain`, les seules cases corrigées), par la route
+d'admin `/admin/map_fix` de l'application. `carte.json` et `carte_details.json` restent ce que le
+script produit : c'est le moteur qui pose les corrections par-dessus, à son démarrage, et le jeu
+se joue sur le résultat (voir `moteur/README.md`). Reverser ces corrections dans
+`extraction_carte.py` reste à faire — d'ici là, une correction ne peut que remplacer le terrain
+principal d'un hexagone, jamais retirer une route ou un chemin détecté à tort.
+
 - **Les collines ne sont pas dessinées sur la carte.** Le fascicule dit que « l'accès aux montagnes
   nécessite le passage par les cases collines qui les bordent », mais aucune couleur ne les
   distingue : les massifs passent du brun au vert d'un hexagone à l'autre. Les 20 hexagones

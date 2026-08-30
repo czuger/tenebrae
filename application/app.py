@@ -7,6 +7,12 @@ coordonnées cubiques en pixels et qui pose les pions sur la carte.
 Les règles, elles, ne sont pas ici : les déplacements possibles et leur validation viennent de
 `moteur.hexagone`, que les routes /deplacements et /deplacer se contentent d'exposer.
 
+La route /admin/map_fix est à part : elle sert à corriger à l'œil les erreurs de la transcription
+de la carte, et c'est le seul endroit où l'application écrit dans `game_box/` — dans un fichier à
+elle, `map_fix.json`, jamais dans `carte.json` ni `carte_details.json`. Elle travaille toujours sur
+la carte transcrite, quand le reste de l'application joue sur la carte corrigée que le moteur en
+tire au démarrage.
+
 Lancement (depuis ce répertoire) :
 
     python3 app.py
@@ -24,10 +30,17 @@ from flask import Flask, abort, render_template, request, send_from_directory
 # Le dépôt n'est pas un paquet installé : on l'ajoute à sys.path pour atteindre `moteur`.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from moteur.hexagone import CARTE, INHABITABLES, MOUVEMENT_PAR_DEFAUT, Hex  # noqa: E402
+from moteur import hexagone as moteur_hexagone  # noqa: E402
+from moteur.hexagone import (CARTE, CARTE_TRANSCRITE, INHABITABLES,  # noqa: E402
+                             MOUVEMENT_PAR_DEFAUT, Hex)
 
 BOITE = Path(__file__).resolve().parent.parent / "game_box"
 PIONS = BOITE / "pions"
+
+# Les 16 terrains de la carte, dans l'ordre de priorité de game_box/carte.md : c'est aussi l'ordre
+# des boutons de correction.
+TERRAINS = ("ville", "fort", "chateau", "tour", "ruines", "village", "ile", "lac", "montagne",
+            "colline", "bois", "faille", "riviere", "route", "chemin", "plaine")
 
 # Nombre de pions posés sur la carte à chaque chargement.
 NOMBRE_DE_PIONS = 10
@@ -140,6 +153,61 @@ def deplacer():
         "depart": depart.en_dict(),
         "arrivee": arrivee.en_dict(),
     }
+
+
+def ecrire_les_corrections(corrections):
+    """Réécrit `map_fix.json`, trié et à raison d'une entrée par ligne, pour rester lisible.
+
+    L'application est seule à écrire ce fichier ; c'est le moteur qui le lit, et le chemin est à
+    lui. Le moteur ne le relira qu'au prochain démarrage.
+    """
+    with moteur_hexagone.CHEMIN_DES_CORRECTIONS.open("w", encoding="utf-8") as fichier:
+        json.dump(dict(sorted(corrections.items())), fichier, ensure_ascii=False, indent=0)
+        fichier.write("\n")
+
+
+@application.route("/admin/map_fix")
+def corriger_la_carte():
+    """La carte, le terrain de chaque hexagone au survol, et un clic pour le corriger.
+
+    Toute la carte part au navigateur d'un coup : il n'y a rien à demander au serveur pour
+    afficher un terrain, seulement pour en enregistrer un. C'est la carte **transcrite** qui part,
+    corrections à part : la page dit ce que le scan a donné, et ce qu'on en a corrigé.
+    """
+    return render_template(
+        "map_fix.html",
+        carte=json.dumps({cle: elements[0] for cle, elements in CARTE_TRANSCRITE.items()}),
+        corrections=json.dumps(moteur_hexagone.lire_les_corrections(), ensure_ascii=False),
+        appliquees=json.dumps(moteur_hexagone.CORRECTIONS_APPLIQUEES, ensure_ascii=False),
+        terrains=json.dumps(TERRAINS),
+        grille=json.dumps({"origine": GRILLE_ORIGINE, "matrice": GRILLE_MATRICE}),
+    )
+
+
+@application.route("/admin/map_fix", methods=["POST"])
+def corriger_un_hexagone():
+    """Note la correction d'un hexagone — corps `{q, r, s, terrain}`.
+
+    Choisir le terrain que la carte **transcrite** donne déjà retire la correction au lieu d'en
+    écrire une : c'est ainsi qu'on revient en arrière, et cela reste vrai une fois que le moteur
+    joue sur la carte corrigée.
+    """
+    demande = request.get_json(silent=True) or {}
+    vise = lire_un_hexagone(demande)
+    terrain = demande.get("terrain")
+    if terrain not in TERRAINS:
+        abort(400, f"terrain inconnu ; attendu l'un de {', '.join(TERRAINS)}")
+
+    origine = CARTE_TRANSCRITE[vise.cle][0]
+    corrections = moteur_hexagone.lire_les_corrections()
+    if terrain == origine:
+        corrections.pop(vise.cle, None)
+    else:
+        corrections[vise.cle] = terrain
+    ecrire_les_corrections(corrections)
+
+    return {"cle": vise.cle, "terrain": terrain, "origine": origine,
+            "corrige": terrain != origine}
 
 
 def lire_un_hexagone(source):

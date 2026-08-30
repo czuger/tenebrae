@@ -7,6 +7,10 @@ cases où il peut aller ; cliquer un fantôme l'y déplace.
 Les règles ne sont pas ici : les déplacements viennent de `moteur/`, l'application ne fait que les
 servir. Le JavaScript ne décide jamais de la légalité d'un mouvement.
 
+Une seconde page, `/admin/map_fix`, sert à corriger la transcription de la carte : c'est le seul
+endroit où l'application écrit dans `game_box/`, et seulement dans un fichier à elle. Le moteur
+applique ces corrections à son démarrage — le plateau se joue donc sur la carte corrigée.
+
 ## Lancer
 
 Depuis ce répertoire, avec le virtualenv pyenv `tenebrae` :
@@ -15,14 +19,16 @@ Depuis ce répertoire, avec le virtualenv pyenv `tenebrae` :
 python3 app.py
 ```
 
-puis <http://127.0.0.1:5000/>. Chaque rechargement rejoue un tirage.
+puis <http://127.0.0.1:5000/> pour le plateau, <http://127.0.0.1:5000/admin/map_fix> pour la
+correction de la carte. Chaque rechargement du plateau rejoue un tirage.
 
 Dépendance : `Flask` (plus `pytest` et `pytest-playwright` pour les tests).
 
 ## Comment ça marche
 
 Le serveur ne dessine rien : il passe deux JSON au gabarit, dans des champs cachés
-(`#pions` et `#grille`), et `static/carte.js` s'en sert.
+(`#pions` et `#grille`), et `static/carte.js` s'en sert. La géométrie elle-même — cubique ↔
+pixels — vit dans `static/geometrie.js`, partagé avec la page de correction.
 
 | Champ caché | Contenu |
 | --- | --- |
@@ -62,6 +68,65 @@ Coordonnées illisibles ou de somme non nulle → 400 ; hexagone hors carte → 
 `/deplacer` recalcule la portée côté serveur au lieu de croire le navigateur : c'est là que
 viendra se greffer l'état de partie (qui occupe quelle case, dans quel camp).
 
+## Corriger la carte — `/admin/map_fix`
+
+L'implémentation des déplacements a montré que la carte transcrite comporte des erreurs, et elles
+ne se voient qu'à l'œil. Cette page affiche `map.jpg`, dit le terrain sous le pointeur, et le
+corrige d'un clic.
+
+**Toute la carte part au navigateur d'un coup**, dans les champs cachés — 2280 hexagones, une
+cinquantaine de kilo-octets. Le survol ne demande donc rien au serveur : il lit dans l'objet reçu.
+Seul le choix d'un terrain fait un aller-retour.
+
+| Champ caché | Contenu |
+| --- | --- |
+| `#hexagones` | `« q,r,s » → terrain` pour les 2280 hexagones, le terrain principal seul |
+| `#corrections` | les corrections déjà relevées, lues dans `map_fix.json` |
+| `#appliquees` | celles que le moteur a chargées à son démarrage — l'écart appelle un redémarrage |
+| `#terrains` | les 16 terrains, dans l'ordre de priorité de `game_box/carte.md` |
+| `#grille` | le même calage que le plateau, sans `taille_pion` |
+
+- **Zoom** : la carte s'ouvre ajustée à la fenêtre — un hexagone y fait 25 px, on ne juge pas un
+  bois à cette taille. La molette approche en gardant sous le curseur le point qu'il désignait ;
+  les boutons `+`, `−` et « ajuster » font la même chose depuis le centre.
+- **Survol** : l'hexagone visé est surligné et un encadré donne `q,r,s — terrain`, suivi de
+  `→ terrain corrigé` si la case a déjà été reprise.
+- **Clic** : une boîte de dialogue donne le terrain de la carte et seize boutons. Choisir celui que
+  la carte porte déjà **retire** la correction — c'est le retour en arrière.
+- Les cases corrigées restent marquées en rouge sur la carte, et la barre d'outils les compte.
+
+| Route | Réponse |
+| --- | --- |
+| `GET /admin/map_fix` | la page |
+| `POST /admin/map_fix` — corps `{q, r, s, terrain}` | `{"cle", "terrain", "origine", "corrige": bool}` |
+
+Terrain inconnu ou coordonnées illisibles → 400 ; hexagone hors carte → 404.
+
+Chaque correction est écrite aussitôt dans **`game_box/map_fix.json`**, qui ne contient que les
+cases reprises :
+
+```json
+{
+"29,5,-34": "colline"
+}
+```
+
+`carte.json` et `carte_details.json` **ne sont jamais touchés** : ils sont produits par
+`game_box/extraction_carte.py` et doivent le rester (voir `game_box/carte.md`).
+
+**Le moteur lit ce fichier et le pose par-dessus la transcription**, une fois, à son démarrage
+(voir `moteur/README.md`) : le plateau de `/` et les déplacements se calculent sur la carte
+corrigée. Comme le recouvrement n'a lieu qu'au démarrage, la barre d'outils annonce
+« redémarrer le serveur pour jouer dessus » dès que les corrections relevées s'écartent de celles
+que le moteur a chargées.
+
+Cette page, elle, travaille toujours sur la carte **transcrite** : `#hexagones` porte ce que le
+scan a donné, les corrections viennent à part, et le terrain « d'origine » du dialogue reste celui
+du scan. Sans quoi, après un redémarrage, « Rétablir » proposerait de rétablir la correction
+elle-même.
+
+Pas de gestion d'administration : la route est ouverte.
+
 ## Choix du tirage
 
 - Les hexagones sont tirés dans `game_box/carte.json`, **hors terrains infranchissables**
@@ -82,6 +147,10 @@ Depuis la **racine du dépôt**, pour couvrir aussi le moteur :
 ```
 python3 -m pytest
 ```
+
+`tests/test_map_fix.py` et `tests/test_map_fix_navigateur.py` couvrent la page de correction —
+le second dans Chromium : survol, dialogue, enregistrement, zoom. Tous deux détournent le chemin
+du fichier de corrections vers un répertoire temporaire : **aucun test n'écrit dans `game_box/`**.
 
 `tests/test_serveur.py` interroge Flask sans navigateur : contenu des champs cachés, cohérence des
 coordonnées, terrains, fichiers servis, et les deux routes de déplacement — dont la vérification

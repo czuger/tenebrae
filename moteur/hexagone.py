@@ -1,8 +1,9 @@
 """La grille d'hexagones d'Ave Tenebrae et les déplacements qu'elle autorise.
 
-La carte transcrite (`game_box/carte_details.json`) est lue une fois, à l'import du module, et
-tenue pour constante : elle décrit un plateau imprimé en 1986, elle ne changera pas en cours de
-partie.
+La carte du jeu est la transcription du scan (`game_box/carte_details.json`) recouverte par les
+corrections relevées à l'œil (`game_box/map_fix.json`). Les deux fichiers sont lus une fois, à
+l'import du module, et le résultat est tenu pour constant : le plateau a été imprimé en 1986, il
+ne change pas en cours de partie. Corriger la carte demande donc de relancer le programme.
 
 Le coût du mouvement suit le *Tableau des terrains* du fascicule ; les réserves d'interprétation
 sont consignées dans `moteur/README.md`. À ce stade, toutes les unités sont terrestres et
@@ -20,7 +21,43 @@ BOITE = Path(__file__).resolve().parent.parent / "game_box"
 # et non `carte.json` : sa tête de liste donne le même terrain principal, mais lui seul garde les
 # 58 routes et chemins que la règle de priorité de la carte masque sous un bois ou un massif.
 with (BOITE / "carte_details.json").open(encoding="utf-8") as fichier:
-    CARTE = {cle: tuple(elements) for cle, elements in json.load(fichier).items()}
+    CARTE_TRANSCRITE = {cle: tuple(elements) for cle, elements in json.load(fichier).items()}
+
+# Les corrections relevées à l'œil sur /admin/map_fix : « q,r,s » → terrain principal. Fichier à
+# part, tenu à la main ; la transcription, elle, sort du script et n'est jamais retouchée.
+CHEMIN_DES_CORRECTIONS = BOITE / "map_fix.json"
+
+
+def lire_les_corrections():
+    """Rend les corrections relevées ; un dictionnaire vide si le fichier n'existe pas."""
+    try:
+        with CHEMIN_DES_CORRECTIONS.open(encoding="utf-8") as fichier:
+            return json.load(fichier)
+    except FileNotFoundError:
+        return {}
+
+
+def corriger(transcription, corrections):
+    """La transcription recouverte par les corrections, sans la modifier.
+
+    Une correction ne porte que sur le terrain principal : le terrain corrigé prend la tête à la
+    place de celui que la priorité de la carte y avait mis, et les éléments secondaires suivent.
+    C'est ce qui permet à un bois corrigé en colline de garder la route qu'il masquait. Une clé
+    inconnue de la transcription est ignorée : on ne crée pas d'hexagone hors carte.
+    """
+    carte = dict(transcription)
+    for cle, terrain in corrections.items():
+        if cle not in carte:
+            continue
+        secondaires = (element for element in carte[cle][1:] if element != terrain)
+        carte[cle] = (terrain, *secondaires)
+    return carte
+
+
+# Les corrections effectivement en vigueur, et la carte sur laquelle le jeu se joue. Relever une
+# correction de plus ne les change pas : il faut relancer le programme.
+CORRECTIONS_APPLIQUEES = lire_les_corrections()
+CARTE = corriger(CARTE_TRANSCRITE, CORRECTIONS_APPLIQUEES)
 
 # Les six voisins d'un hexagone, en coordonnées cubiques.
 DIRECTIONS = ((1, -1, 0), (1, 0, -1), (0, 1, -1), (0, -1, 1), (-1, 1, 0), (-1, 0, 1))

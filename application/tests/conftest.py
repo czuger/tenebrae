@@ -9,7 +9,7 @@ from werkzeug.serving import make_server
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app import application  # noqa: E402
+from app import PLATEAU, application  # noqa: E402
 
 
 @pytest.fixture
@@ -17,6 +17,18 @@ def client():
     """Client de test Flask, sans navigateur ni socket."""
     application.config["TESTING"] = True
     return application.test_client()
+
+
+@pytest.fixture
+def carte_deserte():
+    """Vide le plateau du serveur, et le laisse vide après le test.
+
+    Le tirage est groupé : sans cela, un secteur tombant près de l'hexagone de référence d'un test
+    de déplacement y poserait des adversaires, et le résultat dépendrait du hasard.
+    """
+    PLATEAU.vider()
+    yield PLATEAU
+    PLATEAU.vider()
 
 
 @pytest.fixture(scope="session")

@@ -9,7 +9,7 @@ import pytest
 
 import app
 from moteur.hexagone import CARTE, Hex
-from moteur.pion import CATALOGUE
+from moteur.pion import ADVERSAIRES, CATALOGUE
 
 
 @pytest.fixture
@@ -126,19 +126,27 @@ def test_le_plateau_suit_le_redimensionnement(plateau):
 # --- Fantômes et déplacement ----------------------------------------------------------------
 
 
-def pion_qui_peut_bouger(page):
-    """Rend le premier pion de la page dont le moteur dit qu'il a des cases où aller.
+def pions_qui_peuvent_bouger(page, convient=lambda pion: True):
+    """Les pions de la page qui ont des cases où aller, et que `convient` accepte.
 
-    La portée se calcule avec **le mouvement du pion posé**, celui de son carton : deux pions sur
-    la même case n'ont pas les mêmes fantômes.
+    La portée est celle que le **plateau du serveur** calcule : le mouvement du carton, moins ce
+    que les adversaires posés autour lui interdisent. Le serveur de test tourne dans ce processus,
+    son plateau se lit donc directement.
     """
     for indice in range(app.NOMBRE_DE_PIONS):
         pion = page.locator("img.pion:not(.fantome)").nth(indice)
-        position, cle = pion.evaluate(
-            "p => [[Number(p.dataset.q), Number(p.dataset.r), Number(p.dataset.s)], p.pion.cle]")
-        atteignables = Hex(*position).deplacements(CATALOGUE[cle].points_de_mouvement)
-        if atteignables:
-            return pion, Hex(*position), atteignables
+        position = pion.evaluate(
+            "p => [Number(p.dataset.q), Number(p.dataset.r), Number(p.dataset.s)]")
+        depart = Hex(*position)
+        atteignables = app.PLATEAU.deplacements(depart)
+        if atteignables and convient(app.PLATEAU.pion_sur(depart)):
+            yield pion, depart, atteignables
+
+
+def pion_qui_peut_bouger(page, convient=lambda pion: True):
+    """Le premier pion de la page qui a des cases où aller."""
+    for candidat in pions_qui_peuvent_bouger(page, convient):
+        return candidat
     raise AssertionError("aucun des dix pions ne peut se déplacer")
 
 
@@ -146,12 +154,17 @@ def fantomes(page):
     return geometrie_des_pions(page, "img.fantome")
 
 
+def montrer_les_fantomes(page, pion):
+    """Clique le pion et attend ses fantômes."""
+    pion.click()
+    page.wait_for_function("document.querySelectorAll('img.fantome').length > 0")
+    return fantomes(page)
+
+
 def test_cliquer_un_pion_montre_ses_deplacements(plateau):
     pion, depart, atteignables = pion_qui_peut_bouger(plateau)
-    pion.click()
-    plateau.wait_for_function("document.querySelectorAll('img.fantome').length > 0")
+    poses = montrer_les_fantomes(plateau, pion)
 
-    poses = fantomes(plateau)
     assert len(poses) == len(atteignables)
     assert {(f["q"], f["r"], f["s"]) for f in poses} == {(h.q, h.r, h.s) for h in atteignables}
     assert (depart.q, depart.r, depart.s) not in {(f["q"], f["r"], f["s"]) for f in poses}
@@ -160,22 +173,58 @@ def test_cliquer_un_pion_montre_ses_deplacements(plateau):
 def test_les_fantomes_suivent_le_mouvement_du_carton(plateau):
     """Le nombre de fantômes est celui du mouvement du pion, pas d'un forfait commun."""
     pion, depart, _ = pion_qui_peut_bouger(plateau)
-    cle = pion.evaluate("p => p.pion.cle")
-    mouvement = CATALOGUE[cle].points_de_mouvement
-    pion.click()
-    plateau.wait_for_function("document.querySelectorAll('img.fantome').length > 0")
+    mouvement = app.PLATEAU.pion_sur(depart).points_de_mouvement
+    poses = montrer_les_fantomes(plateau, pion)
 
-    poses = fantomes(plateau)
-    assert len(poses) == len(depart.deplacements(mouvement))
-    if mouvement < 5:
-        assert len(poses) < len(depart.deplacements(5))
+    assert len(poses) == len(app.PLATEAU.deplacements(depart))
+    assert len(poses) <= len(depart.deplacements(mouvement))
 
 
-def test_le_libelle_du_pion_dit_son_mouvement(plateau):
+def contact_avec_un_adversaire(page):
+    """Pose un adversaire au contact d'un pion de la page, et rend la figure obtenue.
+
+    L'ennemi est posé sur le plateau du serveur sans image sur la carte : ce qu'on veut éprouver
+    est la chaîne du clic à la règle, pas l'affichage de ce pion-là. On cherche une figure où il
+    reste quelque chose à montrer — un pion acculé n'aurait aucun fantôme, et il n'y aurait rien
+    à comparer.
+    """
+    for pion, depart, seul in pions_qui_peuvent_bouger(page, engage):
+        voisine = next(voisin for voisin in depart.voisins() if voisin in seul)
+        app.PLATEAU.poser(voisine, adversaire_de(app.PLATEAU.pion_sur(depart)))
+        au_contact = app.PLATEAU.deplacements(depart)
+        if 0 < len(au_contact) < len(seul):
+            return pion, depart, seul, voisine
+        app.PLATEAU.retirer(voisine)
+    pytest.skip("aucun pion du tirage n'a de voisin où poser un adversaire")
+
+
+def test_les_fantomes_s_arretent_devant_l_adversaire(plateau):
+    """Un adversaire posé au contact réduit ce que le clic affiche."""
+    pion, _, seul, voisine = contact_avec_un_adversaire(plateau)
+
+    poses = montrer_les_fantomes(plateau, pion)
+    assert len(poses) < len(seul)
+    assert (voisine.q, voisine.r, voisine.s) not in {(f["q"], f["r"], f["s"]) for f in poses}
+
+
+def engage(pion):
+    """Dit si le pion appartient à un camp : un neutre n'a pas d'adversaire à lui opposer."""
+    return pion.camp in ADVERSAIRES
+
+
+def adversaire_de(pion):
+    """Un pion du camp opposé, pris au catalogue."""
+    return next(autre for autre in CATALOGUE.values()
+                if autre.camp == ADVERSAIRES[pion.camp] and autre.est_une_unite)
+
+
+def test_le_libelle_du_pion_dit_son_camp_et_son_mouvement(plateau):
     for indice in range(app.NOMBRE_DE_PIONS):
         pion = plateau.locator("img.pion:not(.fantome)").nth(indice)
         titre, cle = pion.evaluate("p => [p.title, p.pion.cle]")
-        assert titre.endswith(f"— {CATALOGUE[cle].points_de_mouvement} PM"), titre
+        pose = CATALOGUE[cle]
+        assert f"({pose.camp})" in titre, titre
+        assert titre.endswith(f"— {pose.points_de_mouvement} PM"), titre
 
 
 def test_les_fantomes_sont_a_moitie_transparents(plateau):

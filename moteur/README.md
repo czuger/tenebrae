@@ -7,6 +7,10 @@ servir ce que ce paquet décide. Un déplacement n'est jamais jugé légal par l
 | --- | --- |
 | `hexagone.py` | la carte lue en constante, et la classe `Hex` |
 | `pion.py` | le catalogue des pions lu en constante, et la classe `Pion` |
+| `plateau.py` | l'état de partie : quels pions sont posés, où, et dans quel camp |
+
+Les deux premiers sont des constantes — la carte et les cartons sont imprimés depuis 1986. Le
+troisième est le seul objet mutable du moteur : les positions, elles, changent.
 
 ## La classe `Hex`
 
@@ -20,6 +24,7 @@ Hex()                          # hexagone vide, sans position
 depart.terrain                 # 'plaine' — le terrain principal
 depart.elements                # ('plaine',) — tout ce que porte la case, terrain en tête
 depart.voisins()               # les six hexagones adjacents encore sur la carte
+depart.distance(autre)         # à vol d'oiseau, en cases — sans égard au terrain
 depart.deplacements(5)         # liste d'objets Hex atteignables avec 5 points
 depart.en_dict()               # {'q': 13, 'r': -4, 's': -9, 'terrain': 'plaine'}
 ```
@@ -28,6 +33,10 @@ depart.en_dict()               # {'q': 13, 'r': -4, 's': -9, 'terrain': 'plaine'
 part, `Pion.points_de_mouvement` (voir plus bas) ; sans argument, le forfait de 5 points. Les
 coûts sont des `fractions.Fraction` et non des flottants : une route vaut un tiers de point, et un
 chemin de cinq points ne doit pas dériver à l'arrondi.
+
+Deux arguments nommés y ajoutent l'adversaire — `ennemis` et `sous_controle`, des ensembles de
+clés « q,r,s » (voir « Zones de contrôle »). Sans eux, la carte est réputée déserte et le parcours
+ne connaît que le terrain.
 
 La carte est lue **une fois, à l'import du module** — le plateau est imprimé, il ne change pas en
 cours de partie. C'est `game_box/carte_details.json` qui est lu, et non `carte.json` : sa tête de
@@ -74,6 +83,8 @@ cavalerie.mouvement_vol                # None — le chiffre entre parenthèses,
 cavalerie.facultes_speciales           # None — la lettre du haut au centre : « P », « s »…
 cavalerie.points_de_mouvement          # 8 — ce que le déplacement consomme
 cavalerie.est_une_unite                # True — un marqueur répondrait False
+cavalerie.camp                         # 'alliance' — 'tenebres' ou 'neutre' pour d'autres
+cavalerie.exerce_une_zone_de_controle  # True
 
 Hex(1, 26, -27).deplacements(cavalerie.points_de_mouvement)
 ```
@@ -93,6 +104,75 @@ laquelle. Seul `points_de_mouvement` tranche, parce que le déplacement a besoin
 
 `est_une_unite` sépare les 115 unités des 12 photos qui n'en sont pas : les 6 marqueurs, les
 2 feuilles de suivi et les 4 vues d'ensemble ne portent aucune valeur chiffrée.
+
+### Les camps
+
+Le camp n'est **pas** dans `pions.json` : il n'est pas imprimé sur le carton. Il vient de la
+section « Camps » de `game_box/pions/README.md`, tenue ici dans `CAMPS`, faction par faction :
+
+| Camp | Factions | Pions |
+| --- | --- | --- |
+| `ALLIANCE` | Reissland, Empire Tharque, Templiers, Population, Empire de Lynn, Elfes, Nains, Dragons | 47 |
+| `TENEBRES` | Yzent, Chaos, Non-humains, Orques, Sahuaguins, Morts-vivants, Démons, Juggernaut | 56 |
+| `NEUTRE` | Volants, conjurations, magiciens, marqueurs, vues d'ensemble | 24 |
+
+`ADVERSAIRES` dit qui s'oppose à qui : l'alliance et les ténèbres, et personne d'autre. **Le
+neutre n'a pas d'adversaire** — il ne gêne personne et personne ne le gêne. Les scénarios y
+mettraient plus de nuance (l'Empire de Lynn n'entre qu'au scénario 3, les Nains au 4, les Volants
+au 5, Yzent est un « allié d'opportunité ») : le moteur n'en sait rien.
+
+## Zones de contrôle
+
+> Chaque unité exerce une influence particulière sur les six cases qui environnent celle qu'elle
+> occupe : ces six cases constituent sa « zone de contrôle ».
+
+`zone_de_controle(hexagones)` rend ces cases, en clés « q,r,s ». `Hex.deplacements()` en tient
+compte par ses deux arguments nommés :
+
+| Argument | Contenu | Effet |
+| --- | --- | --- |
+| `ennemis` | les cases que l'adversaire occupe | on n'y entre pas : le mouvement n'engage pas le combat |
+| `sous_controle` | les cases que ses zones couvrent | on y entre au tarif du terrain, et on s'y arrête |
+
+Le fascicule tient en trois lignes, et le parcours en trois règles :
+
+| La règle | Dans le parcours |
+| --- | --- |
+| « pénétrer […] sans dépense de points supplémentaires » | la case coûte ce que coûte son terrain |
+| « elle doit s'arrêter dès qu'elle y est entrée » | d'une case sous contrôle, on ne repart pas |
+| « on ne peut passer d'une zone à une autre qu'après être sorti de la première » | la case de départ, seule case sous contrôle d'où l'on progresse encore, ne mène qu'à des cases libres |
+
+Une unité qui **commence** son mouvement sous contrôle en sort donc, mais par une case libre : la
+figure de l'exemple du fascicule, où C contourne X1 pour atteindre X2 et « dépensera donc 4 points
+de mouvement au lieu de 2 », se retrouve telle quelle dans
+`moteur/tests/test_zone_de_controle.py`.
+
+## La classe `Plateau`
+
+```python
+from moteur.plateau import Plateau
+
+plateau = Plateau([(Hex(1, 26, -27), pion("elfes-01-5-infanteries"))])
+plateau.poser(hexagone, pion)          # une case, un pion ; retirer() et vider() défont
+plateau.pion_sur(hexagone)             # le Pion posé là, ou None
+plateau.cases_tenues_par("alliance")   # les clés « q,r,s » de ce camp
+plateau.adversaires_de("alliance")     # celles du camp opposé
+plateau.zones_de_controle_contre("alliance")
+plateau.mouvement_de(hexagone)         # les points du pion posé
+plateau.deplacements(hexagone)         # ses cases d'arrivée, zones de contrôle comprises
+plateau.deplacer(depart, arrivee)      # recalcule, applique, et dit si c'est fait
+```
+
+C'est le plateau qui réunit les trois : le pion posé donne son mouvement et son camp, le camp
+donne les adversaires, les adversaires donnent les zones de contrôle.
+
+- **Le pion posé fait foi.** `deplacements(hexagone, pion)` accepte un pion en second argument,
+  mais il ne sert qu'à interroger une case vide — pour savoir où telle unité irait si on l'y
+  mettait. Sans pion du tout, le forfait s'applique et, faute de camp, personne n'est un
+  adversaire.
+- **Une case amie se traverse mais ne se prend pas.** Le fascicule autorise le passage
+  (« une unité peut traverser une case occupée par une unité de la même armée ») et interdit
+  l'empilement : les cases occupées sont donc retirées des destinations, pas du parcours.
 
 ## Coût du mouvement
 
@@ -155,5 +235,20 @@ Comme pour la carte et l'inventaire des pions, les doutes sont conservés, pas t
   lac ou une montagne reste impossible.
 - **Cinq mouvements n'ont pas pu être lus** sur la photo du pion (pion rogné, chiffre illisible) :
   ils sont notés dans `pions.json` et repris dans les réserves de `game_box/pions/README.md`.
-- **Ni empilement, ni zones de contrôle, ni pouvoirs** : toutes les unités sont terrestres, et
-  deux unités peuvent viser la même case.
+- **Toutes les unités exercent une zone de contrôle**, alors que le fascicule en dispense les
+  leaders et les jeteurs de sorts, les démons et les morts-vivants ordinaires — seuls les trois
+  princes-démons et les trois lords sur dragons en exercent chez eux — et les unités tenant une
+  forteresse. Ces exceptions sont lisibles dans `pions.json` (`symbole`, `faction`) : les appliquer
+  ne demanderait qu'un tri, c'est un choix de ne pas l'avoir fait pour l'instant.
+- **« Une zone ne s'exerce pas au-delà d'une rivière, mais franchit les ponts. »** Inapplicable en
+  l'état : les rivières sont transcrites comme des terrains d'hexagone et non comme des côtés, et
+  aucun pont n'est relevé. Une zone de contrôle franchit donc tout.
+- **Le camp est celui de la faction**, sans égard au scénario, et **le neutre n'a pas
+  d'adversaire** : volants, conjurations et marqueurs n'arrêtent personne et ne sont arrêtés par
+  personne.
+- **L'empilement n'est pas géré au-delà d'une unité par case** : le fascicule autorise 3 unités
+  dans une ville, un village ou une citadelle, et ne compte ni les leaders ni les magiciens. Le
+  plateau, lui, ne pose qu'un pion par case.
+- **Ni retraite, ni avance après combat, ni pouvoirs** : les autres effets des zones de contrôle —
+  l'interdiction de reculer dedans, l'unité éliminée faute de retraite, l'invisibilité qui les
+  ignore — attendent le combat. Toutes les unités restent terrestres.

@@ -1,13 +1,14 @@
 # `application/` — la carte affichée dans le navigateur
 
-Une application Flask qui sert `game_box/map.jpg`, tire **dix hexagones au hasard**, pose un pion
-sur chacun, et laisse le navigateur faire la géométrie. Cliquer un pion montre en **fantômes** les
-cases où il peut aller ; cliquer un fantôme l'y déplace.
+Une application Flask qui sert `game_box/map.jpg`, tire **dix hexagones voisins au hasard**, pose
+un pion sur chacun, et laisse le navigateur faire la géométrie. Cliquer un pion montre en
+**fantômes** les cases où il peut aller ; cliquer un fantôme l'y déplace.
 
 Les règles ne sont pas ici : les déplacements viennent de `moteur/`, l'application ne fait que les
 servir. Le JavaScript ne décide jamais de la légalité d'un mouvement. **Chaque pion se déplace du
 nombre de points imprimé sur son carton** — de 1 à 20 selon l'unité, lu dans
-`game_box/pions/pions.json` par `moteur.pion`.
+`game_box/pions/pions.json` par `moteur.pion` — et **s'arrête au contact des adversaires**, dont
+les zones de contrôle couvrent les six cases qui les environnent.
 
 Une seconde page, `/admin/map_fix`, sert à corriger la transcription de la carte : c'est le seul
 endroit où l'application écrit dans `game_box/`, et seulement dans un fichier à elle. Le moteur
@@ -34,8 +35,19 @@ pixels — vit dans `static/geometrie.js`, partagé avec la page de correction.
 
 | Champ caché | Contenu |
 | --- | --- |
-| `#pions` | dix entrées `{q, r, s, cle, image, nom, mouvement}` — la position en coordonnées cubiques, le pion tiré et ses points de mouvement |
+| `#pions` | dix entrées `{q, r, s, cle, image, nom, mouvement, camp}` — la position en coordonnées cubiques, le pion tiré, ses points de mouvement et son camp |
 | `#grille` | `origine`, `matrice` et `taille_pion` : le calage de la grille sur `map.jpg` |
+
+## Le plateau du serveur
+
+Les zones de contrôle demandent de savoir **qui occupe quelle case et dans quel camp** : le
+serveur tient donc un `moteur.plateau.Plateau`, refait à chaque chargement de `/` et mis à jour
+par `/deplacer`. Sans lui, les zones se calculeraient sur des positions périmées dès le premier
+déplacement.
+
+C'est le premier état de partie du dépôt, et il reste mince : dix pions posés, pas de tour de jeu,
+pas de joueurs, rien qui survive au rechargement de la page. Deux onglets ouverts sur `/` se
+partagent le même plateau — le dernier chargement gagne.
 
 Le JavaScript convertit chaque hexagone en pixels avec la formule relevée dans
 `game_box/carte.md` :
@@ -57,26 +69,28 @@ est un aller-retour avec le serveur.
 
 | Route | Réponse |
 | --- | --- |
-| `GET /deplacements?q=&r=&s=&pion=` | `{"depart": {…}, "pion": "cle", "mouvement": 8, "hexagones": [{q, r, s, terrain}, …]}` |
-| `POST /deplacer` — corps `{"depart": {…}, "arrivee": {…}, "pion": "cle"}` | `{"autorise": bool, "depart": {…}, "arrivee": {…}, "pion": "cle", "mouvement": 8}` |
+| `GET /deplacements?q=&r=&s=&pion=` | `{"depart": {…}, "pion": "cle", "camp": "alliance", "mouvement": 8, "hexagones": [{q, r, s, terrain}, …]}` |
+| `POST /deplacer` — corps `{"depart": {…}, "arrivee": {…}, "pion": "cle"}` | `{"autorise": bool, "depart": {…}, "arrivee": {…}, "pion": "cle", "camp": "alliance", "mouvement": 8}` |
 
 Coordonnées illisibles ou de somme non nulle → 400 ; hexagone hors carte → 404 ; pion inconnu du
 catalogue → 400.
 
-`pion` est la clé du pion tenu, celle de `pions.json` (`reissland-02-8-cavaleries`) : **le
-navigateur dit lequel il a en main, jamais de combien de points il dispose**. Le serveur reprend le
-nombre au catalogue — un `mouvement` glissé dans la requête n'a aucun effet. Sans `pion`, le
-forfait de 5 points s'applique, ce qui laisse la route interrogeable à la main.
+**C'est le plateau du serveur qui dit quel pion se tient sur la case de départ**, dans quel camp,
+et quels adversaires lui opposent leurs zones de contrôle. Le paramètre `pion` — la clé de
+`pions.json`, `reissland-02-8-cavaleries` — ne sert qu'à interroger une **case vide** : le pion
+posé, lui, l'emporte toujours. Le navigateur ne dit donc jamais de combien de points il dispose,
+et un `mouvement` glissé dans la requête n'a aucun effet. Sans `pion` sur une case vide, le forfait
+de 5 points s'applique et la carte est réputée sans adversaire.
 
 1. clic sur un pion → `/deplacements` → un fantôme par hexagone rendu : la même image, à 50 %
    d'opacité, sous les pions posés, centrée et inclinée comme eux. Une cavalerie de Reissland
    (8 points) en couvre plus de deux cents en plaine, le bélier d'Yzent (2 points) une vingtaine,
-   un marqueur aucun ;
-2. clic sur un fantôme → `/deplacer` → le pion se repose sur la case, de travers autrement ;
+   un marqueur aucun — et un adversaire proche les fait s'arrêter à son contact ;
+2. clic sur un fantôme → `/deplacer` → le pion se repose sur la case, de travers autrement, et
+   **change de case sur le plateau du serveur** : les zones du coup d'après en tiennent compte ;
 3. clic ailleurs, ou de nouveau sur le pion sélectionné → les fantômes s'effacent.
 
-`/deplacer` recalcule la portée côté serveur au lieu de croire le navigateur : c'est là que
-viendra se greffer l'état de partie (qui occupe quelle case, dans quel camp).
+`/deplacer` recalcule la portée côté serveur au lieu de croire le navigateur.
 
 ## Corriger la carte — `/admin/map_fix`
 
@@ -139,20 +153,26 @@ Pas de gestion d'administration : la route est ouverte.
 
 ## Choix du tirage
 
+- **Le tirage est groupé.** Un centre est pris au hasard parmi les cases posables, et les dix pions
+  sont tirés dans les cases situées à `RAYON_DU_TIRAGE` (4) ou moins — une soixantaine en général,
+  moins au bord de la carte, auquel cas un autre centre est tiré. Dix pions lâchés sur les 2008
+  cases posables ne se rencontreraient jamais, et les zones de contrôle resteraient invisibles.
 - Les hexagones sont tirés dans `game_box/carte.json`, **hors terrains infranchissables**
   (`lac`, `montagne`, `faille`, `riviere` — voir le tableau des terrains) : 2008 hexagones sur 2280.
 - Les pions sont tirés dans `game_box/pions/`, **hors vues d'ensemble** : les 4 photos de
   `21-vues-d-ensemble/` et les 2 planchettes de suivi de `19-magiciens/` ne montrent pas un pion
-  isolé. Restent 121 pions sur 127.
-- Le tirage ne tient aucun compte des règles : ni camp, ni scénario, ni empilement. Un pion
-  peut sortir plusieurs fois, un mort-vivant peut se retrouver en pleine forêt elfique.
+  isolé. Restent 121 pions sur 127 — 56 des ténèbres, 47 de l'alliance, 18 neutres, ce qui met les
+  deux camps sur la carte à peu près à chaque tirage.
+- Le tirage ne tient aucun compte des scénarios : un pion peut sortir plusieurs fois, un
+  mort-vivant peut se retrouver en pleine forêt elfique, et les renforts arrivent avec le reste.
 - **Le mouvement est celui du carton** : chaque pion tiré emporte ses points, lus sur la photo et
   rangés dans `game_box/pions/pions.json`. Le reste des valeurs — force, tir, portée — voyage
   jusqu'au moteur mais ne sert encore à rien.
+- **Le camp vient de la faction** (voir `moteur/README.md`) : il décide qui gêne qui. Les neutres —
+  volants, conjurations, marqueurs — n'ont pas d'adversaire et n'en sont pas.
 - Les 6 marqueurs (`PA`, `D`, flammes, brume…) restent du tirage : ils se posent sur la carte,
-  mais ne portent aucun mouvement. Les cliquer ne montre aucun fantôme.
-- Pour le reste, les unités sont traitées de la même façon : terrestres, sans vol ni pouvoirs.
-  Deux pions peuvent viser la même case, et le plateau ne se souvient de rien d'un rechargement à
+  mais ne portent aucun mouvement et n'exercent aucune zone. Les cliquer ne montre aucun fantôme.
+- Une case n'accueille qu'un pion, et le plateau ne se souvient de rien d'un rechargement à
   l'autre.
 
 ## Tests
@@ -168,12 +188,18 @@ le second dans Chromium : survol, dialogue, enregistrement, zoom. Tous deux dét
 du fichier de corrections vers un répertoire temporaire : **aucun test n'écrit dans `game_box/`**.
 
 `tests/test_serveur.py` interroge Flask sans navigateur : contenu des champs cachés, cohérence des
-coordonnées, terrains, fichiers servis, et les deux routes de déplacement — dont la vérification
-qu'elles n'ajoutent rien aux règles du moteur, que la portée suit le carton du pion nommé, et
-qu'un mouvement glissé dans la requête reste sans effet. `tests/test_plateau.py` ouvre la page dans Chromium
-avec Playwright : dix pions chargés et centrés à moins d'un pixel, inclinés de moins de 5°, carte
-qui reste à l'échelle après redimensionnement, puis le cycle complet clic → fantômes →
-déplacement, fantômes comptés sur le mouvement du pion posé.
+coordonnées, terrains, fichiers servis, tirage groupé, et les deux routes de déplacement — dont la
+vérification qu'elles n'ajoutent rien aux règles du moteur, que la portée suit le carton du pion
+posé, qu'un adversaire au contact la réduit, qu'un ami ne la réduit pas, et qu'un déplacement
+accepté change vraiment le plateau du serveur. Chaque test y part d'une **carte déserte** — le
+plateau survit d'une requête à l'autre, et le tirage groupé rendrait sinon les résultats
+dépendants du hasard.
+
+`tests/test_plateau.py` ouvre la page dans Chromium avec Playwright : dix pions chargés et centrés
+à moins d'un pixel, inclinés de moins de 5°, carte qui reste à l'échelle après redimensionnement,
+puis le cycle complet clic → fantômes → déplacement. Les fantômes attendus sont ceux que le
+plateau du serveur calcule — il tourne dans le même processus, on le lit directement — et un test
+pose un adversaire au contact pour vérifier que le clic en montre alors moins.
 
 Les tests de navigateur demandent Chromium :
 

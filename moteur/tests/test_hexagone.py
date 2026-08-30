@@ -98,6 +98,32 @@ class TestCarte:
             assert PLAINE in voisin.voisins()
 
 
+class TestDistance:
+    """La distance à vol d'oiseau, qui ne dit rien du coût du trajet."""
+
+    def test_un_hexagone_est_a_zero_de_lui_meme(self):
+        assert PLAINE.distance(PLAINE) == 0
+
+    def test_les_voisins_sont_a_une_case(self):
+        for voisin in PLAINE.voisins():
+            assert PLAINE.distance(voisin) == 1
+
+    def test_elle_est_symetrique(self):
+        assert PLAINE.distance(LAC) == LAC.distance(PLAINE)
+
+    def test_elle_ignore_le_terrain(self):
+        """Le lac est infranchissable, il n'en est pas plus loin pour autant."""
+        assert LAC.distance(PLAINE) == max(abs(LAC.q - PLAINE.q), abs(LAC.r - PLAINE.r),
+                                           abs(LAC.s - PLAINE.s))
+
+    def test_elle_vaut_hors_de_la_carte(self):
+        assert COIN_NORD_OUEST.distance(Hex(99, 0, -99)) == 99
+
+    def test_un_hexagone_vide_n_a_pas_de_distance(self):
+        with pytest.raises(ValueError):
+            PLAINE.distance(Hex())
+
+
 class TestCouts:
     def test_la_plaine_coute_un_point(self):
         assert PLAINE.cout_depuis(voisin_tel_que(PLAINE, lambda v: True)) == 1

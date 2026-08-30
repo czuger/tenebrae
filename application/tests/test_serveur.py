@@ -3,9 +3,21 @@
 import json
 import re
 
+import pytest
+
 import app
 from moteur.hexagone import CARTE, MOUVEMENT_PAR_DEFAUT, Hex
-from moteur.pion import CATALOGUE
+from moteur.pion import ALLIANCE, CATALOGUE, TENEBRES
+
+
+@pytest.fixture(autouse=True)
+def plateau_isole(carte_deserte):
+    """Chaque test part d'une carte déserte, et la laisse déserte.
+
+    Le plateau du serveur survit d'une requête à l'autre : sans ce nettoyage, le tirage groupé
+    d'un test poserait des adversaires que le test suivant trouverait sous ses pieds. Les tests
+    qui veulent un plateau garni chargent « / » eux-mêmes.
+    """
 
 
 def lire_le_champ_cache(page, identifiant):
@@ -55,6 +67,37 @@ def test_chaque_pion_tire_porte_son_mouvement(client):
     for pion in pions:
         assert pion["cle"] in CATALOGUE
         assert pion["mouvement"] == CATALOGUE[pion["cle"]].points_de_mouvement
+
+
+def test_chaque_pion_tire_porte_son_camp(client):
+    pions = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
+    for pion in pions:
+        assert pion["camp"] == CATALOGUE[pion["cle"]].camp
+
+
+def test_le_tirage_est_groupe(client):
+    """Les dix pions tiennent dans un même secteur : sinon les camps ne se croiseraient pas."""
+    pions = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
+    cases = [Hex(pion["q"], pion["r"], pion["s"]) for pion in pions]
+    for case in cases:
+        assert all(case.distance(autre) <= 2 * app.RAYON_DU_TIRAGE for autre in cases)
+
+
+def test_le_tirage_garnit_le_plateau_du_serveur(client):
+    """Le serveur retient ce qu'il a posé : c'est de là que sortent les zones de contrôle."""
+    pions = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
+    assert len(app.PLATEAU) == len(pions)
+    for pion in pions:
+        pose = app.PLATEAU.pion_sur(Hex(pion["q"], pion["r"], pion["s"]))
+        assert pose is not None and pose.cle == pion["cle"]
+
+
+def test_un_nouveau_tirage_remplace_l_ancien(client):
+    """Rechargez la page : les pions d'avant ne restent pas sur la carte."""
+    client.get("/")
+    second = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
+    attendues = {f"{pion['q']},{pion['r']},{pion['s']}" for pion in second}
+    assert app.PLATEAU.pions.keys() == attendues
 
 
 def test_les_mouvements_du_catalogue_sont_ceux_des_cartons():
@@ -192,6 +235,70 @@ def test_le_mouvement_ne_se_demande_pas(client):
     reponse = client.get("/deplacements",
                          query_string={**PLAINE, "pion": LENT, "mouvement": 99}).json
     assert reponse["mouvement"] == 2
+
+
+# --- Zones de contrôle ----------------------------------------------------------------------
+
+ELFE = "elfes-01-5-infanteries"        # alliance, 4 points
+ORQUE = "orques-01-15-infanteries"     # ténèbres, 4 points
+
+
+def poser(hexagone, cle):
+    """Pose un pion sur le plateau du serveur, comme le ferait un tirage."""
+    app.PLATEAU.poser(Hex(**hexagone), CATALOGUE[cle])
+
+
+def test_le_pion_pose_fait_foi(client):
+    """La case occupée décide : le pion nommé dans la requête ne s'y substitue pas."""
+    poser(PLAINE, ELFE)
+    reponse = client.get("/deplacements", query_string={**PLAINE, "pion": LENT}).json
+    assert (reponse["pion"], reponse["camp"], reponse["mouvement"]) == (ELFE, ALLIANCE, 4)
+
+
+def test_une_case_vide_se_laisse_interroger(client):
+    reponse = client.get("/deplacements", query_string={**PLAINE, "pion": LENT}).json
+    assert (reponse["pion"], reponse["camp"], reponse["mouvement"]) == (LENT, TENEBRES, 2)
+
+
+def test_un_adversaire_proche_reduit_la_portee(client):
+    poser(PLAINE, ELFE)
+    seul = client.get("/deplacements", query_string=PLAINE).json["hexagones"]
+    poser(VOISINE, ORQUE)
+    gene = client.get("/deplacements", query_string=PLAINE).json["hexagones"]
+    assert 0 < len(gene) < len(seul)
+
+
+def test_on_ne_va_pas_sur_la_case_d_un_adversaire(client):
+    poser(PLAINE, ELFE)
+    poser(VOISINE, ORQUE)
+    hexagones = client.get("/deplacements", query_string=PLAINE).json["hexagones"]
+    assert VOISINE not in [{"q": h["q"], "r": h["r"], "s": h["s"]} for h in hexagones]
+    assert client.post("/deplacer",
+                       json={"depart": PLAINE, "arrivee": VOISINE}).json["autorise"] is False
+
+
+def test_un_ami_ne_reduit_pas_la_portee(client):
+    """Deux pions du même camp ne se gênent pas : seule leur case est prise."""
+    poser(PLAINE, ELFE)
+    seul = client.get("/deplacements", query_string=PLAINE).json["hexagones"]
+    poser(VOISINE, "nains-01-5-infanteries")
+    avec_l_ami = client.get("/deplacements", query_string=PLAINE).json["hexagones"]
+    assert len(avec_l_ami) == len(seul) - 1
+
+
+def test_un_deplacement_accepte_change_le_plateau(client):
+    """Le pion quitte vraiment sa case : les zones du coup d'après en tiennent compte."""
+    poser(PLAINE, ELFE)
+    assert client.post("/deplacer", json={"depart": PLAINE, "arrivee": VOISINE}).json["autorise"]
+    assert app.PLATEAU.pion_sur(Hex(**PLAINE)) is None
+    assert app.PLATEAU.pion_sur(Hex(**VOISINE)).cle == ELFE
+
+
+def test_un_deplacement_refuse_laisse_le_plateau_en_place(client):
+    poser(PLAINE, ELFE)
+    assert client.post("/deplacer",
+                       json={"depart": PLAINE, "arrivee": LOINTAINE}).json["autorise"] is False
+    assert app.PLATEAU.pion_sur(Hex(**PLAINE)).cle == ELFE
 
 
 def test_des_coordonnees_illisibles_sont_refusees(client):

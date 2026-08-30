@@ -33,9 +33,9 @@ from flask import Flask, abort, render_template, request, send_from_directory
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from moteur import hexagone as moteur_hexagone  # noqa: E402
-from moteur.hexagone import (CARTE, CARTE_TRANSCRITE, INHABITABLES,  # noqa: E402
-                             MOUVEMENT_PAR_DEFAUT, Hex)
+from moteur.hexagone import CARTE, CARTE_TRANSCRITE, INHABITABLES, Hex  # noqa: E402
 from moteur.pion import CATALOGUE  # noqa: E402
+from moteur.plateau import Plateau  # noqa: E402
 
 BOITE = Path(__file__).resolve().parent.parent / "game_box"
 PIONS = BOITE / "pions"
@@ -47,6 +47,11 @@ TERRAINS = ("ville", "fort", "chateau", "tour", "ruines", "village", "ile", "lac
 
 # Nombre de pions posés sur la carte à chaque chargement.
 NOMBRE_DE_PIONS = 10
+
+# Rayon, en cases, du secteur où le tirage se concentre. Dix pions lâchés sur les 2008 cases
+# posables ne se rencontreraient jamais, et les zones de contrôle resteraient invisibles ; dans un
+# rayon de 4, une soixantaine de cases sont posables et les camps se touchent.
+RAYON_DU_TIRAGE = 4
 
 # Terrains sur lesquels on ne pose pas de pion : ceux qu'une unité terrestre ne peut pas occuper,
 # plus les montagnes, dont la plupart sont inaccessibles au sol (voir moteur/README.md).
@@ -93,7 +98,7 @@ def charger_pions():
         relatif = f"{chemin.parent.name}/{chemin.name}"
         if est_un_pion(relatif):
             pions.append({"cle": pion.cle, "chemin": relatif, "nom": nommer(chemin),
-                          "mouvement": pion.points_de_mouvement})
+                          "mouvement": pion.points_de_mouvement, "camp": pion.camp})
     return pions
 
 
@@ -111,15 +116,42 @@ def nommer(chemin):
 HEXAGONES = charger_hexagones()
 CATALOGUE_DES_PIONS = charger_pions()
 
+# L'état de partie du serveur : les pions actuellement posés. Il est refait à chaque chargement du
+# plateau et suivi à chaque déplacement — c'est de lui que sortent les zones de contrôle, qui
+# demandent de savoir qui occupe quelle case et dans quel camp.
+PLATEAU = Plateau()
+
+
+def secteur_du_tirage(nombre, rayon=RAYON_DU_TIRAGE):
+    """Un coin de carte au hasard, avec au moins `nombre` cases posables à `rayon` cases.
+
+    Le tirage est groupé : dix pions dispersés sur toute la carte ne se rencontreraient jamais.
+    Un centre pris au bord n'a pas toujours assez de voisinage posable — on en tire un autre.
+    """
+    while True:
+        centre = Hex.depuis_cle(random.choice(HEXAGONES))
+        secteur = [cle for cle in HEXAGONES if centre.distance(Hex.depuis_cle(cle)) <= rayon]
+        if len(secteur) >= nombre:
+            return secteur
+
 
 def tirer_les_pions(nombre=NOMBRE_DE_PIONS):
-    """Tire `nombre` hexagones distincts et pose un pion au hasard sur chacun."""
+    """Tire `nombre` cases voisines et pose un pion au hasard sur chacune."""
     tirage = []
-    for cle in random.sample(HEXAGONES, nombre):
+    for cle in random.sample(secteur_du_tirage(nombre), nombre):
         q, r, s = (int(valeur) for valeur in cle.split(","))
         pion = random.choice(CATALOGUE_DES_PIONS)
         tirage.append({"q": q, "r": r, "s": s, "cle": pion["cle"], "image": pion["chemin"],
-                       "nom": pion["nom"], "mouvement": pion["mouvement"]})
+                       "nom": pion["nom"], "mouvement": pion["mouvement"],
+                       "camp": pion["camp"]})
+    return tirage
+
+
+def poser_le_tirage(tirage):
+    """Refait le plateau du serveur d'après un tirage, et le rend."""
+    PLATEAU.vider()
+    for pose in tirage:
+        PLATEAU.poser(Hex(pose["q"], pose["r"], pose["s"]), CATALOGUE[pose["cle"]])
     return tirage
 
 
@@ -127,7 +159,7 @@ def tirer_les_pions(nombre=NOMBRE_DE_PIONS):
 def plateau():
     return render_template(
         "carte.html",
-        pions=json.dumps(tirer_les_pions(), ensure_ascii=False),
+        pions=json.dumps(poser_le_tirage(tirer_les_pions()), ensure_ascii=False),
         grille=json.dumps({"origine": GRILLE_ORIGINE, "matrice": GRILLE_MATRICE,
                            "taille_pion": PION_TAILLE}),
     )
@@ -138,36 +170,45 @@ def deplacements():
     """Les hexagones qu'une unité posée en (q, r, s) peut atteindre.
 
     C'est ici que le navigateur vient chercher les cases à couvrir de fantômes : il n'applique
-    aucune règle lui-même. Le paramètre `pion` dit lequel est en main — son mouvement est repris
-    au catalogue, jamais à la requête. Sans lui, le forfait de 5 points s'applique.
+    aucune règle lui-même. C'est le **plateau du serveur** qui dit quel pion se tient là, dans
+    quel camp, et quels adversaires lui opposent leurs zones de contrôle. Le paramètre `pion` ne
+    sert qu'à interroger une case vide ; sans lui, le forfait de 5 points s'applique et la carte
+    est réputée sans adversaire.
     """
     depart = lire_un_hexagone(request.args)
-    mouvement = lire_le_mouvement(request.args.get("pion"))
-    return {
-        "depart": depart.en_dict(),
-        "pion": request.args.get("pion"),
-        "mouvement": mouvement,
-        "hexagones": [hexagone.en_dict() for hexagone in depart.deplacements(mouvement)],
+    pion = lire_un_pion(request.args.get("pion"))
+    return decrire_un_deplacement(depart, pion) | {
+        "hexagones": [hexagone.en_dict() for hexagone in PLATEAU.deplacements(depart, pion)],
     }
 
 
 @application.route("/deplacer", methods=["POST"])
 def deplacer():
-    """Dit si une unité peut passer de `depart` à `arrivee`, en recalculant la portée ici.
+    """Déplace une unité de `depart` vers `arrivee`, si la règle le permet.
 
-    Le serveur ne croit pas le navigateur sur parole : c'est ce point qui accueillera l'état de
-    partie (qui occupe quelle case, dans quel camp) quand il existera.
+    Le serveur ne croit pas le navigateur sur parole : il recalcule la portée, et c'est lui qui
+    tient le plateau. Un déplacement accepté y est appliqué, sans quoi les zones de contrôle du
+    coup d'après se calculeraient sur des positions périmées.
     """
     demande = request.get_json(silent=True) or {}
     depart = lire_un_hexagone(demande.get("depart") or {})
     arrivee = lire_un_hexagone(demande.get("arrivee") or {})
-    mouvement = lire_le_mouvement(demande.get("pion"))
-    return {
-        "autorise": arrivee in depart.deplacements(mouvement),
-        "depart": depart.en_dict(),
+    pion = lire_un_pion(demande.get("pion"))
+    decrit = decrire_un_deplacement(depart, pion)
+    return decrit | {
+        "autorise": PLATEAU.deplacer(depart, arrivee, pion),
         "arrivee": arrivee.en_dict(),
-        "pion": demande.get("pion"),
-        "mouvement": mouvement,
+    }
+
+
+def decrire_un_deplacement(depart, pion):
+    """Ce que le serveur sait de l'unité qui part : sa case, son pion, son camp, ses points."""
+    pose = PLATEAU.pion_sur(depart) or pion
+    return {
+        "depart": depart.en_dict(),
+        "pion": pose.cle if pose else None,
+        "camp": pose.camp if pose else None,
+        "mouvement": PLATEAU.mouvement_de(depart, pion),
     }
 
 
@@ -226,17 +267,18 @@ def corriger_un_hexagone():
             "corrige": terrain != origine}
 
 
-def lire_le_mouvement(cle):
-    """Les points de mouvement du pion `cle` ; le forfait par défaut si aucun pion n'est donné.
+def lire_un_pion(cle):
+    """Le pion de clé `cle` dans le catalogue, ou `None` si la requête n'en nomme pas.
 
-    Le navigateur ne transmet que la clé du pion : le nombre de points, lui, sort du catalogue.
-    Une clé inconnue est un 400 — mieux vaut refuser que déplacer un pion imaginaire.
+    Le navigateur ne transmet qu'une clé : les points de mouvement et le camp sortent du
+    catalogue, jamais de la requête. Une clé inconnue est un 400 — mieux vaut refuser que
+    déplacer un pion imaginaire.
     """
     if cle is None:
-        return MOUVEMENT_PAR_DEFAUT
+        return None
     if cle not in CATALOGUE:
         abort(400, f"pion inconnu : {cle}")
-    return CATALOGUE[cle].points_de_mouvement
+    return CATALOGUE[cle]
 
 
 def lire_un_hexagone(source):

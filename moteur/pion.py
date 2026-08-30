@@ -8,6 +8,10 @@ tenu pour constant : les pions ont été imprimés en 1986, ils ne changent pas 
 Le moteur n'en utilise pour l'instant qu'une valeur, le mouvement, qui remplace le forfait de
 5 points sur lequel les déplacements étaient calculés jusqu'ici. Le reste est chargé quand même :
 la force et le tir serviront au combat.
+
+Le camp, lui, n'est pas dans `pions.json` : il n'est pas imprimé sur le carton. Il vient de la
+répartition en camps de `game_box/pions/README.md`, tenue ici dans `CAMPS`, et sert à savoir qui
+est l'adversaire de qui — donc quelles zones de contrôle s'exercent contre qui.
 """
 
 import json
@@ -18,6 +22,40 @@ CHEMIN_DU_CATALOGUE = BOITE / "pions" / "pions.json"
 
 # Mouvement d'un pion qui n'en porte pas : un marqueur ne se déplace pas de lui-même.
 IMMOBILE = 0
+
+# Les trois camps. Le neutre n'est l'adversaire de personne : ni il n'exerce de zone de contrôle,
+# ni il n'en subit.
+ALLIANCE, TENEBRES, NEUTRE = "alliance", "tenebres", "neutre"
+
+# Le camp de chaque faction, d'après la section « Camps » de `game_box/pions/README.md`. Les
+# répertoires sans unité — feuilles de suivi, marqueurs, vues d'ensemble — sont neutres faute de
+# mieux : rien n'y combat.
+CAMPS = {
+    "01-yzent": TENEBRES,             # allié d'opportunité du Magiocrate
+    "02-reissland": ALLIANCE,
+    "03-empire": ALLIANCE,
+    "04-templiers": ALLIANCE,
+    "05-population": ALLIANCE,
+    "06-empire-de-lynn": ALLIANCE,    # scénario 3
+    "07-chaos": TENEBRES,
+    "08-non-humains": TENEBRES,
+    "09-elfes": ALLIANCE,
+    "10-nains": ALLIANCE,             # scénario 4
+    "11-orques": TENEBRES,
+    "12-sahuaguins": TENEBRES,
+    "13-dragons": ALLIANCE,
+    "14-morts-vivants": TENEBRES,
+    "15-demons": TENEBRES,
+    "16-volants": NEUTRE,             # scénario 5
+    "17-conjurations": NEUTRE,
+    "18-machines-de-siege": TENEBRES,  # le Juggernaut
+    "19-magiciens": NEUTRE,
+    "20-marqueurs": NEUTRE,
+    "21-vues-d-ensemble": NEUTRE,
+}
+
+# Qui s'oppose à qui. Le neutre n'apparaît pas : il n'a pas d'adversaire.
+ADVERSAIRES = {ALLIANCE: TENEBRES, TENEBRES: ALLIANCE}
 
 
 class Pion:
@@ -68,9 +106,26 @@ class Pion:
             return self.mouvement_vol
         return IMMOBILE
 
+    @property
+    def camp(self):
+        """Le camp de sa faction : `ALLIANCE`, `TENEBRES` ou `NEUTRE` (voir `CAMPS`)."""
+        return CAMPS[self.faction]
+
+    @property
+    def exerce_une_zone_de_controle(self):
+        """Dit si le pion tient sous son contrôle les six cases qui l'environnent.
+
+        Toute unité d'un camp le fait. Les marqueurs n'exercent rien puisqu'ils ne sont pas des
+        unités, et les neutres non plus faute d'adversaire. Le fascicule dispense en outre les
+        leaders, les jeteurs de sorts, les démons et les morts-vivants ordinaires : ces exceptions
+        ne sont pas appliquées, elles sont consignées dans `moteur/README.md`.
+        """
+        return self.est_une_unite and self.camp != NEUTRE
+
     def en_dict(self):
         """Rend le pion sous une forme directement convertible en JSON pour le navigateur."""
         return {"cle": self.cle, "image": self.image, "faction": self.faction,
+                "camp": self.camp,
                 "force": self.force, "mouvement": self.mouvement, "tir": self.tir,
                 "portee": self.portee, "mouvement_vol": self.mouvement_vol,
                 "facultes_speciales": self.facultes_speciales, "symbole": self.symbole,

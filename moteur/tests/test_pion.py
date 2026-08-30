@@ -5,7 +5,8 @@ import json
 import pytest
 
 from moteur.hexagone import Hex
-from moteur.pion import BOITE, CATALOGUE, IMMOBILE, Pion, lire_le_catalogue, pion
+from moteur.pion import (ALLIANCE, BOITE, CAMPS, CATALOGUE, IMMOBILE, NEUTRE, TENEBRES, Pion,
+                         lire_le_catalogue, pion)
 
 BELIER = "yzent-05-1-belier"                       # 10 en force, 2 en mouvement
 INFANTERIE = "empire-01-26-infanteries"            # 4 et 4, la valeur la plus courante
@@ -82,6 +83,54 @@ class TestUnites:
         assert sum(1 for pion_lu in CATALOGUE.values() if pion_lu.est_une_unite) == 115
 
 
+class TestCamps:
+    """La répartition en camps de `game_box/pions/README.md`, faction par faction."""
+
+    def test_chaque_pion_a_un_camp(self):
+        for pion_lu in CATALOGUE.values():
+            assert pion_lu.camp in (ALLIANCE, TENEBRES, NEUTRE), pion_lu
+
+    def test_chaque_faction_de_la_boite_est_classee(self):
+        assert {pion_lu.faction for pion_lu in CATALOGUE.values()} <= CAMPS.keys()
+
+    def test_les_deux_camps_du_jeu(self):
+        assert pion("elfes-01-5-infanteries").camp == ALLIANCE
+        assert pion(INFANTERIE).camp == ALLIANCE          # Empire Tharque
+        assert pion("orques-01-15-infanteries").camp == TENEBRES
+        assert pion(BELIER).camp == TENEBRES              # Yzent, allié d'opportunité
+        assert pion("machines-de-siege-01-juggernaut").camp == TENEBRES
+
+    def test_les_neutres(self):
+        assert pion(CHAUVE_SOURIS).camp == NEUTRE         # une conjuration
+        assert pion("volants-01-5-infanteries").camp == NEUTRE
+        assert pion(MARQUEUR).camp == NEUTRE
+
+    def test_la_repartition_de_la_boite(self):
+        """56 pions des ténèbres, 47 de l'alliance, 24 neutres — dont les 12 qui ne sont pas des
+        pions."""
+        camps = [pion_lu.camp for pion_lu in CATALOGUE.values()]
+        assert (camps.count(TENEBRES), camps.count(ALLIANCE), camps.count(NEUTRE)) == (56, 47, 24)
+
+
+class TestZoneDeControleExercee:
+    def test_une_unite_d_un_camp_en_exerce_une(self):
+        assert pion(INFANTERIE).exerce_une_zone_de_controle
+        assert pion("orques-01-15-infanteries").exerce_une_zone_de_controle
+
+    def test_un_marqueur_n_en_exerce_pas(self):
+        assert not pion(MARQUEUR).exerce_une_zone_de_controle
+        assert not pion(FEUILLE).exerce_une_zone_de_controle
+
+    def test_un_neutre_n_en_exerce_pas(self):
+        assert not pion(CHAUVE_SOURIS).exerce_une_zone_de_controle
+
+    def test_les_exceptions_du_fascicule_ne_sont_pas_appliquees(self):
+        """Leaders, démons et morts-vivants en exercent une ici : voir `moteur/README.md`."""
+        assert pion("elfes-06-1-leader").exerce_une_zone_de_controle
+        assert pion("demons-01-5-infanteries").exerce_une_zone_de_controle
+        assert pion("morts-vivants-01-20-unites-de-squelettes").exerce_une_zone_de_controle
+
+
 class TestPointsDeMouvement:
     def test_le_mouvement_lu_sur_le_carton(self):
         assert pion(BELIER).points_de_mouvement == 2
@@ -130,6 +179,7 @@ class TestRendu:
         rendu = json.loads(json.dumps(pion(BELIER).en_dict()))
         assert rendu["cle"] == BELIER
         assert rendu["points_de_mouvement"] == 2
+        assert rendu["camp"] == TENEBRES
         assert rendu["image"].startswith("game_box/pions/")
 
     def test_le_repr_dit_le_mouvement(self):

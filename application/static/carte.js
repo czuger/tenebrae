@@ -41,7 +41,7 @@ function poser(image, hexagone) {
 }
 
 function libelle(pion, hexagone) {
-  return `${pion.nom} — ${cle(hexagone)} — ${pion.mouvement} PM`;
+  return `${pion.nom} (${pion.camp}) — ${cle(hexagone)} — ${pion.mouvement} PM`;
 }
 
 function creerImage(pion, hexagone, classe) {

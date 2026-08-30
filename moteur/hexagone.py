@@ -148,6 +148,15 @@ class Hex:
         voisins = (Hex(self.q + dq, self.r + dr, self.s + ds) for dq, dr, ds in DIRECTIONS)
         return [voisin for voisin in voisins if voisin.est_sur_la_carte]
 
+    def distance(self, autre):
+        """Le nombre de cases qui séparent les deux hexagones, à vol d'oiseau.
+
+        Distance cubique : elle ne dit rien du coût du trajet, seulement de l'écartement.
+        """
+        self._exiger_une_position()
+        autre._exiger_une_position()
+        return max(abs(self.q - autre.q), abs(self.r - autre.r), abs(self.s - autre.s))
+
     def cout_depuis(self, depart):
         """Points de mouvement pour entrer sur cet hexagone depuis `depart`.
 
@@ -172,13 +181,18 @@ class Hex:
 
         return COUTS.get(terrain, COUT_ORDINAIRE)
 
-    def deplacements(self, mouvement=MOUVEMENT_PAR_DEFAUT):
+    def deplacements(self, mouvement=MOUVEMENT_PAR_DEFAUT, ennemis=(), sous_controle=()):
         """Les hexagones atteignables avec `mouvement` points, cet hexagone excepté.
 
         Parcours de Dijkstra sur les coûts de terrain. Les coûts sont des fractions exactes :
         une route vaut un tiers de point, et cinq tiers ne doivent pas dériver. Une unité posée
         sur un terrain qu'elle ne peut pas occuper — un lac, une rivière, la faille — ne va nulle
         part.
+
+        `ennemis` et `sous_controle` sont des ensembles de clés « q,r,s » : les cases tenues par
+        l'adversaire, où l'on n'entre pas, et celles que ses zones de contrôle couvrent, où l'on
+        entre au tarif du terrain mais où l'on doit s'arrêter. Sans eux, la carte est vide
+        d'adversaire et le parcours ne connaît que le terrain.
         """
         self._exiger_une_position()
         if not self.est_sur_la_carte or self.terrain in INHABITABLES:
@@ -191,7 +205,18 @@ class Hex:
             depense, _, _, hexagone = heapq.heappop(attente)
             if depense > depenses[hexagone.cle]:
                 continue
+            # « Elle doit s'arrêter dès qu'elle y est entrée » : d'une case sous contrôle, on ne
+            # repart pas — sauf de celle d'où l'on part, où l'on se tenait déjà au tour d'avant.
+            depart_sous_controle = hexagone.cle in sous_controle
+            if depart_sous_controle and hexagone != self:
+                continue
             for voisin in hexagone.voisins():
+                if voisin.cle in ennemis:
+                    continue
+                # « On ne peut passer d'une zone de contrôle à une autre qu'après être sorti de la
+                # première » : quitter une case sous contrôle demande une case libre.
+                if depart_sous_controle and voisin.cle in sous_controle:
+                    continue
                 cout = voisin.cout_depuis(hexagone)
                 if cout is None:
                     continue
@@ -223,3 +248,17 @@ class Hex:
         if self.est_vide:
             return "Hex()"
         return f"Hex({self.q}, {self.r}, {self.s})"
+
+
+def zone_de_controle(hexagones):
+    """Les cases que ces unités tiennent sous leur contrôle, en clés « q,r,s ».
+
+    « Chaque unité exerce une influence particulière sur les six cases qui environnent celle
+    qu'elle occupe. » La case occupée elle-même n'en fait pas partie : elle est tenue, pas
+    contrôlée. Les cases hors carte sont écartées ; celles qu'une autre unité occupe ne le sont
+    pas, l'appelant sait déjà qu'on n'y entre pas.
+    """
+    controlees = set()
+    for hexagone in hexagones:
+        controlees.update(voisin.cle for voisin in hexagone.voisins())
+    return frozenset(controlees)

@@ -9,6 +9,7 @@ import pytest
 
 import app
 from moteur.hexagone import CARTE, Hex
+from moteur.pion import CATALOGUE
 
 
 @pytest.fixture
@@ -126,11 +127,16 @@ def test_le_plateau_suit_le_redimensionnement(plateau):
 
 
 def pion_qui_peut_bouger(page):
-    """Rend le premier pion de la page dont le moteur dit qu'il a des cases où aller."""
+    """Rend le premier pion de la page dont le moteur dit qu'il a des cases où aller.
+
+    La portée se calcule avec **le mouvement du pion posé**, celui de son carton : deux pions sur
+    la même case n'ont pas les mêmes fantômes.
+    """
     for indice in range(app.NOMBRE_DE_PIONS):
         pion = page.locator("img.pion:not(.fantome)").nth(indice)
-        position = pion.evaluate("p => [Number(p.dataset.q), Number(p.dataset.r), Number(p.dataset.s)]")
-        atteignables = Hex(*position).deplacements()
+        position, cle = pion.evaluate(
+            "p => [[Number(p.dataset.q), Number(p.dataset.r), Number(p.dataset.s)], p.pion.cle]")
+        atteignables = Hex(*position).deplacements(CATALOGUE[cle].points_de_mouvement)
         if atteignables:
             return pion, Hex(*position), atteignables
     raise AssertionError("aucun des dix pions ne peut se déplacer")
@@ -149,6 +155,27 @@ def test_cliquer_un_pion_montre_ses_deplacements(plateau):
     assert len(poses) == len(atteignables)
     assert {(f["q"], f["r"], f["s"]) for f in poses} == {(h.q, h.r, h.s) for h in atteignables}
     assert (depart.q, depart.r, depart.s) not in {(f["q"], f["r"], f["s"]) for f in poses}
+
+
+def test_les_fantomes_suivent_le_mouvement_du_carton(plateau):
+    """Le nombre de fantômes est celui du mouvement du pion, pas d'un forfait commun."""
+    pion, depart, _ = pion_qui_peut_bouger(plateau)
+    cle = pion.evaluate("p => p.pion.cle")
+    mouvement = CATALOGUE[cle].points_de_mouvement
+    pion.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length > 0")
+
+    poses = fantomes(plateau)
+    assert len(poses) == len(depart.deplacements(mouvement))
+    if mouvement < 5:
+        assert len(poses) < len(depart.deplacements(5))
+
+
+def test_le_libelle_du_pion_dit_son_mouvement(plateau):
+    for indice in range(app.NOMBRE_DE_PIONS):
+        pion = plateau.locator("img.pion:not(.fantome)").nth(indice)
+        titre, cle = pion.evaluate("p => [p.title, p.pion.cle]")
+        assert titre.endswith(f"— {CATALOGUE[cle].points_de_mouvement} PM"), titre
 
 
 def test_les_fantomes_sont_a_moitie_transparents(plateau):

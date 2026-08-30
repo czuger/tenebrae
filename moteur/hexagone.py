@@ -6,8 +6,9 @@ l'import du module, et le résultat est tenu pour constant : le plateau a été 
 ne change pas en cours de partie. Corriger la carte demande donc de relancer le programme.
 
 Le coût du mouvement suit le *Tableau des terrains* du fascicule ; les réserves d'interprétation
-sont consignées dans `moteur/README.md`. À ce stade, toutes les unités sont terrestres et
-disposent du même mouvement : ni vol, ni pouvoirs, ni empilement, ni zones de contrôle.
+sont consignées dans `moteur/README.md`. Le budget de mouvement, lui, vient du pion : c'est
+`moteur.pion` qui le lit sur le carton, et `deplacements()` le reçoit en argument. À ce stade,
+toutes les unités sont terrestres : ni vol, ni pouvoirs, ni empilement, ni zones de contrôle.
 """
 
 import heapq
@@ -84,6 +85,8 @@ ACCES_A_LA_MONTAGNE = frozenset({"colline", "montagne"})
 # et les châteaux n'en sont pas : on ne les traverse pas, mais on peut y tenir garnison.
 INHABITABLES = frozenset({"lac", "riviere", "faille"})
 
+# Forfait de mouvement, pour qui ne dit pas de quel pion il parle : les valeurs des cartons vont
+# de 1 à 20 points, et 5 est la valeur qui servait avant qu'on les lise (voir `moteur.pion`).
 MOUVEMENT_PAR_DEFAUT = 5
 
 

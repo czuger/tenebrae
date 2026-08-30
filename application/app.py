@@ -5,7 +5,9 @@ au gabarit sous forme de JSON (champ caché). C'est le JavaScript qui convertit 
 coordonnées cubiques en pixels et qui pose les pions sur la carte.
 
 Les règles, elles, ne sont pas ici : les déplacements possibles et leur validation viennent de
-`moteur.hexagone`, que les routes /deplacements et /deplacer se contentent d'exposer.
+`moteur.hexagone`, que les routes /deplacements et /deplacer se contentent d'exposer. Chaque pion
+se déplace du nombre de points lu sur son carton (`moteur.pion`) : le navigateur dit **quel** pion
+il a en main, jamais de combien de points il dispose — ce nombre est repris au catalogue.
 
 La route /admin/map_fix est à part : elle sert à corriger à l'œil les erreurs de la transcription
 de la carte, et c'est le seul endroit où l'application écrit dans `game_box/` — dans un fichier à
@@ -33,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from moteur import hexagone as moteur_hexagone  # noqa: E402
 from moteur.hexagone import (CARTE, CARTE_TRANSCRITE, INHABITABLES,  # noqa: E402
                              MOUVEMENT_PAR_DEFAUT, Hex)
+from moteur.pion import CATALOGUE  # noqa: E402
 
 BOITE = Path(__file__).resolve().parent.parent / "game_box"
 PIONS = BOITE / "pions"
@@ -79,12 +82,18 @@ def est_un_pion(chemin):
 
 
 def charger_pions():
-    """Rend la liste des pions disponibles : chemin relatif à `pions/` et libellé."""
+    """Rend la liste des pions disponibles, valeurs lues sur le carton comprises.
+
+    Le catalogue du moteur porte les 127 photos ; on n'en garde que celles qui montrent un pion
+    isolé. Les marqueurs restent du lot : ils se posent sur la carte, ils n'en bougent pas.
+    """
     pions = []
-    for chemin in sorted(PIONS.glob("*/*.jpg")):
+    for pion in sorted(CATALOGUE.values(), key=lambda pion: pion.image):
+        chemin = PIONS / pion.image.removeprefix("game_box/pions/")
         relatif = f"{chemin.parent.name}/{chemin.name}"
         if est_un_pion(relatif):
-            pions.append({"chemin": relatif, "nom": nommer(chemin)})
+            pions.append({"cle": pion.cle, "chemin": relatif, "nom": nommer(chemin),
+                          "mouvement": pion.points_de_mouvement})
     return pions
 
 
@@ -109,7 +118,8 @@ def tirer_les_pions(nombre=NOMBRE_DE_PIONS):
     for cle in random.sample(HEXAGONES, nombre):
         q, r, s = (int(valeur) for valeur in cle.split(","))
         pion = random.choice(CATALOGUE_DES_PIONS)
-        tirage.append({"q": q, "r": r, "s": s, "image": pion["chemin"], "nom": pion["nom"]})
+        tirage.append({"q": q, "r": r, "s": s, "cle": pion["cle"], "image": pion["chemin"],
+                       "nom": pion["nom"], "mouvement": pion["mouvement"]})
     return tirage
 
 
@@ -128,13 +138,16 @@ def deplacements():
     """Les hexagones qu'une unité posée en (q, r, s) peut atteindre.
 
     C'est ici que le navigateur vient chercher les cases à couvrir de fantômes : il n'applique
-    aucune règle lui-même.
+    aucune règle lui-même. Le paramètre `pion` dit lequel est en main — son mouvement est repris
+    au catalogue, jamais à la requête. Sans lui, le forfait de 5 points s'applique.
     """
     depart = lire_un_hexagone(request.args)
+    mouvement = lire_le_mouvement(request.args.get("pion"))
     return {
         "depart": depart.en_dict(),
-        "mouvement": MOUVEMENT_PAR_DEFAUT,
-        "hexagones": [hexagone.en_dict() for hexagone in depart.deplacements()],
+        "pion": request.args.get("pion"),
+        "mouvement": mouvement,
+        "hexagones": [hexagone.en_dict() for hexagone in depart.deplacements(mouvement)],
     }
 
 
@@ -148,10 +161,13 @@ def deplacer():
     demande = request.get_json(silent=True) or {}
     depart = lire_un_hexagone(demande.get("depart") or {})
     arrivee = lire_un_hexagone(demande.get("arrivee") or {})
+    mouvement = lire_le_mouvement(demande.get("pion"))
     return {
-        "autorise": arrivee in depart.deplacements(),
+        "autorise": arrivee in depart.deplacements(mouvement),
         "depart": depart.en_dict(),
         "arrivee": arrivee.en_dict(),
+        "pion": demande.get("pion"),
+        "mouvement": mouvement,
     }
 
 
@@ -208,6 +224,19 @@ def corriger_un_hexagone():
 
     return {"cle": vise.cle, "terrain": terrain, "origine": origine,
             "corrige": terrain != origine}
+
+
+def lire_le_mouvement(cle):
+    """Les points de mouvement du pion `cle` ; le forfait par défaut si aucun pion n'est donné.
+
+    Le navigateur ne transmet que la clé du pion : le nombre de points, lui, sort du catalogue.
+    Une clé inconnue est un 400 — mieux vaut refuser que déplacer un pion imaginaire.
+    """
+    if cle is None:
+        return MOUVEMENT_PAR_DEFAUT
+    if cle not in CATALOGUE:
+        abort(400, f"pion inconnu : {cle}")
+    return CATALOGUE[cle].points_de_mouvement
 
 
 def lire_un_hexagone(source):

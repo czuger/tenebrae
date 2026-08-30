@@ -4,7 +4,8 @@ import json
 import re
 
 import app
-from moteur.hexagone import CARTE, Hex
+from moteur.hexagone import CARTE, MOUVEMENT_PAR_DEFAUT, Hex
+from moteur.pion import CATALOGUE
 
 
 def lire_le_champ_cache(page, identifiant):
@@ -46,6 +47,23 @@ def test_aucun_pion_sur_un_terrain_infranchissable(client):
     for pion in pions:
         terrain = CARTE[f"{pion['q']},{pion['r']},{pion['s']}"][0]
         assert terrain not in app.TERRAINS_INTERDITS
+
+
+def test_chaque_pion_tire_porte_son_mouvement(client):
+    """Le tirage dit quel pion est posé et de combien de points il dispose."""
+    pions = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
+    for pion in pions:
+        assert pion["cle"] in CATALOGUE
+        assert pion["mouvement"] == CATALOGUE[pion["cle"]].points_de_mouvement
+
+
+def test_les_mouvements_du_catalogue_sont_ceux_des_cartons():
+    for pion in app.CATALOGUE_DES_PIONS:
+        assert pion["mouvement"] == CATALOGUE[pion["cle"]].points_de_mouvement
+    mouvements = {pion["cle"]: pion["mouvement"] for pion in app.CATALOGUE_DES_PIONS}
+    assert mouvements["reissland-02-8-cavaleries"] == 8       # la cavalerie va loin
+    assert mouvements["yzent-05-1-belier"] == 2               # le bélier se traîne
+    assert mouvements["marqueurs-03-paralysie"] == 0          # un marqueur ne bouge pas
 
 
 def test_les_images_de_pions_existent(client):
@@ -108,10 +126,16 @@ VOISINE = {"q": 2, "r": 26, "s": -28}
 LOINTAINE = {"q": 30, "r": 2, "s": -32}
 
 
+LENT = "yzent-05-1-belier"            # 2 points
+RAPIDE = "reissland-02-8-cavaleries"  # 8 points
+MARQUEUR = "marqueurs-03-paralysie"   # immobile
+
+
 def test_les_deplacements_decrivent_le_depart(client):
     reponse = client.get("/deplacements", query_string=PLAINE).json
     assert reponse["depart"] == {**PLAINE, "terrain": "plaine"}
-    assert reponse["mouvement"] == 5
+    assert reponse["mouvement"] == MOUVEMENT_PAR_DEFAUT == 5
+    assert reponse["pion"] is None
 
 
 def test_les_deplacements_sont_ceux_du_moteur(client):
@@ -131,6 +155,43 @@ def test_les_hexagones_rendus_portent_leur_terrain(client):
 def test_le_depart_ne_figure_pas_dans_ses_propres_deplacements(client):
     hexagones = client.get("/deplacements", query_string=PLAINE).json["hexagones"]
     assert PLAINE not in [{"q": h["q"], "r": h["r"], "s": h["s"]} for h in hexagones]
+
+
+def test_le_mouvement_est_celui_du_pion(client):
+    """Le pion en main donne le budget : celui du carton, pas le forfait."""
+    for cle, attendu in ((LENT, 2), (RAPIDE, 8), (MARQUEUR, 0)):
+        reponse = client.get("/deplacements", query_string={**PLAINE, "pion": cle}).json
+        assert reponse["pion"] == cle
+        assert reponse["mouvement"] == attendu
+        assert len(reponse["hexagones"]) == len(Hex(**PLAINE).deplacements(attendu))
+
+
+def test_le_pion_lent_va_moins_loin_que_le_rapide(client):
+    lent = client.get("/deplacements", query_string={**PLAINE, "pion": LENT}).json
+    rapide = client.get("/deplacements", query_string={**PLAINE, "pion": RAPIDE}).json
+    atteints = {(h["q"], h["r"], h["s"]) for h in lent["hexagones"]}
+    assert 0 < len(atteints) < len(rapide["hexagones"])
+    assert atteints < {(h["q"], h["r"], h["s"]) for h in rapide["hexagones"]}
+
+
+def test_un_marqueur_ne_va_nulle_part(client):
+    reponse = client.get("/deplacements", query_string={**PLAINE, "pion": MARQUEUR}).json
+    assert reponse["hexagones"] == []
+
+
+def test_un_pion_inconnu_est_refuse(client):
+    """Le mouvement vient du catalogue : un pion qui n'y est pas n'a pas de portée."""
+    assert client.get("/deplacements",
+                      query_string={**PLAINE, "pion": "pion-invente"}).status_code == 400
+    assert client.post("/deplacer", json={"depart": PLAINE, "arrivee": VOISINE,
+                                          "pion": "pion-invente"}).status_code == 400
+
+
+def test_le_mouvement_ne_se_demande_pas(client):
+    """Le navigateur ne transmet qu'une clé : un budget dans la requête est sans effet."""
+    reponse = client.get("/deplacements",
+                         query_string={**PLAINE, "pion": LENT, "mouvement": 99}).json
+    assert reponse["mouvement"] == 2
 
 
 def test_des_coordonnees_illisibles_sont_refusees(client):
@@ -158,6 +219,25 @@ def test_un_deplacement_hors_de_portee_est_refuse(client):
 
 def test_on_ne_se_deplace_pas_sur_place(client):
     assert client.post("/deplacer", json={"depart": PLAINE, "arrivee": PLAINE}).json["autorise"] is False
+
+
+def test_un_deplacement_hors_de_portee_du_pion_est_refuse(client):
+    """Une case atteinte par le forfait ne l'est plus si le pion en main est plus lent."""
+    loin = next(hexagone for hexagone in Hex(**PLAINE).deplacements(5)
+                if hexagone not in Hex(**PLAINE).deplacements(2))
+    arrivee = {"q": loin.q, "r": loin.r, "s": loin.s}
+
+    assert client.post("/deplacer", json={"depart": PLAINE, "arrivee": arrivee}).json["autorise"]
+    refuse = client.post("/deplacer",
+                         json={"depart": PLAINE, "arrivee": arrivee, "pion": LENT}).json
+    assert refuse["autorise"] is False
+    assert (refuse["pion"], refuse["mouvement"]) == (LENT, 2)
+
+
+def test_un_marqueur_ne_se_deplace_pas(client):
+    reponse = client.post("/deplacer",
+                          json={"depart": PLAINE, "arrivee": VOISINE, "pion": MARQUEUR}).json
+    assert reponse["autorise"] is False
 
 
 def test_une_demande_de_deplacement_incomplete_est_refusee(client):

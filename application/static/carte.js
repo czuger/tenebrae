@@ -2,7 +2,8 @@
 //
 // Ce fichier ne connaît aucune règle : il fait de l'affichage. Un clic est converti en
 // coordonnées cubiques « q, r, s » par geometrie.js, puis le serveur dit ce qui est atteignable
-// (/deplacements) et ce qui est permis (/deplacer).
+// (/deplacements) et ce qui est permis (/deplacer). Les requêtes portent la clé du pion en main,
+// pas son mouvement : c'est le serveur qui sait de combien de points il dispose.
 //
 // Les positions sont en pixels de map.jpg, donc dans le repère de #plateau, qui porte l'image à
 // sa taille naturelle et n'est mis à l'échelle qu'ensuite.
@@ -39,12 +40,16 @@ function poser(image, hexagone) {
   image.style.transform = `translate(-50%, -50%) rotate(${inclinaison.toFixed(2)}deg)`;
 }
 
+function libelle(pion, hexagone) {
+  return `${pion.nom} — ${cle(hexagone)} — ${pion.mouvement} PM`;
+}
+
 function creerImage(pion, hexagone, classe) {
   const image = document.createElement("img");
   image.className = classe;
   image.src = `/pions/${pion.image}`;
   image.alt = pion.nom;
-  image.title = `${pion.nom} — ${cle(hexagone)}`;
+  image.title = libelle(pion, hexagone);
   image.style.width = `${grille.taille_pion}px`;
   image.style.height = `${grille.taille_pion}px`;
   poser(image, hexagone);
@@ -83,7 +88,7 @@ async function montrerLesDeplacements(image) {
   image.classList.add("selectionne");
 
   const reponse = await fetch(`/deplacements?q=${image.dataset.q}&r=${image.dataset.r}`
-    + `&s=${image.dataset.s}`);
+    + `&s=${image.dataset.s}&pion=${encodeURIComponent(image.pion.cle)}`);
   if (!reponse.ok) return;
   const { hexagones } = await reponse.json();
   // La sélection a pu changer pendant l'attente de la réponse.
@@ -99,6 +104,7 @@ async function deplacer(image, hexagone) {
     body: JSON.stringify({
       depart: { q: Number(image.dataset.q), r: Number(image.dataset.r), s: Number(image.dataset.s) },
       arrivee: hexagone,
+      pion: image.pion.cle,
     }),
   });
   if (!reponse.ok) return;
@@ -108,7 +114,7 @@ async function deplacer(image, hexagone) {
   effacerLesFantomes();
   // Le pion a été repris en main : il se repose de travers, autrement que la fois d'avant.
   poser(image, arrivee);
-  image.title = `${image.pion.nom} — ${cle(arrivee)}`;
+  image.title = libelle(image.pion, arrivee);
 }
 
 function auClic(evenement) {

@@ -4,6 +4,7 @@ import json
 import re
 
 import app
+from moteur.hexagone import CARTE, Hex
 
 
 def lire_le_champ_cache(page, identifiant):
@@ -33,19 +34,17 @@ def test_les_pions_sont_sur_des_hexagones_distincts(client):
 
 
 def test_les_coordonnees_sont_cubiques(client):
-    """Un hexagone de la grille vérifie q + r + s = 0 et figure dans carte.json."""
-    carte = json.loads((app.CARTE).read_text(encoding="utf-8"))
+    """Un hexagone de la grille vérifie q + r + s = 0 et figure sur la carte."""
     pions = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
     for pion in pions:
         assert pion["q"] + pion["r"] + pion["s"] == 0
-        assert f"{pion['q']},{pion['r']},{pion['s']}" in carte
+        assert f"{pion['q']},{pion['r']},{pion['s']}" in CARTE
 
 
 def test_aucun_pion_sur_un_terrain_infranchissable(client):
-    carte = json.loads((app.CARTE).read_text(encoding="utf-8"))
     pions = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
     for pion in pions:
-        terrain = carte[f"{pion['q']},{pion['r']},{pion['s']}"]
+        terrain = CARTE[f"{pion['q']},{pion['r']},{pion['s']}"][0]
         assert terrain not in app.TERRAINS_INTERDITS
 
 
@@ -100,3 +99,68 @@ def test_les_noms_de_pions_sont_lisibles():
 
 def test_on_ne_sort_pas_du_repertoire_des_pions(client):
     assert client.get("/pions/../../CLAUDE.md").status_code == 404
+
+
+# --- Déplacements ---------------------------------------------------------------------------
+
+PLAINE = {"q": 1, "r": 26, "s": -27}
+VOISINE = {"q": 2, "r": 26, "s": -28}
+LOINTAINE = {"q": 30, "r": 2, "s": -32}
+
+
+def test_les_deplacements_decrivent_le_depart(client):
+    reponse = client.get("/deplacements", query_string=PLAINE).json
+    assert reponse["depart"] == {**PLAINE, "terrain": "plaine"}
+    assert reponse["mouvement"] == 5
+
+
+def test_les_deplacements_sont_ceux_du_moteur(client):
+    """La route n'ajoute aucune règle : elle expose Hex.deplacements()."""
+    attendus = {(h.q, h.r, h.s) for h in Hex(**PLAINE).deplacements()}
+    rendus = {(h["q"], h["r"], h["s"])
+              for h in client.get("/deplacements", query_string=PLAINE).json["hexagones"]}
+    assert rendus == attendus and rendus
+
+
+def test_les_hexagones_rendus_portent_leur_terrain(client):
+    for hexagone in client.get("/deplacements", query_string=PLAINE).json["hexagones"]:
+        assert hexagone["q"] + hexagone["r"] + hexagone["s"] == 0
+        assert hexagone["terrain"] == CARTE[f"{hexagone['q']},{hexagone['r']},{hexagone['s']}"][0]
+
+
+def test_le_depart_ne_figure_pas_dans_ses_propres_deplacements(client):
+    hexagones = client.get("/deplacements", query_string=PLAINE).json["hexagones"]
+    assert PLAINE not in [{"q": h["q"], "r": h["r"], "s": h["s"]} for h in hexagones]
+
+
+def test_des_coordonnees_illisibles_sont_refusees(client):
+    assert client.get("/deplacements", query_string={"q": "a", "r": 0, "s": 0}).status_code == 400
+    assert client.get("/deplacements", query_string={"q": 1, "r": 26}).status_code == 400
+    assert client.get("/deplacements",
+                      query_string={"q": 1, "r": 26, "s": 0}).status_code == 400
+
+
+def test_un_hexagone_hors_carte_est_introuvable(client):
+    assert client.get("/deplacements",
+                      query_string={"q": 99, "r": 0, "s": -99}).status_code == 404
+
+
+def test_un_deplacement_a_portee_est_autorise(client):
+    reponse = client.post("/deplacer", json={"depart": PLAINE, "arrivee": VOISINE}).json
+    assert reponse["autorise"] is True
+    assert reponse["arrivee"] == {**VOISINE, "terrain": "plaine"}
+
+
+def test_un_deplacement_hors_de_portee_est_refuse(client):
+    reponse = client.post("/deplacer", json={"depart": PLAINE, "arrivee": LOINTAINE}).json
+    assert reponse["autorise"] is False
+
+
+def test_on_ne_se_deplace_pas_sur_place(client):
+    assert client.post("/deplacer", json={"depart": PLAINE, "arrivee": PLAINE}).json["autorise"] is False
+
+
+def test_une_demande_de_deplacement_incomplete_est_refusee(client):
+    assert client.post("/deplacer", json={"depart": PLAINE}).status_code == 400
+    assert client.post("/deplacer", json={}).status_code == 400
+    assert client.post("/deplacer", data="pas du json").status_code == 400

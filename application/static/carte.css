@@ -24,4 +24,17 @@ body {
   transform-origin: center;
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.55);
   border-radius: 2px;
+  z-index: 1;
+}
+
+.pion.selectionne {
+  outline: 2px solid #f6e7c1;
+  box-shadow: 0 0 12px rgba(246, 231, 193, 0.8);
+}
+
+/* Les cases atteignables : le même pion, effacé, sous les pions posés. */
+.fantome {
+  opacity: 0.5;
+  box-shadow: none;
+  z-index: 0;
 }

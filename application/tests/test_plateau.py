@@ -8,6 +8,7 @@ import math
 import pytest
 
 import app
+from moteur.hexagone import CARTE, Hex
 
 
 @pytest.fixture
@@ -32,13 +33,13 @@ def centre_attendu(q, r):
             origine[1] + matrice[1][0] * q + matrice[1][1] * r)
 
 
-def geometrie_des_pions(page):
-    """Rend, pour chaque pion, sa position rendue ramenée en pixels de map.jpg."""
-    return page.evaluate("""() => {
+def geometrie_des_pions(page, selecteur="img.pion:not(.fantome)"):
+    """Rend, pour chaque image de `selecteur`, sa position rendue en pixels de map.jpg."""
+    return page.evaluate("""(selecteur) => {
         const carte = document.getElementById('carte');
         const cadreCarte = carte.getBoundingClientRect();
         const echelle = cadreCarte.width / carte.naturalWidth;
-        return [...document.querySelectorAll('img.pion')].map((pion) => {
+        return [...document.querySelectorAll(selecteur)].map((pion) => {
             const cadre = pion.getBoundingClientRect();
             const matrice = new DOMMatrix(getComputedStyle(pion).transform);
             return {
@@ -50,9 +51,10 @@ def geometrie_des_pions(page):
                 angle: Math.atan2(matrice.b, matrice.a) * 180 / Math.PI,
                 largeur: pion.offsetWidth,
                 echelle: echelle,
+                opacite: Number(getComputedStyle(pion).opacity),
             };
         });
-    }""")
+    }""", selecteur)
 
 
 def test_la_carte_est_affichee(plateau):
@@ -118,3 +120,129 @@ def test_le_plateau_suit_le_redimensionnement(plateau):
         x, y = centre_attendu(pion["q"], pion["r"])
         assert math.isclose(pion["x"], x, abs_tol=1.0), pion
         assert math.isclose(pion["y"], y, abs_tol=1.0), pion
+
+
+# --- Fantômes et déplacement ----------------------------------------------------------------
+
+
+def pion_qui_peut_bouger(page):
+    """Rend le premier pion de la page dont le moteur dit qu'il a des cases où aller."""
+    for indice in range(app.NOMBRE_DE_PIONS):
+        pion = page.locator("img.pion:not(.fantome)").nth(indice)
+        position = pion.evaluate("p => [Number(p.dataset.q), Number(p.dataset.r), Number(p.dataset.s)]")
+        atteignables = Hex(*position).deplacements()
+        if atteignables:
+            return pion, Hex(*position), atteignables
+    raise AssertionError("aucun des dix pions ne peut se déplacer")
+
+
+def fantomes(page):
+    return geometrie_des_pions(page, "img.fantome")
+
+
+def test_cliquer_un_pion_montre_ses_deplacements(plateau):
+    pion, depart, atteignables = pion_qui_peut_bouger(plateau)
+    pion.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length > 0")
+
+    poses = fantomes(plateau)
+    assert len(poses) == len(atteignables)
+    assert {(f["q"], f["r"], f["s"]) for f in poses} == {(h.q, h.r, h.s) for h in atteignables}
+    assert (depart.q, depart.r, depart.s) not in {(f["q"], f["r"], f["s"]) for f in poses}
+
+
+def test_les_fantomes_sont_a_moitie_transparents(plateau):
+    pion, _, _ = pion_qui_peut_bouger(plateau)
+    pion.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length > 0")
+
+    for fantome in fantomes(plateau):
+        assert fantome["opacite"] == 0.5
+
+
+def test_les_fantomes_reprennent_l_image_du_pion(plateau):
+    pion, _, _ = pion_qui_peut_bouger(plateau)
+    source = pion.evaluate("p => p.src")
+    pion.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length > 0")
+
+    assert plateau.evaluate(
+        "(src) => [...document.querySelectorAll('img.fantome')].every((f) => f.src === src)", source
+    )
+
+
+def test_chaque_fantome_est_centre_et_incline(plateau):
+    pion, _, _ = pion_qui_peut_bouger(plateau)
+    pion.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length > 0")
+
+    for fantome in fantomes(plateau):
+        x, y = centre_attendu(fantome["q"], fantome["r"])
+        assert math.isclose(fantome["x"], x, abs_tol=1.0), fantome
+        assert math.isclose(fantome["y"], y, abs_tol=1.0), fantome
+        assert abs(fantome["angle"]) <= 5.0, fantome
+
+
+def test_cliquer_un_fantome_deplace_le_pion(plateau):
+    pion, depart, _ = pion_qui_peut_bouger(plateau)
+    pion.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length > 0")
+
+    cible = plateau.locator("img.fantome").last
+    arrivee = cible.evaluate("f => [Number(f.dataset.q), Number(f.dataset.r), Number(f.dataset.s)]")
+    cible.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length === 0")
+
+    assert pion.evaluate(
+        "p => [Number(p.dataset.q), Number(p.dataset.r), Number(p.dataset.s)]") == arrivee
+    assert arrivee != [depart.q, depart.r, depart.s]
+
+    pose = next(p for p in geometrie_des_pions(plateau) if [p["q"], p["r"], p["s"]] == arrivee)
+    x, y = centre_attendu(*arrivee[:2])
+    assert math.isclose(pose["x"], x, abs_tol=1.0) and math.isclose(pose["y"], y, abs_tol=1.0)
+    assert abs(pose["angle"]) <= 5.0
+
+
+def test_les_dix_pions_restent_dix_apres_un_deplacement(plateau):
+    pion, _, _ = pion_qui_peut_bouger(plateau)
+    pion.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length > 0")
+    plateau.locator("img.fantome").last.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length === 0")
+
+    assert plateau.locator("img.pion:not(.fantome)").count() == app.NOMBRE_DE_PIONS
+
+
+def test_recliquer_le_pion_efface_les_fantomes(plateau):
+    pion, _, _ = pion_qui_peut_bouger(plateau)
+    pion.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length > 0")
+    pion.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length === 0")
+
+
+def test_cliquer_ailleurs_efface_les_fantomes(plateau):
+    """Un clic sur une case sans pion ni fantôme repose la sélection."""
+    pion, depart, atteignables = pion_qui_peut_bouger(plateau)
+    pion.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length > 0")
+
+    occupes = set(plateau.evaluate(
+        "() => [...document.querySelectorAll('img.pion:not(.fantome)')]"
+        ".map((p) => `${p.dataset.q},${p.dataset.r},${p.dataset.s}`)"))
+    interdits = {hexagone.cle for hexagone in atteignables} | {depart.cle} | occupes
+    ailleurs = next(Hex.depuis_cle(cle) for cle in CARTE if cle not in interdits)
+    cliquer_l_hexagone(plateau, ailleurs)
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length === 0")
+
+
+def cliquer_l_hexagone(page, hexagone):
+    """Clique au centre de l'hexagone, en pixels d'écran."""
+    x, y = centre_attendu(hexagone.q, hexagone.r)
+    point = page.evaluate("""([x, y]) => {
+        const carte = document.getElementById('carte');
+        const cadre = carte.getBoundingClientRect();
+        const echelle = cadre.width / carte.naturalWidth;
+        return [cadre.x + x * echelle, cadre.y + y * echelle];
+    }""", [x, y])
+    page.mouse.click(point[0], point[1])

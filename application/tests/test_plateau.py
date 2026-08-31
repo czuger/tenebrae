@@ -307,13 +307,213 @@ def adversaire_de(pion):
                 if autre.camp == ADVERSAIRES[pion.camp] and autre.est_une_unite)
 
 
-def test_le_libelle_du_pion_dit_son_camp_et_son_mouvement(plateau):
+# --- La fiche de l'unité survolée ---------------------------------------------------------------
+
+
+def fiche_lue(page):
+    """Ce que la fiche montre en ce moment : son état, ses textes et ses valeurs."""
+    return page.evaluate("""() => {
+        const paires = [...document.getElementById('fiche-valeurs').children];
+        const valeurs = {};
+        for (let i = 0; i < paires.length; i += 2) {
+            valeurs[paires[i].textContent] = paires[i + 1].textContent;
+        }
+        const image = document.getElementById('fiche-image');
+        const remarques = document.getElementById('fiche-remarques');
+        return {
+            cachee: document.getElementById('fiche').hidden,
+            nom: document.getElementById('fiche-nom').textContent,
+            appoint: document.getElementById('fiche-appoint').textContent,
+            symbole: document.getElementById('fiche-symbole').textContent,
+            valeurs: valeurs,
+            remarques: remarques.hidden ? null : remarques.textContent,
+            source: image.src,
+            chargee: image.complete && image.naturalWidth > 0,
+        };
+    }""")
+
+
+def survoler(page, pion):
+    """Survole le pion et attend que sa fiche paraisse ; rend ce qu'elle montre."""
+    pion.hover()
+    page.wait_for_function("() => !document.getElementById('fiche').hidden")
+    return fiche_lue(page)
+
+
+def quitter_le_pion(page):
+    """Éloigne le pointeur de tout pion, et attend que la fiche se referme."""
+    page.mouse.move(1, 1)
+    page.wait_for_function("() => document.getElementById('fiche').hidden")
+
+
+def portee_sur_le_carton(valeur):
+    """La valeur telle que la fiche l'écrit : ce que le carton ne porte pas devient un tiret."""
+    return "—" if valeur is None else str(valeur)
+
+
+def test_la_fiche_est_cachee_tant_qu_on_ne_survole_rien(plateau):
+    assert fiche_lue(plateau)["cachee"]
+
+
+def test_survoler_un_pion_montre_les_valeurs_de_son_carton(plateau):
+    """Toute unité posée montre, au survol, ce que son carton porte — et rien d'inventé."""
     for indice in range(len(app.SCENARIO)):
         pion = plateau.locator("img.pion:not(.fantome)").nth(indice)
-        titre, cle = pion.evaluate("p => [p.title, p.pion.cle]")
+        cle = pion.evaluate("p => p.pion.cle")
         pose = CATALOGUE[cle]
-        assert f"({pose.camp})" in titre, titre
-        assert titre.endswith(f"— {pose.points_de_mouvement} PM"), titre
+
+        fiche = survoler(plateau, pion)
+        assert fiche["valeurs"] == {
+            "Force": portee_sur_le_carton(pose.force),
+            "Mouvement": str(pose.points_de_mouvement),
+            "Tir": portee_sur_le_carton(pose.tir),
+            "Portée": portee_sur_le_carton(pose.portee),
+            "Vol": portee_sur_le_carton(pose.mouvement_vol),
+            "Facultés": portee_sur_le_carton(pose.facultes_speciales),
+        }, cle
+        assert fiche["symbole"] == portee_sur_le_carton(pose.symbole), cle
+        # Une remarque est ce que la photo laisse en suspens : pas de remarque, pas de ligne.
+        assert fiche["remarques"] == pose.remarques, cle
+        quitter_le_pion(plateau)
+
+
+def test_les_deux_pions_sans_remarque_n_en_montrent_pas_la_ligne(plateau):
+    """La ligne des remarques ne paraît que s'il y a quelque chose à dire."""
+    sans, avec = 0, 0
+    for indice in range(len(app.SCENARIO)):
+        pion = plateau.locator("img.pion:not(.fantome)").nth(indice)
+        remarque = CATALOGUE[pion.evaluate("p => p.pion.cle")].remarques
+        lue = survoler(plateau, pion)["remarques"]
+        if remarque is None:
+            assert lue is None
+            sans += 1
+        else:
+            assert lue == remarque
+            avec += 1
+        quitter_le_pion(plateau)
+    assert sans and avec, "le scénario doit porter les deux cas pour que le test vaille"
+
+
+def test_la_fiche_dit_le_nom_le_camp_et_la_case_du_pion(plateau):
+    pion = plateau.locator("img.pion:not(.fantome)").first
+    cle, case = pion.evaluate(
+        "p => [p.pion.cle, `${p.dataset.q},${p.dataset.r},${p.dataset.s}`]")
+
+    fiche = survoler(plateau, pion)
+    assert fiche["nom"] == app.PIONS_PAR_CLE[cle]["nom"]
+    assert fiche["appoint"] == f"{CATALOGUE[cle].camp} — {case}"
+
+
+def test_la_fiche_montre_la_photo_du_pion(plateau):
+    """C'est là qu'on lit le carton : la carte ajustée n'en montre qu'une quinzaine de pixels."""
+    pion = plateau.locator("img.pion:not(.fantome)").first
+    source = pion.evaluate("p => p.src")
+
+    fiche = survoler(plateau, pion)
+    assert fiche["source"] == source
+    assert fiche["chargee"]
+
+
+def test_quitter_le_pion_referme_la_fiche(plateau):
+    pion = plateau.locator("img.pion:not(.fantome)").first
+    survoler(plateau, pion)
+    quitter_le_pion(plateau)
+    assert fiche_lue(plateau)["cachee"]
+
+
+def test_survoler_un_fantome_ne_montre_pas_de_fiche(plateau):
+    """Un fantôme répète l'unité sélectionnée : sa fiche n'apprendrait rien."""
+    pion, _, _ = pion_qui_peut_bouger(plateau)
+    montrer_les_fantomes(plateau, pion)
+    quitter_le_pion(plateau)
+
+    plateau.locator("img.fantome").last.hover()
+    assert fiche_lue(plateau)["cachee"]
+
+
+def test_la_fiche_dit_la_case_ou_le_pion_vient_d_arriver(plateau):
+    """Le pion déplacé, sa fiche doit donner sa nouvelle case, pas celle du scénario."""
+    pion, depart, _ = pion_qui_peut_bouger(plateau)
+    pion.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length > 0")
+    plateau.locator("img.fantome").last.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length === 0")
+
+    case = pion.evaluate("p => `${p.dataset.q},${p.dataset.r},${p.dataset.s}`")
+    assert case != depart.cle
+    assert survoler(plateau, pion)["appoint"].endswith(f"— {case}")
+
+
+def test_la_fiche_prolonge_la_barre_des_boutons_de_zoom(plateau):
+    """La fiche n'est pas un encadré posé sur la carte : elle est dans la barre d'outils.
+
+    C'est ce qui lui interdit de bouger d'un pion à l'autre — la barre s'allonge, elle ne se
+    déplace pas — et ce qui la tient hors du chemin, la barre occupant déjà son coin.
+    """
+    assert plateau.locator("#outils > #fiche").count() == 1
+
+
+def test_la_fiche_ne_bouge_pas_d_un_pion_a_l_autre(plateau):
+    """La barre est en place fixe : survoler une autre unité ne la déplace pas."""
+    coins = set()
+    for indice in range(len(app.SCENARIO)):
+        pion = plateau.locator("img.pion:not(.fantome)").nth(indice)
+        survoler(plateau, pion)
+        coins.add(tuple(plateau.evaluate(
+            "() => { const c = document.getElementById('outils').getBoundingClientRect();"
+            "        return [Math.round(c.x), Math.round(c.y)]; }")))
+    assert len(coins) == 1, coins
+
+
+def hauteur_de_la_barre(page):
+    return page.evaluate(
+        "() => Math.round(document.getElementById('outils').getBoundingClientRect().height)")
+
+
+def test_la_barre_garde_sa_taille_quand_la_fiche_parait(plateau):
+    """La fiche ne fait pas grandir la barre d'outils : même hauteur, garnie ou non.
+
+    Sur une fenêtre étroite, la barre se laisse rogner par la droite plutôt que de passer à la
+    ligne — un repli la ferait doubler de hauteur. Le survol est ici simulé plutôt que joué à la
+    souris : une fois la fenêtre rétrécie, le pion visé peut se retrouver sous la barre, hors
+    d'atteinte du pointeur, et ce qu'on éprouve est la mise en page, pas le pointage.
+    """
+    # Le pion au libellé le plus long : c'est lui qui allonge le plus la barre.
+    indice = plateau.evaluate("""() => {
+        const pions = [...document.querySelectorAll('img.pion:not(.fantome)')];
+        const large = pions.slice().sort((a, b) =>
+            (b.pion.nom + (b.pion.remarques ?? '')).length
+            - (a.pion.nom + (a.pion.remarques ?? '')).length)[0];
+        return pions.indexOf(large);
+    }""")
+    survol = """([indice, evenement]) => {
+        const pion = document.querySelectorAll('img.pion:not(.fantome)')[indice];
+        pion.dispatchEvent(new MouseEvent(evenement, { bubbles: true }));
+    }"""
+
+    for largeur in (1400, 800):
+        plateau.set_viewport_size({"width": largeur, "height": 900})
+        plateau.wait_for_function("(l) => window.innerWidth === l", arg=largeur)
+        plateau.evaluate(survol, [indice, "mouseout"])
+        nue = hauteur_de_la_barre(plateau)
+
+        plateau.evaluate(survol, [indice, "mouseover"])
+        assert not fiche_lue(plateau)["cachee"]
+        assert hauteur_de_la_barre(plateau) == nue, largeur
+
+
+def test_la_fiche_ne_capte_pas_les_clics(plateau):
+    """La barre porte des boutons, mais la fiche, elle, laisse le clic filer vers la carte :
+    sans quoi elle rendrait injouable la bande de carte qu'elle recouvre."""
+    pion = plateau.locator("img.pion:not(.fantome)").first
+    survoler(plateau, pion)
+    assert plateau.evaluate("""() => {
+        const fiche = document.getElementById('fiche');
+        const cadre = fiche.getBoundingClientRect();
+        const vise = document.elementFromPoint(cadre.x + cadre.width / 2,
+                                               cadre.y + cadre.height / 2);
+        return vise === null || !fiche.contains(vise);
+    }""")
 
 
 def test_les_fantomes_sont_a_moitie_transparents(plateau):

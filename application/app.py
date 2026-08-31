@@ -79,6 +79,14 @@ def charger_pions():
 
     Le catalogue du moteur porte les 127 photos ; on n'en garde que celles qui montrent un pion
     isolé. Les marqueurs restent du lot : ils se posent sur la carte, ils n'en bougent pas.
+
+    Tout ce qui est imprimé sur le carton part avec — force, tir, portée, vol, symbole, facultés
+    et remarques —, pour la fiche que le navigateur montre au survol. Les valeurs absentes du
+    carton restent à `None` : c'est l'affichage qui les rend par un tiret.
+
+    `Pion.en_dict()` n'est pas repris tel quel : son `mouvement` est la valeur brute du carton,
+    parfois absente, quand la clé servie ici est le budget de déplacement, et son `image` est le
+    chemin du dépôt, non celui de la route `/pions/`.
     """
     pions = []
     for pion in sorted(CATALOGUE.values(), key=lambda pion: pion.image):
@@ -86,7 +94,12 @@ def charger_pions():
         relatif = f"{chemin.parent.name}/{chemin.name}"
         if est_un_pion(relatif):
             pions.append({"cle": pion.cle, "chemin": relatif, "nom": nommer(chemin),
-                          "mouvement": pion.points_de_mouvement, "camp": pion.camp})
+                          "mouvement": pion.points_de_mouvement, "camp": pion.camp,
+                          "faction": pion.faction, "symbole": pion.symbole,
+                          "force": pion.force, "tir": pion.tir, "portee": pion.portee,
+                          "mouvement_vol": pion.mouvement_vol,
+                          "facultes_speciales": pion.facultes_speciales,
+                          "remarques": pion.remarques})
     return pions
 
 
@@ -117,18 +130,19 @@ PLATEAU = Plateau()
 def poser_la_mise_en_place():
     """Refait le plateau du serveur d'après le scénario, et rend ses unités pour l'affichage.
 
-    Le scénario ne donne qu'un couple « case → clé de pion » ; l'image, le nom, le mouvement et le
-    camp sont repris au catalogue, comme pour n'importe quel pion servi par l'application.
+    Le scénario ne donne qu'un couple « case → clé de pion » ; tout le reste — l'image, le nom et
+    les valeurs du carton — est repris au catalogue, comme pour n'importe quel pion servi par
+    l'application. L'entrée du catalogue part entière : ce qu'on lui ajoutera suivra tout seul.
+    Seul `chemin` est renommé, en `image`, parce que c'est ce que le navigateur met dans `src`.
     """
     PLATEAU.vider()
     poses = []
     for case, cle in SCENARIO.placement.items():
         hexagone = Hex.depuis_cle(case)
-        pion = PIONS_PAR_CLE[cle]
+        pion = dict(PIONS_PAR_CLE[cle])
         PLATEAU.poser(hexagone, CATALOGUE[cle])
-        poses.append({"q": hexagone.q, "r": hexagone.r, "s": hexagone.s, "cle": cle,
-                      "image": pion["chemin"], "nom": pion["nom"],
-                      "mouvement": pion["mouvement"], "camp": pion["camp"]})
+        poses.append({"q": hexagone.q, "r": hexagone.r, "s": hexagone.s,
+                      "image": pion.pop("chemin")} | pion)
     return poses
 
 

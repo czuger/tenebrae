@@ -26,3 +26,99 @@ body {
   box-shadow: none;
   z-index: 0;
 }
+
+/* La fiche allonge la barre d'outils, qui doit pourtant garder la taille qu'elle a sans elle :
+   elle ne passe donc jamais à la ligne — sur une fenêtre étroite, elle se laisse rogner par la
+   droite. Le repli reste possible sur la page de correction, dont la barre est plus courte. */
+#outils {
+  max-width: calc(100vw - 1.2rem);
+  box-sizing: border-box;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+/* La fiche de l'unité survolée prolonge la barre d'outils, dans le fil des boutons de zoom : un
+   trait la sépare d'eux, comme le compteur de la page de correction. Elle ne se pose donc jamais
+   sur la carte et ne bouge pas d'un pion à l'autre — la barre s'allonge, voilà tout.
+
+   `hidden` doit l'emporter sur le `display: flex` : sans cette garde, la fiche resterait visible
+   quand on ne survole rien. */
+#fiche {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-left: 0.5rem;
+  border-left: 1px solid #6b5a44;
+  /* Plus petite que le reste de la barre : la fiche ne doit pas la faire grandir. Sa hauteur est
+     celle des boutons de zoom, la barre garde donc la même taille qu'on survole ou non. */
+  font-size: 0.75rem;
+  /* Un libellé qui passerait à la ligne ferait grandir la barre ; rogné, il la laisse intacte. */
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  /* La barre porte des boutons ; la fiche, elle, laisse passer les clics vers la carte. */
+  pointer-events: none;
+}
+
+#fiche[hidden] {
+  display: none;
+}
+
+/* Le carton en vignette : de quoi reconnaître le pion d'un coup d'œil. Ses chiffres sont écrits
+   en toutes lettres à côté — elle n'a donc pas à être lisible, et se règle sur la hauteur des
+   boutons de zoom, qui décide de celle de la barre. */
+#fiche-image {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 2px;
+}
+
+#fiche-appoint,
+#fiche-symbole,
+#fiche-remarques {
+  color: #d9c9a5;
+}
+
+/* Rien ne se comprime, sauf les remarques : elles cèdent la place les premières, étant ce que la
+   fiche a de moins utile au jeu. */
+#fiche-image,
+#fiche-nom,
+#fiche-appoint,
+#fiche-symbole,
+#fiche-valeurs {
+  flex: none;
+}
+
+#fiche-remarques {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-style: italic;
+}
+
+/* Les six valeurs chiffrées, en ligne : « Force 25   Mouvement 3   Tir 5 … ». L'écart est plus
+   grand entre deux paires qu'entre un libellé et sa valeur, pour qu'elles se lisent par deux. */
+#fiche-valeurs {
+  display: flex;
+  gap: 0.15rem;
+  margin: 0;
+}
+
+#fiche-valeurs dt {
+  color: #d9c9a5;
+}
+
+#fiche-valeurs dt:not(:first-of-type) {
+  margin-left: 0.6rem;
+}
+
+#fiche-valeurs dd {
+  margin: 0;
+}
+
+/* Ce que le carton ne porte pas. */
+#fiche-valeurs dd.absente {
+  color: #6b5a44;
+}

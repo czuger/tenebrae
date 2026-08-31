@@ -3,7 +3,7 @@
 Une application Flask qui sert `game_box/map.jpg`, y **met en place un scénario** — le n° 4,
 « La guerre des nains », 21 nains face à 31 orques — et laisse le navigateur faire la géométrie.
 Cliquer un pion montre en **fantômes** les cases où il peut aller ; cliquer un fantôme l'y
-déplace.
+déplace. Le survoler ouvre sa **fiche** : sa photo agrandie et tout ce que son carton porte.
 
 Les règles ne sont pas ici : les déplacements viennent de `moteur/`, l'application ne fait que les
 servir. Le JavaScript ne décide jamais de la légalité d'un mouvement. **Chaque pion se déplace du
@@ -38,7 +38,7 @@ molette, boutons, défilement — dans `static/zoom.js` et `static/zoom.css`.
 
 | Champ caché | Contenu |
 | --- | --- |
-| `#pions` | une entrée `{q, r, s, cle, image, nom, mouvement, camp}` par unité du scénario — la position en coordonnées cubiques, le pion posé, ses points de mouvement et son camp |
+| `#pions` | une entrée par unité du scénario : `{q, r, s}` sa case, `{cle, image, nom}` le pion posé, `{mouvement, camp}` ce dont le déplacement se sert, et les valeurs de son carton (voir « Survoler une unité ») |
 | `#grille` | `origine`, `matrice` et `taille_pion` : le calage de la grille sur `map.jpg` |
 
 ## Le plateau du serveur
@@ -71,7 +71,8 @@ de pixels, on n'y lit rien. Le plateau se zoome donc comme la page de correction
 code (`static/zoom.js`) :
 
 - la **molette** approche en gardant sous le curseur le point qu'il désignait ; les boutons `+`,
-  `−` et « ajuster » de la barre d'outils font la même chose depuis le centre de la fenêtre ;
+  `−` et « ajuster » de la barre d'outils font la même chose depuis le centre de la fenêtre — et
+  c'est cette même barre qui porte la fiche du pion survolé (voir « Survoler une unité ») ;
 - l'échelle va de 5 % à 100 % — au-delà du scan, il n'y a plus rien à voir ;
 - **le zoom ne touche à rien d'autre.** Tout ce qui est posé sur la carte — pions, fantômes,
   surlignage — est exprimé en pixels de `map.jpg`, dans le repère de `#plateau` : le mettre à
@@ -110,6 +111,40 @@ de 5 points s'applique et la carte est réputée sans adversaire.
 3. clic ailleurs, ou de nouveau sur le pion sélectionné → les fantômes s'effacent.
 
 `/deplacer` recalcule la portée côté serveur au lieu de croire le navigateur.
+
+## Survoler une unité
+
+La carte s'ouvre ajustée à la fenêtre, où un pion fait une quinzaine de pixels : on n'y lit ni son
+dessin ni ses chiffres. **Survoler une unité remplit sa fiche**, qui n'est pas un encadré posé sur
+la carte mais **le prolongement de la barre des boutons de zoom** : un trait la sépare d'eux,
+comme le compteur de la page de correction. La barre s'allonge, elle ne se déplace pas.
+
+- **Le survol n'interroge jamais le serveur.** Tout ce que la fiche montre est déjà dans le champ
+  caché `#pions`, valeurs du carton comprises ; c'est le même parti que la page de correction, où
+  les 2280 terrains partent d'un coup.
+- **La barre garde la taille qu'elle a sans la fiche.** C'est ce qui règle le corps du texte
+  (0.75 rem) et la vignette (20 px) : la hauteur reste celle des boutons de zoom, qu'on survole
+  une unité ou non. La fiche **ne passe donc jamais à la ligne** — sur une fenêtre étroite, elle
+  se laisse rogner par la droite, et les remarques cèdent la place les premières, étant ce qu'elle
+  a de moins utile au jeu. En dessous d'un millier de pixels, les dernières valeurs peuvent y
+  passer aussi.
+- **Tout tient sur une ligne** : le carton en vignette, le nom, le camp et la case, le symbole,
+  les six valeurs chiffrées, les remarques.
+- **La vignette sert à reconnaître le pion, pas à le lire** : ses chiffres sont écrits en toutes
+  lettres à côté.
+- **Ce que le carton ne porte pas est rendu par un tiret**, jamais par un zéro : un pion sans tir
+  ne tire pas, il ne tire pas « à 0 ». Les remarques, elles, ne sont pas une valeur du carton mais
+  ce que la photo laisse en suspens — un nom illisible, un cadrage incomplet : **leur mention ne
+  paraît que s'il y a quelque chose à dire**.
+- « Mouvement » est le budget dont le moteur se sert — le mouvement au sol, à défaut celui de vol,
+  0 pour un marqueur (voir `moteur/README.md`) —, et non la valeur brute que `pions.json` laisse
+  parfois vide.
+- **La barre est hors de `#plateau`** : le zoom ne l'atteint pas, la fiche garde sa taille à toute
+  échelle. Et elle est **en place fixe** : d'un pion à l'autre, rien ne bouge.
+- **La fiche laisse passer les clics** (`pointer-events: none`) là où les boutons, eux, les
+  prennent : sans quoi elle rendrait injouable la bande de carte qu'elle recouvre.
+- **Les fantômes n'ont pas de fiche** : ils répètent l'unité déjà sélectionnée, et couvrir la
+  carte de survols qui disent tous la même chose n'apprendrait rien.
 
 ## Corriger la carte — `/admin/map_fix`
 
@@ -183,8 +218,8 @@ chargement de `/`.
   qui permet d'éprouver un déplacement deux fois de suite et d'obtenir le même résultat. En
   contrepartie, il n'y a aucun moyen de reprendre une partie en cours — le rechargement l'efface.
 - **Le mouvement est celui du carton** : chaque pion emporte ses points, lus sur la photo et
-  rangés dans `game_box/pions/pions.json`. Le reste des valeurs — force, tir, portée — voyage
-  jusqu'au moteur mais ne sert encore à rien.
+  rangés dans `game_box/pions/pions.json`. Le reste des valeurs — force, tir, portée — ne joue
+  encore aucun rôle dans les règles, mais la fiche du survol le montre.
 - **Le camp vient de la faction** (voir `moteur/README.md`) : il décide qui gêne qui. Ici, les
   nains sont l'alliance et les orques les ténèbres, et les deux masses se font face à 3 cases.
 - Les vues d'ensemble ne sont toujours pas servies : les 4 photos de `21-vues-d-ensemble/` et les
@@ -206,8 +241,9 @@ le second dans Chromium : survol, dialogue, enregistrement, boutons de zoom. Tou
 détournent le chemin du fichier de corrections vers un répertoire temporaire : **aucun test
 n'écrit dans `game_box/`**.
 
-`tests/test_serveur.py` interroge Flask sans navigateur : contenu des champs cachés, cohérence des
-coordonnées, fichiers servis, la mise en place servie case par case — elle doit être celle du
+`tests/test_serveur.py` interroge Flask sans navigateur : contenu des champs cachés — dont les
+valeurs du carton que la fiche du survol y lit —, cohérence des coordonnées, fichiers servis, la
+mise en place servie case par case — elle doit être celle du
 scénario, et la même d'un chargement à l'autre —, et les deux routes de déplacement, dont la
 vérification qu'elles n'ajoutent rien aux règles du moteur, que la portée suit le carton du pion
 posé, qu'un adversaire au contact la réduit, qu'un ami ne la réduit pas, et qu'un déplacement
@@ -220,10 +256,14 @@ les pieds du test suivant. Ce que contient le scénario lui-même est éprouvé 
 centrés à moins d'un pixel, inclinés de moins de 5°, carte qui reste à l'échelle après
 redimensionnement, le zoom — boutons, molette qui garde son point sous le pointeur, pions qui
 restent sur leur hexagone une fois approchés, échelle réglée à la main qu'un redimensionnement ne
-défait pas —, puis le cycle complet clic → fantômes → déplacement, à l'ajustement comme une fois
-approché. Les fantômes attendus sont ceux que le plateau du serveur calcule — il tourne dans le
-même processus, on le lit directement — et un test pose un adversaire au contact pour vérifier que
-le clic en montre alors moins.
+défait pas —, la fiche du survol — les valeurs du carton des cinquante-deux unités comparées au
+catalogue du moteur, la mention de remarques qui ne paraît qu'à bon escient, la photo, la case
+d'un pion qu'on vient de déplacer, la fiche qui se referme en quittant le pion, qui ne paraît pas
+sur un fantôme, qui tient dans la barre d'outils sans la faire grandir — à la fenêtre étroite
+comme à la large —, qui n'en bouge pas d'un pion à l'autre et qui ne capte pas les clics —, puis le cycle complet clic → fantômes → déplacement, à
+l'ajustement comme une fois approché. Les fantômes attendus sont ceux que le plateau du serveur
+calcule — il tourne dans le même processus, on le lit directement — et un test pose un adversaire
+au contact pour vérifier que le clic en montre alors moins.
 
 Les tests de navigateur demandent Chromium :
 

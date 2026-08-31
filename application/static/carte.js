@@ -12,10 +12,33 @@
 
 const ROTATION_MAXIMALE = 5; // degrés, en avant ou en arrière
 
+// Les valeurs chiffrées du carton, dans l'ordre où la fiche les donne à lire (voir la section
+// « Valeurs lues sur les pions » de game_box/pions/README.md). « Mouvement » est le budget de
+// déplacement que le serveur a retenu, celui-là même dont le moteur se sert. Le symbole et les
+// remarques n'y sont pas : ce sont des mots, pas des nombres, et ils ont leur ligne à eux.
+const CHAMPS = [
+  ["force", "Force"],
+  ["mouvement", "Mouvement"],
+  ["tir", "Tir"],
+  ["portee", "Portée"],
+  ["mouvement_vol", "Vol"],
+  ["facultes_speciales", "Facultés"],
+];
+
+const ABSENTE = "—"; // ce que le carton ne porte pas
+
 const plateau = document.getElementById("plateau");
 const carte = document.getElementById("carte");
 const cadre = document.getElementById("cadre");
 const toile = document.getElementById("toile");
+
+const fiche = document.getElementById("fiche");
+const ficheImage = document.getElementById("fiche-image");
+const ficheNom = document.getElementById("fiche-nom");
+const ficheAppoint = document.getElementById("fiche-appoint");
+const ficheSymbole = document.getElementById("fiche-symbole");
+const ficheValeurs = document.getElementById("fiche-valeurs");
+const ficheRemarques = document.getElementById("fiche-remarques");
 
 const pions = JSON.parse(document.getElementById("pions").value);
 const grille = JSON.parse(document.getElementById("grille").value);
@@ -25,6 +48,7 @@ const { centre: centreDeLHexagone, hexagoneDuPixel } = calage(grille);
 const pionsPoses = [];
 let fantomes = [];
 let selection = null;
+let survole = null; // le pion dont la fiche est ouverte
 let vue = null; // le zoom, monté une fois la carte chargée
 
 function hexagoneClique(evenement) {
@@ -44,8 +68,51 @@ function poser(image, hexagone) {
   image.style.transform = `translate(-50%, -50%) rotate(${inclinaison.toFixed(2)}deg)`;
 }
 
-function libelle(pion, hexagone) {
-  return `${pion.nom} (${pion.camp}) — ${cle(hexagone)} — ${pion.mouvement} PM`;
+// --- La fiche de l'unité survolée ---
+//
+// Tout est déjà là : le serveur a passé les valeurs du carton dans le champ caché, le survol ne
+// lui demande donc rien. La fiche prolonge la barre d'outils, qui est hors de #plateau : elle
+// garde sa taille quelle que soit l'échelle, et ne se pose jamais sur la carte.
+
+function montrerLaFiche(image) {
+  const pion = image.pion;
+  // La case courante, lue sur l'image : un pion déplacé n'est plus sur celle du scénario.
+  const hexagone = { q: image.dataset.q, r: image.dataset.r, s: image.dataset.s };
+
+  ficheImage.src = `/pions/${pion.image}`;
+  ficheImage.alt = pion.nom;
+  ficheNom.textContent = pion.nom;
+  ficheAppoint.textContent = `${pion.camp} — ${cle(hexagone)}`;
+  ficheSymbole.textContent = pion.symbole ?? ABSENTE;
+  // Une remarque est ce que la photo laisse en suspens : elle n'apparaît que s'il y en a une.
+  ficheRemarques.textContent = pion.remarques ?? "";
+  ficheRemarques.hidden = !pion.remarques;
+
+  ficheValeurs.replaceChildren();
+  for (const [champ, libelle] of CHAMPS) {
+    const terme = document.createElement("dt");
+    terme.textContent = libelle;
+    const valeur = document.createElement("dd");
+    const lue = pion[champ];
+    valeur.textContent = lue ?? ABSENTE;
+    if (lue === null || lue === undefined) valeur.className = "absente";
+    ficheValeurs.append(terme, valeur);
+  }
+
+  survole = image;
+  fiche.hidden = false;
+}
+
+function cacherLaFiche() {
+  survole = null;
+  fiche.hidden = true;
+}
+
+function estUnPionPose(cible) {
+  // Les fantômes sont écartés : ils portent l'unité déjà sélectionnée, et couvrir la carte de
+  // survols qui répètent la même fiche n'apprendrait rien.
+  return cible instanceof HTMLElement
+    && cible.classList.contains("pion") && !cible.classList.contains("fantome");
 }
 
 function creerImage(pion, hexagone, classe) {
@@ -53,7 +120,6 @@ function creerImage(pion, hexagone, classe) {
   image.className = classe;
   image.src = `/pions/${pion.image}`;
   image.alt = pion.nom;
-  image.title = libelle(pion, hexagone);
   image.style.width = `${grille.taille_pion}px`;
   image.style.height = `${grille.taille_pion}px`;
   poser(image, hexagone);
@@ -64,7 +130,7 @@ function creerImage(pion, hexagone, classe) {
 function poserLesPions() {
   for (const pion of pions) {
     const image = creerImage(pion, { q: pion.q, r: pion.r, s: pion.s }, "pion");
-    image.pion = pion; // le pion tiré par le serveur, pour ses fantômes et son libellé
+    image.pion = pion; // le pion tiré par le serveur, pour ses fantômes et sa fiche
     pionsPoses.push(image);
   }
 }
@@ -118,7 +184,8 @@ async function deplacer(image, hexagone) {
   effacerLesFantomes();
   // Le pion a été repris en main : il se repose de travers, autrement que la fois d'avant.
   poser(image, arrivee);
-  image.title = libelle(image.pion, arrivee);
+  // Si le pointeur était resté sur ce pion, sa fiche doit dire la case où il vient d'arriver.
+  if (survole === image) montrerLaFiche(image);
 }
 
 function auClic(evenement) {
@@ -145,6 +212,14 @@ function demarrer() {
   vue = zoom({ cadre, toile, plateau, carte, affichage: document.getElementById("echelle") });
   vue.ajuster();
   plateau.addEventListener("click", auClic);
+  // Délégués sur le plateau, comme le clic : les fantômes naissent et meurent en cours de route,
+  // et un écouteur par image serait à refaire à chaque déplacement.
+  plateau.addEventListener("mouseover", (evenement) => {
+    if (estUnPionPose(evenement.target)) montrerLaFiche(evenement.target);
+  });
+  plateau.addEventListener("mouseout", (evenement) => {
+    if (estUnPionPose(evenement.target)) cacherLaFiche();
+  });
 }
 
 if (carte.complete) {

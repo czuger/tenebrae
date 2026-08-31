@@ -79,6 +79,42 @@ def test_chaque_pion_pose_porte_son_camp(client):
         assert pion["camp"] == CATALOGUE[pion["cle"]].camp
 
 
+def test_chaque_pion_pose_porte_les_valeurs_de_son_carton(client):
+    """La fiche du survol se lit dans le champ caché : tout le carton doit y être.
+
+    Les valeurs absentes du carton partent à `None` — c'est le navigateur qui les rend par un
+    tiret. `mouvement`, lui, reste le budget de déplacement, celui dont le moteur se sert, et non
+    la valeur brute que `pions.json` laisse parfois vide.
+    """
+    pions = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
+    for pion in pions:
+        pose = CATALOGUE[pion["cle"]]
+        assert pion["faction"] == pose.faction
+        assert pion["symbole"] == pose.symbole
+        assert pion["force"] == pose.force
+        assert pion["tir"] == pose.tir
+        assert pion["portee"] == pose.portee
+        assert pion["mouvement_vol"] == pose.mouvement_vol
+        assert pion["facultes_speciales"] == pose.facultes_speciales
+        assert pion["remarques"] == pose.remarques
+        assert pion["mouvement"] == pose.points_de_mouvement
+
+
+def test_les_valeurs_du_carton_sont_celles_lues_sur_les_photos(client):
+    """Deux pions du scénario, relevés dans `game_box/pions/pions.json`."""
+    pions = {pion["cle"]: pion
+             for pion in lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")}
+
+    leaders = pions["nains-05-2-leaders"]
+    assert (leaders["force"], leaders["tir"], leaders["portee"]) == (25, 5, 10)
+    assert leaders["symbole"] == "leader"
+
+    infanteries = pions["orques-01-15-infanteries"]
+    assert infanteries["symbole"] == "infanterie"
+    assert (infanteries["tir"], infanteries["portee"], infanteries["mouvement_vol"]) == (
+        None, None, None)
+
+
 def test_la_mise_en_place_garnit_le_plateau_du_serveur(client):
     """Le serveur retient ce qu'il a posé : c'est de là que sortent les zones de contrôle."""
     pions = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")

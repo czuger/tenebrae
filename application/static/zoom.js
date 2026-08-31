@@ -53,6 +53,17 @@ function zoom({ cadre, toile, plateau, carte, affichage }) {
     cadre.scrollTo(0, 0);
   }
 
+  // Amener au milieu de la fenêtre un point donné en pixels de map.jpg. La toile est centrée par
+  // ses marges automatiques tant que la carte tient dans la fenêtre : son décalage entre donc dans
+  // le compte. Le défilement se borne de lui-même — un point près d'un bord vient aussi près du
+  // centre que la carte le permet, et rien ne bouge quand elle tient tout entière à l'écran.
+  function centrer(x, y) {
+    // `clientWidth` et non le rectangle du cadre : c'est la partie visible, barres de défilement
+    // déduites, et c'est en son milieu que le point doit venir.
+    cadre.scrollLeft = toile.offsetLeft + x * echelle - cadre.clientWidth / 2;
+    cadre.scrollTop = toile.offsetTop + y * echelle - cadre.clientHeight / 2;
+  }
+
   function brancher(identifiant, action) {
     document.getElementById(identifiant)?.addEventListener("click", action);
   }
@@ -69,5 +80,6 @@ function zoom({ cadre, toile, plateau, carte, affichage }) {
 
   // `suitLaFenetre` dit si l'échelle est encore celle de l'ajustement : une page qui se
   // redimensionne peut ainsi réajuster sans défaire le zoom que l'on vient de régler à la main.
-  return { ajuster, suitLaFenetre: () => ajusteeALaFenetre };
+  // `centrer` est laissé aux pages : celle qui sait ce qu'il y a sur la carte dit quoi viser.
+  return { ajuster, centrer, suitLaFenetre: () => ajusteeALaFenetre };
 }

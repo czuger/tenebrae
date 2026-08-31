@@ -54,8 +54,15 @@
   cursor: pointer;
 }
 
-#outils button:hover {
+#outils button:hover:not(:disabled) {
   background: #3a3028;
+}
+
+/* Un bouton sans objet — « localiser » avant qu'on ait cliqué un pion — s'éteint sans changer de
+   taille : la barre garde sa hauteur de référence. */
+#outils button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 #echelle {

@@ -750,6 +750,113 @@ def hexagone_decouvert(page, interdits):
     raise AssertionError("aucun hexagone libre n'est cliquable")
 
 
+# --- Localiser le dernier pion cliqué -----------------------------------------------------------
+
+
+def pion_centrable(page):
+    """Le pion du scénario le plus éloigné du bord droit de la carte.
+
+    Le scénario 4 range toutes ses unités à l'est de la carte : approchée, celle qui est le plus
+    près du bord ne peut pas venir au milieu de la fenêtre — le défilement bute avant. Celle-ci le
+    peut, aux échelles où ces tests travaillent.
+    """
+    indice = page.evaluate("""() => {
+        const poses = [...document.querySelectorAll('img.pion:not(.fantome)')];
+        const x = (pion) => parseFloat(pion.style.left);
+        return poses.indexOf(poses.reduce((a, b) => (x(a) <= x(b) ? a : b)));
+    }""")
+    return page.locator("img.pion:not(.fantome)").nth(indice)
+
+
+def ecart_au_centre(pion):
+    """De combien de pixels d'écran le pion manque le milieu du cadre, en x et en y."""
+    return pion.evaluate("""(pion) => {
+        const cadre = document.getElementById('cadre');
+        const pose = pion.getBoundingClientRect();
+        return [Math.abs(pose.x + pose.width / 2 - cadre.clientWidth / 2),
+                Math.abs(pose.y + pose.height / 2 - cadre.clientHeight / 2)];
+    }""")
+
+
+def peut_venir_au_centre(pion):
+    """Dit s'il reste, autour du pion, une demi-fenêtre de carte de chaque côté.
+
+    Sans cela le défilement bute avant d'avoir amené le pion au milieu, et la carte n'a pas à
+    découvrir du vide pour le lui offrir : le bouton fait alors ce qu'il peut, pas ce qu'on
+    mesure ici.
+    """
+    return pion.evaluate("""(pion) => {
+        const cadre = document.getElementById('cadre');
+        const carte = document.getElementById('carte');
+        const rendue = carte.getBoundingClientRect();
+        const echelle = rendue.width / carte.naturalWidth;
+        const x = parseFloat(pion.style.left) * echelle;
+        const y = parseFloat(pion.style.top) * echelle;
+        return x >= cadre.clientWidth / 2 && x <= rendue.width - cadre.clientWidth / 2
+            && y >= cadre.clientHeight / 2 && y <= rendue.height - cadre.clientHeight / 2;
+    }""")
+
+
+def approcher_jusqu_a_pouvoir_centrer(page, pion):
+    """Approche cran par cran jusqu'à ce que le pion puisse venir au milieu de la fenêtre.
+
+    Le scénario 4 range ses unités près du bord est de la carte : il faut approcher franchement
+    avant qu'une demi-fenêtre tienne entre elles et le bord.
+    """
+    while not peut_venir_au_centre(pion):
+        if page.locator("#echelle").text_content() == "100 %":
+            pytest.skip("aucune échelle n'amène ce pion au centre : il est trop près du bord")
+        approcher(page, crans=1)
+
+
+def test_le_bouton_localiser_est_eteint_tant_qu_on_n_a_clique_aucun_pion(plateau):
+    assert plateau.locator("#localiser").is_disabled()
+
+
+def test_le_bouton_localiser_tient_dans_la_barre(plateau):
+    """La barre est en `overflow: hidden` : un bouton de trop s'y ferait rogner sans bruit."""
+    debordement = plateau.evaluate("""() => {
+        const outils = document.getElementById('outils').getBoundingClientRect();
+        const bouton = document.getElementById('localiser').getBoundingClientRect();
+        return outils.right - bouton.right;
+    }""")
+    assert debordement >= 0, debordement
+
+
+def test_cliquer_un_pion_allume_le_bouton_localiser(plateau):
+    pion_centrable(plateau).click()
+    assert plateau.locator("#localiser").is_enabled()
+
+
+def test_localiser_ramene_le_dernier_pion_clique_au_centre(plateau):
+    """Approcher la carte chasse l'unité qu'on manœuvre ; le bouton la rappelle au milieu."""
+    pion = pion_centrable(plateau)
+    pion.click()
+    approcher_jusqu_a_pouvoir_centrer(plateau, pion)
+    # Le zoom des boutons retient le centre de la fenêtre : le pion, posé à l'est, en est loin.
+    assert max(ecart_au_centre(pion)) > 50
+
+    plateau.locator("#localiser").click()
+    ecart = ecart_au_centre(pion)
+    assert ecart[0] <= 2 and ecart[1] <= 2, ecart
+
+
+def test_localiser_suit_le_pion_qui_a_bouge(plateau):
+    """Le bouton retient le carton, pas la case : déplacé, c'est là où il est qu'on le retrouve."""
+    pion, depart, _ = pion_qui_peut_bouger(plateau)
+    pion.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length > 0")
+    plateau.locator("img.fantome").last.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length === 0")
+    assert pion.evaluate("p => [Number(p.dataset.q), Number(p.dataset.r), Number(p.dataset.s)]") \
+        != [depart.q, depart.r, depart.s]
+
+    approcher_jusqu_a_pouvoir_centrer(plateau, pion)
+    plateau.locator("#localiser").click()
+    ecart = ecart_au_centre(pion)
+    assert ecart[0] <= 2 and ecart[1] <= 2, ecart
+
+
 # --- Phases de jeu et combat --------------------------------------------------------------------
 
 

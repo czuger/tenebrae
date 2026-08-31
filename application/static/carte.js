@@ -43,6 +43,7 @@ const ficheRemarques = document.getElementById("fiche-remarques");
 const phaseLibelle = document.getElementById("phase-libelle");
 const boutonAttaquer = document.getElementById("attaquer");
 const boutonAnnuler = document.getElementById("annuler-combat");
+const boutonLocaliser = document.getElementById("localiser");
 
 const pions = JSON.parse(document.getElementById("pions").value);
 const grille = JSON.parse(document.getElementById("grille").value);
@@ -63,6 +64,31 @@ let phase = JSON.parse(document.getElementById("phase").value);
 // La sélection de la phase de combat : une cible adverse, et un ensemble d'attaquants alliés.
 let cible = null;
 let attaquants = new Set();
+
+// --- Retrouver le dernier pion cliqué ---
+//
+// Approcher la carte fait vite perdre de vue l'unité qu'on manœuvre : le bouton « localiser » la
+// ramène au centre. On retient l'image, pas une case — un pion déplacé emporte son repère avec
+// lui. Le souvenir traverse les phases ; seule l'élimination l'efface.
+
+let dernierPionClique = null;
+
+function retenirLePion(image) {
+  dernierPionClique = image;
+  boutonLocaliser.disabled = false;
+}
+
+function oublierLePion() {
+  dernierPionClique = null;
+  boutonLocaliser.disabled = true;
+}
+
+function localiser() {
+  if (!dernierPionClique) return;
+  const { x, y } = centreDeLHexagone(Number(dernierPionClique.dataset.q),
+                                    Number(dernierPionClique.dataset.r));
+  vue.centrer(x, y);
+}
 
 function hexagoneClique(evenement) {
   const { x, y } = pixelDuPointeur(evenement, carte);
@@ -204,6 +230,11 @@ async function deplacer(image, hexagone) {
 function auClic(evenement) {
   const hexagone = hexagoneClique(evenement);
 
+  // Le souvenir est pris avant tout tri : « localiser » suit le doigt, pas les règles. Un clic sur
+  // une case vide — ou sur un fantôme, où le pion n'est pas encore — laisse le repère précédent.
+  const clique = pionSurLHexagone(hexagone);
+  if (clique) retenirLePion(clique);
+
   if (phase.type === "combat") {
     auClicDeCombat(hexagone);
     return;
@@ -332,6 +363,7 @@ function retirerLePion(hexagone) {
   if (rang >= 0) pionsPoses.splice(rang, 1);
   attaquants.delete(image);
   if (cible === image) cible = null;
+  if (dernierPionClique === image) oublierLePion();
   image.remove();
 }
 
@@ -358,6 +390,7 @@ function demarrer() {
   document.getElementById("phase-suivante").addEventListener("click", phaseSuivante);
   boutonAttaquer.addEventListener("click", attaquer);
   boutonAnnuler.addEventListener("click", nettoyerLeCombat);
+  boutonLocaliser.addEventListener("click", localiser);
   // La carte fait 6173 × 5102 px : elle s'ouvre réduite à la fenêtre, et la molette ou les
   // boutons « + », « − » et « ajuster » la rapprochent — jusqu'à la taille du scan, où un pion
   // se lit vraiment.

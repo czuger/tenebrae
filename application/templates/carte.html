@@ -30,6 +30,11 @@
       <span id="echelle">—</span>
       <button type="button" id="zoomer" title="Approcher">+</button>
       <button type="button" id="ajuster">ajuster</button>
+      <!-- Ramène au centre de la fenêtre le dernier pion cliqué. Tant qu'on n'a cliqué aucun
+           pion, il n'y a rien à viser : le bouton reste éteint. -->
+      <button type="button" id="localiser" title="Centrer sur le dernier pion cliqué" disabled>
+        localiser
+      </button>
 
       <!-- La phase courante et son avancement, dans le prolongement des boutons de zoom. -->
       <span id="phase-libelle"></span>

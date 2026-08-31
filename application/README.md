@@ -123,13 +123,14 @@ comme le compteur de la page de correction. La barre s'allonge, elle ne se dépl
   caché `#pions`, valeurs du carton comprises ; c'est le même parti que la page de correction, où
   les 2280 terrains partent d'un coup.
 - **La barre garde la taille qu'elle a sans la fiche.** C'est ce qui règle le corps du texte
-  (0.75 rem) et la vignette (20 px) : la hauteur reste celle des boutons de zoom, qu'on survole
+  (0.1875 rem) et la vignette (20 px) : la hauteur reste celle des boutons de zoom, qu'on survole
   une unité ou non. La fiche **ne passe donc jamais à la ligne** — sur une fenêtre étroite, elle
   se laisse rogner par la droite, et les remarques cèdent la place les premières, étant ce qu'elle
-  a de moins utile au jeu. En dessous d'un millier de pixels, les dernières valeurs peuvent y
-  passer aussi.
-- **Tout tient sur une ligne** : le carton en vignette, le nom, le camp et la case, le symbole,
-  les six valeurs chiffrées, les remarques.
+  a de moins utile au jeu.
+- **Un élément par ligne** : le nom, puis le camp et la case, puis le symbole, puis les six
+  valeurs chiffrées, puis les remarques — empilés à côté de la vignette, qui reste à gauche.
+  **Les six valeurs, elles, tiennent sur leur ligne** : une par ligne ferait dix lignes, et la
+  barre grandirait.
 - **La vignette sert à reconnaître le pion, pas à le lire** : ses chiffres sont écrits en toutes
   lettres à côté.
 - **Ce que le carton ne porte pas est rendu par un tiret**, jamais par un zéro : un pion sans tir
@@ -259,8 +260,9 @@ restent sur leur hexagone une fois approchés, échelle réglée à la main qu'u
 défait pas —, la fiche du survol — les valeurs du carton des cinquante-deux unités comparées au
 catalogue du moteur, la mention de remarques qui ne paraît qu'à bon escient, la photo, la case
 d'un pion qu'on vient de déplacer, la fiche qui se referme en quittant le pion, qui ne paraît pas
-sur un fantôme, qui tient dans la barre d'outils sans la faire grandir — à la fenêtre étroite
-comme à la large —, qui n'en bouge pas d'un pion à l'autre et qui ne capte pas les clics —, puis le cycle complet clic → fantômes → déplacement, à
+sur un fantôme, dont les éléments s'empilent un par ligne, qui tient dans la barre d'outils sans
+la faire grandir — à la fenêtre étroite comme à la large —, qui n'en bouge pas d'un pion à l'autre
+et qui ne capte pas les clics —, puis le cycle complet clic → fantômes → déplacement, à
 l'ajustement comme une fois approché. Les fantômes attendus sont ceux que le plateau du serveur
 calcule — il tourne dans le même processus, on le lit directement — et un test pose un adversaire
 au contact pour vérifier que le clic en montre alors moins.

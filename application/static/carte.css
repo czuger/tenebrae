@@ -51,7 +51,7 @@ body {
   border-left: 1px solid #6b5a44;
   /* Plus petite que le reste de la barre : la fiche ne doit pas la faire grandir. Sa hauteur est
      celle des boutons de zoom, la barre garde donc la même taille qu'on survole ou non. */
-  font-size: 0.75rem;
+  font-size: 0.1875rem;
   /* Un libellé qui passerait à la ligne ferait grandir la barre ; rogné, il la laisse intacte. */
   white-space: nowrap;
   min-width: 0;
@@ -78,6 +78,18 @@ body {
 #fiche-symbole,
 #fiche-remarques {
   color: #d9c9a5;
+}
+
+/* Les textes s'empilent à côté de la vignette, un élément par ligne. La pile tient dans la
+   hauteur des boutons de zoom — c'est ce qui permet à la barre de garder sa taille. Les six
+   valeurs, elles, restent sur leur ligne : une par ligne ferait dix lignes, et la barre
+   grandirait. */
+#fiche-texte {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* Rien ne se comprime, sauf les remarques : elles cèdent la place les premières, étant ce que la

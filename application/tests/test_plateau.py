@@ -465,6 +465,33 @@ def test_la_fiche_ne_bouge_pas_d_un_pion_a_l_autre(plateau):
     assert len(coins) == 1, coins
 
 
+def test_les_elements_de_la_fiche_sont_empiles(plateau):
+    """Un élément par ligne, du nom aux remarques : chacun commence sous le précédent.
+
+    La vignette, elle, reste à côté de la pile : sous elle, la barre grandirait.
+    """
+    pion = plateau.locator("img.pion:not(.fantome)").first
+    survoler(plateau, pion)
+
+    places = plateau.evaluate("""() => {
+        const cadre = (id) => {
+            const c = document.getElementById(id).getBoundingClientRect();
+            return { haut: c.top, gauche: c.left, bas: c.bottom, droite: c.right };
+        };
+        return {
+            empiles: ['fiche-nom', 'fiche-appoint', 'fiche-symbole', 'fiche-valeurs'].map(cadre),
+            vignette: cadre('fiche-image'),
+            texte: cadre('fiche-texte'),
+        };
+    }""")
+
+    for precedent, suivant in zip(places["empiles"], places["empiles"][1:]):
+        assert suivant["haut"] >= precedent["bas"], places["empiles"]
+        assert suivant["gauche"] == precedent["gauche"], places["empiles"]
+
+    assert places["vignette"]["droite"] <= places["texte"]["gauche"]
+
+
 def hauteur_de_la_barre(page):
     return page.evaluate(
         "() => Math.round(document.getElementById('outils').getBoundingClientRect().height)")

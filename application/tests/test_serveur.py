@@ -398,7 +398,8 @@ ARCHER = "yzent-03-8-archers"          # ténèbres, force 2, tir 4, portée 3
 def test_la_page_porte_la_phase_courante(client):
     phase = lire_le_champ_cache(client.get("/").get_data(as_text=True), "phase")
     assert phase == {"camp": ALLIANCE, "type": "mouvement", "armee": "Nains",
-                     "libelle": "Phase de mouvement — Nains", "numero": 1}
+                     "libelle": "Phase de mouvement — Nains", "numero": 1,
+                     "indisponibles": {"attaquants": [], "cibles": []}}
 
 
 def test_phase_suivante_saute_la_magie_et_alterne_les_joueurs(client):
@@ -484,3 +485,139 @@ def test_la_cible_doit_etre_adverse(client):
     client.post("/phase/suivante")
     reponse = client.post("/combat", json={"cible": VOISINE, "attaquants": [PLAINE]}).json
     assert reponse["resolu"] is False
+
+
+# --- Un seul combat par unité et par phase -------------------------------------------------
+
+# Deux cases de plus au contact : un second orque à portée du nain de PLAINE, et un second nain à
+# portée de l'orque de VOISINE. De quoi éprouver les deux règles séparément.
+CONTACT = {"q": 1, "r": 27, "s": -28}
+APPUI = {"q": 2, "r": 27, "s": -29}
+
+# Un dé de 1 sur NAIN 12 contre ORQUE 8 donne un rapport 1-1 : un recul, que le moteur laisse sans
+# effet. Les deux unités survivent donc au combat — et doivent pourtant en rester marquées.
+UN_RECUL = 1
+
+
+@pytest.fixture
+def phase_de_combat(client, monkeypatch):
+    """Passe en phase de combat des Nains, le dé fixé sur un recul : personne n'est éliminé."""
+    monkeypatch.setattr(app, "lancer_le_de", lambda: UN_RECUL)
+    client.post("/phase/suivante")
+    return client
+
+
+def test_un_attaquant_ne_peut_pas_attaquer_deux_fois(phase_de_combat):
+    """Même sans effet — un recul —, le combat a eu lieu : l'attaquant a donné pour la phase."""
+    poser(PLAINE, NAIN)
+    poser(VOISINE, ORQUE)
+    poser(CONTACT, ORQUE)
+    premier = phase_de_combat.post("/combat",
+                                   json={"cible": VOISINE, "attaquants": [PLAINE]}).json
+    assert premier["resolu"] is True
+    assert premier["resultat"] in ("AR", "DR")
+
+    second = phase_de_combat.post("/combat", json={"cible": CONTACT, "attaquants": [PLAINE]}).json
+    assert second["resolu"] is False
+    assert app.DEJA_ATTAQUE in second["messages"]
+    assert app.PLATEAU.pion_sur(Hex(**CONTACT)).cle == ORQUE
+
+
+def test_une_cible_ne_peut_pas_etre_attaquee_deux_fois(phase_de_combat):
+    """Même par un autre attaquant : c'est la cible qui est consommée, pas le couple."""
+    poser(PLAINE, NAIN)
+    poser(APPUI, NAIN)
+    poser(VOISINE, ORQUE)
+    assert phase_de_combat.post("/combat",
+                                json={"cible": VOISINE, "attaquants": [PLAINE]}).json["resolu"]
+
+    second = phase_de_combat.post("/combat", json={"cible": VOISINE, "attaquants": [APPUI]}).json
+    assert second["resolu"] is False
+    assert second["message"] == app.DEJA_ATTAQUEE
+
+
+def test_tout_le_groupe_d_attaquants_est_marque(phase_de_combat):
+    """Attaquer à deux engage les deux, pas seulement celui qui a été désigné le premier."""
+    poser(PLAINE, NAIN)
+    poser(APPUI, NAIN)
+    poser(VOISINE, ORQUE)
+    poser(CONTACT, ORQUE)
+    phase_de_combat.post("/combat", json={"cible": VOISINE, "attaquants": [PLAINE, APPUI]})
+
+    for depart in (PLAINE, APPUI):
+        refus = phase_de_combat.post("/combat",
+                                     json={"cible": CONTACT, "attaquants": [depart]}).json
+        assert refus["resolu"] is False, depart
+
+
+def test_deux_unites_du_meme_carton_sont_suivies_a_part(phase_de_combat):
+    """Un carton vaut pour plusieurs unités — `orques-01-15-infanteries` est posé quinze fois dans
+    le scénario n° 4. Attaquer l'un des deux orques ne doit donc pas consommer l'autre."""
+    poser(PLAINE, NAIN)
+    poser(APPUI, NAIN)
+    poser(VOISINE, ORQUE)
+    poser(CONTACT, ORQUE)
+    phase_de_combat.post("/combat", json={"cible": VOISINE, "attaquants": [PLAINE]})
+
+    autre = phase_de_combat.post("/combat", json={"cible": CONTACT, "attaquants": [APPUI]}).json
+    assert autre["resolu"] is True
+
+
+def test_la_phase_suivante_libere_les_unites(client, monkeypatch):
+    """Chaque phase de combat repart avec toutes ses unités — celle d'en face, et le tour suivant."""
+    monkeypatch.setattr(app, "lancer_le_de", lambda: UN_RECUL)
+    poser(PLAINE, NAIN)
+    poser(VOISINE, ORQUE)
+    client.post("/phase/suivante")  # combat des Nains
+    assert client.post("/combat", json={"cible": VOISINE, "attaquants": [PLAINE]}).json["resolu"]
+
+    client.post("/phase/suivante")  # mouvement des Orques
+    client.post("/phase/suivante")  # combat des Orques : l'orque attaque à son tour
+    assert client.post("/combat", json={"cible": PLAINE, "attaquants": [VOISINE]}).json["resolu"]
+
+    client.post("/phase/suivante")  # mouvement des Nains, tour 2
+    client.post("/phase/suivante")  # combat des Nains, tour 2
+    assert client.post("/combat", json={"cible": VOISINE, "attaquants": [PLAINE]}).json["resolu"]
+
+
+def test_la_portee_refuse_un_attaquant_deja_engage(phase_de_combat):
+    poser(PLAINE, NAIN)
+    poser(VOISINE, ORQUE)
+    poser(CONTACT, ORQUE)
+    interrogation = {"cq": CONTACT["q"], "cr": CONTACT["r"], "cs": CONTACT["s"],
+                     "aq": PLAINE["q"], "ar": PLAINE["r"], "as": PLAINE["s"]}
+    avant = phase_de_combat.get("/combat/portee", query_string=interrogation).json
+    assert avant == {"a_portee": True, "disponible": True, "message": None}
+
+    phase_de_combat.post("/combat", json={"cible": VOISINE, "attaquants": [PLAINE]})
+    apres = phase_de_combat.get("/combat/portee", query_string=interrogation).json
+    assert apres["disponible"] is False
+    assert apres["message"] == app.DEJA_ATTAQUE
+
+
+def test_la_cible_refuse_une_unite_deja_attaquee(phase_de_combat):
+    poser(PLAINE, NAIN)
+    poser(VOISINE, ORQUE)
+    interrogation = {"cq": VOISINE["q"], "cr": VOISINE["r"], "cs": VOISINE["s"]}
+    assert phase_de_combat.get("/combat/cible",
+                               query_string=interrogation).json["disponible"] is True
+
+    phase_de_combat.post("/combat", json={"cible": VOISINE, "attaquants": [PLAINE]})
+    apres = phase_de_combat.get("/combat/cible", query_string=interrogation).json
+    assert apres["disponible"] is False
+    assert apres["message"] == app.DEJA_ATTAQUEE
+
+
+def test_les_indisponibles_sont_dits_au_navigateur(phase_de_combat):
+    """Le grisage de la carte se règle sur ces deux listes, données en cases."""
+    poser(PLAINE, NAIN)
+    poser(VOISINE, ORQUE)
+    reponse = phase_de_combat.post("/combat",
+                                   json={"cible": VOISINE, "attaquants": [PLAINE]}).json
+    cases = lambda liste: [{"q": c["q"], "r": c["r"], "s": c["s"]} for c in liste]
+    assert cases(reponse["indisponibles"]["attaquants"]) == [PLAINE]
+    assert cases(reponse["indisponibles"]["cibles"]) == [VOISINE]
+
+    # La phase suivante les libère, et la page le voit au même endroit.
+    suivante = phase_de_combat.post("/phase/suivante").json
+    assert suivante["indisponibles"] == {"attaquants": [], "cibles": []}

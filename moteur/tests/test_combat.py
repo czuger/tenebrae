@@ -146,3 +146,58 @@ class TestLivrerCombat:
         resultat = combat.livrer_combat(plateau, cible, [attaquant], jet=6)
         assert resultat.resultat is None
         assert resultat.elimines == []
+
+
+class TestSuiviDeCombat:
+    """Une unité ne livre qu'un combat par phase, et n'est prise pour cible qu'une fois.
+
+    Le registre désigne les unités par leur case : un carton vaut pour plusieurs unités, la case
+    n'en désigne qu'une, et rien ne bouge pendant une phase de combat.
+    """
+
+    @pytest.fixture
+    def suivi(self):
+        return combat.SuiviDeCombat()
+
+    @pytest.fixture
+    def cases(self, coin):
+        """Trois cases distinctes : le centre, une case au contact, une case à deux cases."""
+        centre, contact, large = coin
+        return centre.cle, contact.cle, large.cle
+
+    def test_tout_est_disponible_au_depart(self, cases, suivi):
+        centre, contact, _ = cases
+        assert suivi.peut_attaquer(contact)
+        assert suivi.peut_etre_cible(centre)
+
+    def test_un_attaquant_engage_ne_peut_plus_attaquer(self, cases, suivi):
+        centre, contact, _ = cases
+        suivi.enregistrer([contact], centre)
+        assert not suivi.peut_attaquer(contact)
+        # Il reste attaquable, lui : c'est l'affaire de la phase de combat d'en face.
+        assert suivi.peut_etre_cible(contact)
+
+    def test_une_cible_engagee_ne_peut_plus_etre_attaquee(self, cases, suivi):
+        centre, contact, _ = cases
+        suivi.enregistrer([contact], centre)
+        assert not suivi.peut_etre_cible(centre)
+        assert suivi.peut_attaquer(centre)
+
+    def test_tout_le_groupe_d_attaquants_est_marque(self, cases, suivi):
+        centre, contact, large = cases
+        suivi.enregistrer([contact, large], centre)
+        assert not suivi.peut_attaquer(contact)
+        assert not suivi.peut_attaquer(large)
+
+    def test_une_unite_hors_du_combat_reste_libre(self, cases, suivi):
+        centre, contact, large = cases
+        suivi.enregistrer([contact], centre)
+        assert suivi.peut_attaquer(large)
+        assert suivi.peut_etre_cible(large)
+
+    def test_la_nouvelle_phase_libere_tout_le_monde(self, cases, suivi):
+        centre, contact, _ = cases
+        suivi.enregistrer([contact], centre)
+        suivi.reinitialiser()
+        assert suivi.peut_attaquer(contact)
+        assert suivi.peut_etre_cible(centre)

@@ -444,13 +444,39 @@ def test_la_fiche_dit_la_case_ou_le_pion_vient_d_arriver(plateau):
     assert survoler(plateau, pion)["appoint"].endswith(f"— {case}")
 
 
-def test_la_fiche_prolonge_la_barre_des_boutons_de_zoom(plateau):
-    """La fiche n'est pas un encadré posé sur la carte : elle est dans la barre d'outils.
+def test_la_fiche_se_pose_sous_la_barre_des_boutons_de_zoom(plateau):
+    """La fiche n'est pas un encadré posé n'importe où sur la carte : elle est sous la barre.
 
-    C'est ce qui lui interdit de bouger d'un pion à l'autre — la barre s'allonge, elle ne se
-    déplace pas — et ce qui la tient hors du chemin, la barre occupant déjà son coin.
+    Elle a été dans la barre, à la suite des boutons ; il lui fallait pour cela rester minuscule
+    sous peine de l'allonger. Descendue d'un cran, elle a la place de se lire, et le panneau la
+    tient toujours dans le coin que la barre occupe déjà.
     """
-    assert plateau.locator("#outils > #fiche").count() == 1
+    assert plateau.locator("#panneau > #outils").count() == 1
+    assert plateau.locator("#panneau > #fiche").count() == 1
+
+    pion = plateau.locator("img.pion:not(.fantome)").first
+    survoler(plateau, pion)
+    places = plateau.evaluate("""() => {
+        const cadre = (id) => document.getElementById(id).getBoundingClientRect();
+        const outils = cadre('outils');
+        const fiche = cadre('fiche');
+        return { barre: [outils.bottom, outils.left], fiche: [fiche.top, fiche.left] };
+    }""")
+    assert places["fiche"][0] >= places["barre"][0], places  # sous la barre
+    assert places["fiche"][1] == places["barre"][1], places  # alignée sur son bord gauche
+
+
+def test_la_fiche_se_lit_a_la_taille_de_la_barre(plateau):
+    """L'encart reprend la taille de police de la barre d'outils : les deux se lisent d'un même œil.
+
+    C'est la correction du 0.1875rem — trois pixels — auquel la fiche avait été réduite pour tenir
+    dans la barre sans l'agrandir.
+    """
+    survoler(plateau, plateau.locator("img.pion:not(.fantome)").first)
+    tailles = plateau.evaluate("""() => ['outils', 'fiche'].map(
+        (id) => getComputedStyle(document.getElementById(id)).fontSize)""")
+    assert tailles[0] == tailles[1], tailles
+    assert float(tailles[1].removesuffix("px")) >= 12, tailles
 
 
 def test_la_fiche_ne_bouge_pas_d_un_pion_a_l_autre(plateau):
@@ -468,7 +494,8 @@ def test_la_fiche_ne_bouge_pas_d_un_pion_a_l_autre(plateau):
 def test_les_elements_de_la_fiche_sont_empiles(plateau):
     """Un élément par ligne, du nom aux remarques : chacun commence sous le précédent.
 
-    La vignette, elle, reste à côté de la pile : sous elle, la barre grandirait.
+    La vignette, elle, reste à côté de la pile — le carton se reconnaît d'un coup d'œil pendant
+    qu'on lit ses valeurs.
     """
     pion = plateau.locator("img.pion:not(.fantome)").first
     survoler(plateau, pion)
@@ -498,12 +525,15 @@ def hauteur_de_la_barre(page):
 
 
 def test_la_barre_garde_sa_taille_quand_la_fiche_parait(plateau):
-    """La fiche ne fait pas grandir la barre d'outils : même hauteur, garnie ou non.
+    """La barre d'outils garde la taille de référence que carte.css documente : même hauteur,
+    fiche ouverte ou non, et à toute largeur de fenêtre.
 
-    Sur une fenêtre étroite, la barre se laisse rogner par la droite plutôt que de passer à la
-    ligne — un repli la ferait doubler de hauteur. Le survol est ici simulé plutôt que joué à la
-    souris : une fois la fenêtre rétrécie, le pion visé peut se retrouver sous la barre, hors
-    d'atteinte du pointeur, et ce qu'on éprouve est la mise en page, pas le pointage.
+    C'est ce que le todo demandait de préserver. La fiche est désormais sous la barre plutôt que
+    dedans, elle ne peut donc plus l'allonger ; reste que la barre, elle, ne se replie toujours pas
+    — un repli la ferait doubler de hauteur —, elle se laisse rogner par la droite. Le survol est
+    ici simulé plutôt que joué à la souris : une fois la fenêtre rétrécie, le pion visé peut se
+    retrouver sous la barre, hors d'atteinte du pointeur, et ce qu'on éprouve est la mise en page,
+    pas le pointage.
     """
     # Le pion au libellé le plus long : c'est lui qui allonge le plus la barre.
     indice = plateau.evaluate("""() => {
@@ -527,6 +557,55 @@ def test_la_barre_garde_sa_taille_quand_la_fiche_parait(plateau):
         plateau.evaluate(survol, [indice, "mouseover"])
         assert not fiche_lue(plateau)["cachee"]
         assert hauteur_de_la_barre(plateau) == nue, largeur
+
+
+def test_le_panneau_ne_deborde_pas_de_la_fenetre(plateau):
+    """À toute largeur, le panneau tient dans la fenêtre et la page ne défile pas de côté.
+
+    Descendre la fiche sous la barre lui a rendu de la place, mais elle en prend maintenant en
+    hauteur comme en largeur : elle ne doit pour autant ni sortir de l'écran ni pousser la carte.
+    """
+    indice = plateau.evaluate("""() => {
+        const pions = [...document.querySelectorAll('img.pion:not(.fantome)')];
+        const large = pions.slice().sort((a, b) =>
+            (b.pion.nom + (b.pion.remarques ?? '')).length
+            - (a.pion.nom + (a.pion.remarques ?? '')).length)[0];
+        return pions.indexOf(large);
+    }""")
+    survol = """(indice) => {
+        const pion = document.querySelectorAll('img.pion:not(.fantome)')[indice];
+        pion.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    }"""
+
+    for largeur in (1400, 800, 480):
+        plateau.set_viewport_size({"width": largeur, "height": 900})
+        plateau.wait_for_function("(l) => window.innerWidth === l", arg=largeur)
+        plateau.evaluate(survol, indice)
+        assert not fiche_lue(plateau)["cachee"]
+
+        mesures = plateau.evaluate("""() => {
+            const panneau = document.getElementById('panneau').getBoundingClientRect();
+            return { droite: panneau.right, bas: panneau.bottom,
+                     largeur: window.innerWidth, hauteur: window.innerHeight,
+                     defile: document.documentElement.scrollWidth > window.innerWidth };
+        }""")
+        assert mesures["droite"] <= mesures["largeur"], (largeur, mesures)
+        assert mesures["bas"] <= mesures["hauteur"], (largeur, mesures)
+        assert not mesures["defile"], (largeur, mesures)
+
+
+def test_la_carte_reste_entiere_sous_le_panneau(plateau):
+    """Le panneau se pose par-dessus la carte ; il ne la rétrécit ni ne la déplace.
+
+    Il est en place fixe, hors du flux : la carte occupe la fenêtre comme s'il n'existait pas,
+    fiche ouverte ou non.
+    """
+    cadre = "() => { const c = document.getElementById('carte').getBoundingClientRect();"\
+            "        return [Math.round(c.x), Math.round(c.y),"\
+            "                Math.round(c.width), Math.round(c.height)]; }"
+    nue = plateau.evaluate(cadre)
+    survoler(plateau, plateau.locator("img.pion:not(.fantome)").first)
+    assert plateau.evaluate(cadre) == nue
 
 
 def test_la_fiche_ne_capte_pas_les_clics(plateau):
@@ -744,6 +823,71 @@ def test_le_cycle_de_combat_surligne_les_unites_puis_les_libere(plateau, monkeyp
     plateau.wait_for_function(
         "!document.querySelector('img.pion.cible') && !document.querySelector('img.pion.attaquant')")
     plateau.wait_for_selector("#attaquer", state="hidden")
+
+
+def test_les_unites_qui_ont_combattu_sont_grisees_et_refusent_le_clic(plateau, monkeypatch):
+    """Une unité ne combat qu'une fois par phase : la carte le montre, et le clic le refuse.
+
+    Le résultat du combat n'est pas connu d'avance — le dé est fixé, pas le couple d'unités que
+    la mise en place offre —, on interroge donc le registre du serveur pour savoir qui doit être
+    grisé, plutôt que de parier sur une issue.
+    """
+    monkeypatch.setattr(app, "lancer_le_de", lambda: 1)
+    nain, contact, orque = couple_pour_le_combat(plateau)
+
+    nain.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length > 0")
+    cliquer_l_hexagone(plateau, contact)
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length === 0")
+
+    passer_en_phase_de_combat(plateau)
+    cliquer_l_hexagone(plateau, orque)
+    plateau.wait_for_selector("img.pion.cible")
+    cliquer_l_hexagone(plateau, contact)
+    plateau.wait_for_selector("img.pion.attaquant")
+    plateau.locator("#attaquer").click()
+    plateau.wait_for_selector("#attaquer", state="hidden")
+
+    # Ce que le serveur a inscrit, moins les cases que le combat a vidées : c'est ce qui se grise.
+    engagees = {cle for cle in app.SUIVI.attaquants_engages | app.SUIVI.cibles_engagees
+                if cle in app.PLATEAU.pions}
+    assert engagees, "le combat n'a engagé personne"
+    plateau.wait_for_function(
+        "(n) => document.querySelectorAll('img.pion.indisponible').length === n",
+        arg=len(engagees))
+    grisees = set(plateau.evaluate(
+        "() => [...document.querySelectorAll('img.pion.indisponible')]"
+        ".map((p) => `${p.dataset.q},${p.dataset.r},${p.dataset.s}`)"))
+    assert grisees == engagees
+
+    # Et le clic ne les reprend pas : rien ne se resurligne, ni en rouge ni en or.
+    for cle in engagees:
+        cliquer_l_hexagone(plateau, Hex.depuis_cle(cle))
+    plateau.wait_for_timeout(200)
+    assert plateau.locator("img.pion.cible").count() == 0
+    assert plateau.locator("img.pion.attaquant").count() == 0
+
+
+def test_la_phase_suivante_efface_le_grisage(plateau, monkeypatch):
+    """Chaque phase de combat repart avec toutes ses unités : plus rien n'est grisé."""
+    monkeypatch.setattr(app, "lancer_le_de", lambda: 1)
+    nain, contact, orque = couple_pour_le_combat(plateau)
+
+    nain.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length > 0")
+    cliquer_l_hexagone(plateau, contact)
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length === 0")
+
+    passer_en_phase_de_combat(plateau)
+    cliquer_l_hexagone(plateau, orque)
+    plateau.wait_for_selector("img.pion.cible")
+    cliquer_l_hexagone(plateau, contact)
+    plateau.wait_for_selector("img.pion.attaquant")
+    plateau.locator("#attaquer").click()
+    plateau.wait_for_selector("img.pion.indisponible")
+
+    plateau.locator("#phase-suivante").click()  # mouvement des Orques
+    plateau.wait_for_function("!document.querySelector('img.pion.indisponible')")
 
 
 def test_annuler_retire_les_surlignages_de_combat(plateau):

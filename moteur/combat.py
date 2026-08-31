@@ -10,6 +10,10 @@ Les reculs ne sont pas joués : `AR` et `DR` laissent le plateau intact. `EX` re
 unités engagées, sans le tri « attaquants totalisant une force au moins égale » du fascicule. Les
 facultés spéciales, la charge de cavalerie, les phalanges et l'alternance jour/nuit sont hors de
 portée — voir `moteur/README.md`.
+
+`SuiviDeCombat` tient à part ce qu'une phase de combat a déjà consommé : une unité n'attaque
+qu'une fois, une unité n'est attaquée qu'une fois. C'est un registre, pas une résolution — il ne
+touche ni au plateau ni au tour, et se vide à chaque nouvelle phase de combat.
 """
 
 # Les cinq issues possibles. Seules `AE`, `DE` et `EX` changent quelque chose au plateau ; `AR` et
@@ -139,3 +143,61 @@ def livrer_combat(plateau, hexagone_cible, hexagones_attaquants, jet):
         plateau.retirer(hexagone)
 
     return ResultatDeCombat(resultat, elimines, COLONNES[colonne], de)
+
+
+class SuiviDeCombat:
+    """Ce qu'une phase de combat a déjà consommé : quelles cases ont attaqué, lesquelles ont été
+    attaquées.
+
+    Le fascicule veut qu'une unité ne livre qu'un combat par phase — seule ou dans un groupe
+    d'attaquants — et qu'une unité ne soit prise pour cible qu'une fois.
+
+    Le registre retient des **cases**, en clés « q,r,s », et non des clés de pion : un carton vaut
+    pour toutes les unités qu'il représente — `orques-01-15-infanteries` est posé quinze fois dans
+    le scénario n° 4 —, et le moteur ne donne pas d'identité à l'unité. La case, elle, en désigne
+    une seule, et rien ne bouge pendant une phase de combat : le déplacement a sa phase à lui.
+    C'est ce qui rend l'assimilation exacte le temps où le registre vit.
+
+        suivi = SuiviDeCombat()
+        suivi.peut_attaquer("1,26,-27")           # True
+        suivi.enregistrer(["1,26,-27"], "2,26,-28")
+        suivi.peut_attaquer("1,26,-27")           # False
+
+    Le combat compte dès qu'il est livré : une issue que le moteur laisse sans effet — un recul —
+    engage les unités tout autant qu'une élimination.
+    """
+
+    __slots__ = ("attaquants_engages", "cibles_engagees")
+
+    def __init__(self):
+        self.attaquants_engages = set()
+        self.cibles_engagees = set()
+
+    def peut_attaquer(self, case):
+        """Dit si l'unité de cette case n'a pas encore attaqué durant la phase en cours."""
+        return case not in self.attaquants_engages
+
+    def peut_etre_cible(self, case):
+        """Dit si l'unité de cette case n'a pas encore été attaquée durant la phase en cours."""
+        return case not in self.cibles_engagees
+
+    def enregistrer(self, cases_attaquantes, case_cible):
+        """Marque un combat livré : les attaquants ont attaqué, la cible a été attaquée."""
+        self.attaquants_engages.update(cases_attaquantes)
+        self.cibles_engagees.add(case_cible)
+        return self
+
+    def reinitialiser(self):
+        """Vide le registre — une nouvelle phase de combat rend toutes les unités disponibles.
+
+        C'est aussi ce qui empêche une case retenue de survivre à un déplacement : entre deux
+        phases de combat il y a toujours une phase de mouvement, et le registre est déjà vide
+        quand les unités changent de case.
+        """
+        self.attaquants_engages.clear()
+        self.cibles_engagees.clear()
+        return self
+
+    def __repr__(self):
+        return (f"SuiviDeCombat({len(self.attaquants_engages)} attaquants, "
+                f"{len(self.cibles_engagees)} cibles)")

@@ -16,6 +16,11 @@ phase de mouvement du camp. La résolution d'un combat est dans `moteur.combat` 
 (`lancer_le_de`) est ici, pour que les tests puissent le fixer. Le journal de la partie est un
 fichier local, `journal_de_combat.log` — le second endroit où l'application écrit sur le disque.
 
+À côté du tour, le module-global `SUIVI` (`moteur.combat.SuiviDeCombat`) retient ce que la phase
+de combat en cours a déjà consommé : une unité n'attaque qu'une fois, une unité n'est attaquée
+qu'une fois. Il se vide à chaque changement de phase, et /combat/portee comme /combat/cible le
+consultent pour que le navigateur ne surligne pas une unité qui a déjà combattu.
+
 La route /admin/map_fix est à part : elle sert à corriger à l'œil les erreurs de la transcription
 de la carte, et c'est le seul endroit où l'application écrit dans `game_box/` — dans un fichier à
 elle, `map_fix.json`, jamais dans `carte.json` ni `carte_details.json`. Elle travaille toujours sur
@@ -76,6 +81,11 @@ MESSAGES_DE_COMBAT = {
     "AE": "Combat résolu : Attaquant Éliminé",
     "EX": "Combat résolu : Échange — toutes les unités impliquées sont éliminées",
 }
+
+# Les deux refus qu'oppose le registre de la phase de combat. Ils partent au journal, et le
+# navigateur s'en sert pour ne pas surligner une unité qui a déjà donné.
+DEJA_ATTAQUE = "Cette unité a déjà attaqué durant cette phase de combat."
+DEJA_ATTAQUEE = "Cette unité a déjà été attaquée durant cette phase de combat."
 
 # Ce qui, dans `pions/`, ne montre pas un pion isolé : le répertoire des planches entières,
 # et les photos de planchettes de suivi prises « en vue d'ensemble ».
@@ -165,6 +175,11 @@ PLATEAU = Plateau()
 # du scénario. Comme le plateau, le tour est remis à zéro à chaque chargement de « / ».
 TOUR = Tour(SCENARIO.camps, {armee["camp"]: armee["armee"] for armee in SCENARIO.armees})
 
+# Ce que la phase de combat en cours a déjà consommé. Il suit le tour : toute phase franchie le
+# vide, ce qui couvre aussi bien le passage du combat des Nains à celui des Orques que le tour
+# suivant. Le mouvement ne le consulte pas — le vider trop souvent ne coûte rien.
+SUIVI = combat.SuiviDeCombat()
+
 
 def poser_la_mise_en_place():
     """Refait le plateau du serveur d'après le scénario, et rend ses unités pour l'affichage.
@@ -176,6 +191,7 @@ def poser_la_mise_en_place():
     """
     PLATEAU.vider()
     TOUR.recommencer()
+    SUIVI.reinitialiser()
     poses = []
     for case, cle in SCENARIO.placement.items():
         hexagone = Hex.depuis_cle(case)
@@ -186,6 +202,27 @@ def poser_la_mise_en_place():
     return poses
 
 
+def les_unites_indisponibles():
+    """Les cases des unités qui ne peuvent plus attaquer, ou plus être attaquées, cette phase-ci.
+
+    Les cases vidées par le combat sont écartées : le registre les garde — elles ne gênent
+    personne, rien ne bouge d'ici la fin de la phase — mais le navigateur n'a plus de pion à y
+    griser.
+    """
+    poses = PLATEAU.pions
+    return {
+        "attaquants": [Hex.depuis_cle(cle).en_dict()
+                       for cle in sorted(SUIVI.attaquants_engages) if cle in poses],
+        "cibles": [Hex.depuis_cle(cle).en_dict()
+                   for cle in sorted(SUIVI.cibles_engagees) if cle in poses],
+    }
+
+
+def la_phase_courante():
+    """La phase telle que le navigateur la reçoit : le tour, et ce que la phase a déjà consommé."""
+    return TOUR.en_dict() | {"indisponibles": les_unites_indisponibles()}
+
+
 @application.route("/")
 def plateau():
     return render_template(
@@ -193,7 +230,7 @@ def plateau():
         pions=json.dumps(poser_la_mise_en_place(), ensure_ascii=False),
         grille=json.dumps({"origine": GRILLE_ORIGINE, "matrice": GRILLE_MATRICE,
                            "taille_pion": PION_TAILLE}),
-        phase=json.dumps(TOUR.en_dict(), ensure_ascii=False),
+        phase=json.dumps(la_phase_courante(), ensure_ascii=False),
     )
 
 
@@ -252,15 +289,20 @@ def decrire_un_deplacement(depart, pion):
 @application.route("/phase")
 def phase_courante():
     """La phase en cours — le navigateur s'en sert pour son libellé et ses blocages."""
-    return TOUR.en_dict()
+    return la_phase_courante()
 
 
 @application.route("/phase/suivante", methods=["POST"])
 def phase_suivante():
-    """Passe à la phase suivante ; la magie est franchie d'elle-même."""
+    """Passe à la phase suivante ; la magie est franchie d'elle-même.
+
+    Le registre des combats est vidé au passage : chaque phase de combat repart avec toutes ses
+    unités disponibles, celle des Ténèbres comme celle de l'Alliance, à ce tour-ci comme au suivant.
+    """
     TOUR.suivante()
+    SUIVI.reinitialiser()
     JOURNAL.info("Phase : %s (tour %s)", TOUR.libelle, TOUR.numero)
-    return TOUR.en_dict()
+    return la_phase_courante()
 
 
 def lire_un_hexagone_prefixe(prefixe, source):
@@ -270,21 +312,46 @@ def lire_un_hexagone_prefixe(prefixe, source):
 
 @application.route("/combat/portee")
 def verifier_la_portee():
-    """Dit si l'unité en `a…` est à portée de la cible en `c…` (distance à vol d'oiseau).
+    """Dit si l'unité en `a…` peut engager la cible en `c…` : à portée, et pas déjà engagée.
 
     Un attaquant hors de portée n'est pas ajouté au combat, et le refus part au journal — comme le
-    veut le todo.
+    veut le todo. Un attaquant qui a déjà donné cette phase-ci est refusé de la même façon : le
+    navigateur n'a plus qu'à ne pas le surligner en or.
     """
     cible = lire_un_hexagone_prefixe("c", request.args)
     attaquant = lire_un_hexagone_prefixe("a", request.args)
     pion_attaquant = PLATEAU.pion_sur(attaquant)
     if pion_attaquant is None:
-        return {"a_portee": False, "message": "Aucune unité sur cette case."}
+        return {"a_portee": False, "disponible": False, "message": "Aucune unité sur cette case."}
     dans_la_portee = combat.a_portee(attaquant, pion_attaquant, cible)
-    message = None if dans_la_portee else "Cette unité n'est pas à portée de la cible"
+    disponible = SUIVI.peut_attaquer(attaquant.cle)
+    if not disponible:
+        message = DEJA_ATTAQUE
+    elif not dans_la_portee:
+        message = "Cette unité n'est pas à portée de la cible"
+    else:
+        message = None
     if message:
         JOURNAL.info(message)
-    return {"a_portee": dans_la_portee, "message": message}
+    return {"a_portee": dans_la_portee, "disponible": disponible, "message": message}
+
+
+@application.route("/combat/cible")
+def verifier_la_cible():
+    """Dit si l'unité en `c…` peut encore être prise pour cible durant cette phase de combat.
+
+    Le navigateur demandait jusqu'ici son surlignage rouge sans rien demander au serveur ; il lui
+    faut maintenant passer par ici, le registre de la phase étant seul à savoir qui a déjà été
+    attaqué.
+    """
+    cible = lire_un_hexagone_prefixe("c", request.args)
+    if PLATEAU.pion_sur(cible) is None:
+        return {"disponible": False, "message": "Aucune unité sur cette case."}
+    disponible = SUIVI.peut_etre_cible(cible.cle)
+    message = None if disponible else DEJA_ATTAQUEE
+    if message:
+        JOURNAL.info(message)
+    return {"disponible": disponible, "message": message}
 
 
 @application.route("/combat", methods=["POST"])
@@ -292,8 +359,11 @@ def combattre():
     """Résout un combat : une cible adverse, un ou plusieurs attaquants du camp actif.
 
     Corps `{"cible": {q, r, s}, "attaquants": [{q, r, s}, …]}`. Le serveur revalide tout, écarte
-    les attaquants hors de portée (avec un message au journal), lance le dé, applique le résultat
-    au plateau et journalise l'issue en français.
+    les attaquants hors de portée ou ayant déjà attaqué (avec un message au journal), lance le dé,
+    applique le résultat au plateau et journalise l'issue en français.
+
+    Le combat livré est inscrit au registre de la phase, **quelle que soit son issue** : un recul,
+    que le moteur laisse sans effet, a tout de même engagé ses unités.
     """
     demande = request.get_json(silent=True) or {}
     if TOUR.type_de_phase != COMBAT:
@@ -302,6 +372,9 @@ def combattre():
     cible = lire_un_hexagone(demande.get("cible") or {})
     if cible.cle not in PLATEAU.adversaires_de(TOUR.camp_actif):
         return {"resolu": False, "message": "La cible doit être une unité adverse."}
+    if not SUIVI.peut_etre_cible(cible.cle):
+        JOURNAL.info(DEJA_ATTAQUEE)
+        return {"resolu": False, "message": DEJA_ATTAQUEE}
 
     valides, messages = [], []
     for case in demande.get("attaquants") or []:
@@ -309,6 +382,8 @@ def combattre():
         pion_attaquant = PLATEAU.pion_sur(attaquant)
         if pion_attaquant is None or pion_attaquant.camp != TOUR.camp_actif:
             messages.append("Cette unité ne peut pas attaquer cette cible.")
+        elif not SUIVI.peut_attaquer(attaquant.cle):
+            messages.append(DEJA_ATTAQUE)
         elif not combat.a_portee(attaquant, pion_attaquant, cible):
             messages.append("Cette unité n'est pas à portée de la cible")
         else:
@@ -321,6 +396,7 @@ def combattre():
 
     jet = lancer_le_de()
     resultat = combat.livrer_combat(PLATEAU, cible, valides, jet)
+    SUIVI.enregistrer([hexagone.cle for hexagone in valides], cible.cle)
     message = MESSAGES_DE_COMBAT.get(resultat.resultat, "Combat résolu : sans effet")
     JOURNAL.info("%s — dé %s, rapport %s", message, resultat.de,
                  "-".join(map(str, resultat.rapport)) if resultat.rapport else "?")
@@ -332,6 +408,7 @@ def combattre():
         "jet": jet,
         "de": resultat.de,
         "rapport": list(resultat.rapport) if resultat.rapport else None,
+        "indisponibles": les_unites_indisponibles(),
     }
 
 

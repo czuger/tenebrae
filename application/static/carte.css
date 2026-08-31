@@ -38,35 +38,81 @@ body {
   box-shadow: 0 0 12px rgba(212, 175, 55, 0.85);
 }
 
-/* La fiche allonge la barre d'outils, qui doit pourtant garder la taille qu'elle a sans elle :
-   elle ne passe donc jamais à la ligne — sur une fenêtre étroite, elle se laisse rogner par la
-   droite. Le repli reste possible sur la page de correction, dont la barre est plus courte. */
-#outils {
+/* Les unités qui ont déjà combattu cette phase-ci : elles refuseront le clic, autant le dire
+   avant. Le carton est éteint — délavé et assombri —, et cerné du brun de la barre d'outils :
+   l'atténuation seule ne se voit pas sur les cartons des Ténèbres, déjà gris pâle.
+
+   Le fantôme est laissé tel quel : deux atténuations superposées l'effaceraient tout à fait, et
+   les deux ne paraissent de toute façon pas dans la même phase. */
+.pion.indisponible:not(.fantome) {
+  opacity: 0.5;
+  filter: grayscale(0.9) brightness(0.75);
+  outline: 2px solid #6b5a44;
+  box-shadow: none;
+}
+
+/* Le panneau du coin haut-gauche : la barre d'outils, et la fiche empilée dessous.
+   C'est lui qui porte désormais le placement fixe que zoom.css donnait à #outils ; la barre, à
+   l'intérieur, se remet donc dans le flux (voir la règle suivante). La page de correction, qui ne
+   charge pas cette feuille, garde la barre fixe de zoom.css. */
+#panneau {
+  position: fixed;
+  top: 0.6rem;
+  left: 0.6rem;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
   max-width: calc(100vw - 1.2rem);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────────────────────
+   TAILLE DE RÉFÉRENCE DE LA BARRE D'OUTILS — à conserver telle quelle.
+
+   La barre a été réduite par rapport à la carte, et ce rapport est celui qu'on garde. Il tient
+   dans quatre valeurs, toutes posées par zoom.css et **volontairement non redéfinies ici** :
+
+       font-size : 0.85rem        (≈ 13,6 px pour une racine à 16 px)
+       padding   : 0.4rem 0.7rem
+       boutons   : padding 0.15rem 0.6rem, font: inherit
+       ancrage   : 0.6rem du haut et de la gauche de la fenêtre
+
+   Soit une barre d'environ 30 px de haut sur une carte de 5102 px — un peu moins de 0,6 % de sa
+   hauteur, et rien de tout cela ne suit le zoom. Toute mise en page ajoutée autour doit reproduire
+   ces valeurs à l'identique : la fiche, plus bas, reprend d'ailleurs la même taille de police.
+   ───────────────────────────────────────────────────────────────────────────────────────────── */
+#panneau > #outils {
+  /* Le seul changement : la barre n'est plus placée elle-même, le panneau la place. */
+  position: static;
+  max-width: 100%;
   box-sizing: border-box;
+  /* La barre garde son unique ligne — un repli la ferait doubler de hauteur. Sur une fenêtre
+     étroite elle se laisse rogner par la droite, comme avant. */
   flex-wrap: nowrap;
   overflow: hidden;
 }
 
-/* La fiche de l'unité survolée prolonge la barre d'outils, dans le fil des boutons de zoom : un
-   trait la sépare d'eux, comme le compteur de la page de correction. Elle ne se pose donc jamais
-   sur la carte et ne bouge pas d'un pion à l'autre — la barre s'allonge, voilà tout.
+/* La fiche de l'unité survolée : un encadré sous la barre d'outils, à la même enseigne qu'elle.
+   Elle était auparavant dans la barre, à la suite des boutons, et devait pour cela rester
+   minuscule — 0.1875rem, illisible — sous peine de l'allonger. Posée dessous, elle a la place de
+   se lire, et la barre garde la taille de référence documentée plus haut.
 
    `hidden` doit l'emporter sur le `display: flex` : sans cette garde, la fiche resterait visible
    quand on ne survole rien. */
 #fiche {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
-  padding-left: 0.5rem;
-  border-left: 1px solid #6b5a44;
-  /* Plus petite que le reste de la barre : la fiche ne doit pas la faire grandir. Sa hauteur est
-     celle des boutons de zoom, la barre garde donc la même taille qu'on survole ou non. */
-  font-size: 0.1875rem;
-  /* Un libellé qui passerait à la ligne ferait grandir la barre ; rogné, il la laisse intacte. */
-  white-space: nowrap;
-  min-width: 0;
-  overflow: hidden;
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid #6b5a44;
+  border-radius: 3px;
+  background: rgba(27, 23, 19, 0.92);
+  color: #f6e7c1;
+  /* La même taille que la barre d'outils : les deux encadrés se lisent d'un même œil. */
+  font-size: 0.85rem;
   /* La barre porte des boutons ; la fiche, elle, laisse passer les clics vers la carte. */
   pointer-events: none;
 }
@@ -76,12 +122,12 @@ body {
 }
 
 /* Le carton en vignette : de quoi reconnaître le pion d'un coup d'œil. Ses chiffres sont écrits
-   en toutes lettres à côté — elle n'a donc pas à être lisible, et se règle sur la hauteur des
-   boutons de zoom, qui décide de celle de la barre. */
+   en toutes lettres à côté, mais la fiche n'étant plus tenue par la hauteur de la barre, la
+   vignette peut être assez grande pour qu'on y reconnaisse le dessin. */
 #fiche-image {
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: 48px;
+  height: 48px;
   border-radius: 2px;
 }
 
@@ -91,16 +137,12 @@ body {
   color: #d9c9a5;
 }
 
-/* Les textes s'empilent à côté de la vignette, un élément par ligne. La pile tient dans la
-   hauteur des boutons de zoom — c'est ce qui permet à la barre de garder sa taille. Les six
-   valeurs, elles, restent sur leur ligne : une par ligne ferait dix lignes, et la barre
-   grandirait. */
+/* Les textes s'empilent à côté de la vignette, un élément par ligne, du nom aux remarques. */
 #fiche-texte {
   display: flex;
   flex-direction: column;
   flex: 0 1 auto;
   min-width: 0;
-  overflow: hidden;
 }
 
 /* Rien ne se comprime, sauf les remarques : elles cèdent la place les premières, étant ce que la
@@ -122,9 +164,12 @@ body {
 }
 
 /* Les six valeurs chiffrées, en ligne : « Force 25   Mouvement 3   Tir 5 … ». L'écart est plus
-   grand entre deux paires qu'entre un libellé et sa valeur, pour qu'elles se lisent par deux. */
+   grand entre deux paires qu'entre un libellé et sa valeur, pour qu'elles se lisent par deux.
+   Sur une fenêtre étroite elles passent à la ligne : la fiche grandit vers le bas, ce qu'elle ne
+   pouvait pas se permettre du temps où elle était dans la barre. */
 #fiche-valeurs {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.15rem;
   margin: 0;
 }

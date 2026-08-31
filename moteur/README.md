@@ -283,6 +283,35 @@ l'application qui lance le dé (`app.lancer_le_de`), ce qui permet aux tests de 
 pions : `AE` (attaquant éliminé), `DE` (défenseur éliminé), `EX` (les deux). `AR` et `DR` — les
 reculs — sont lus mais laissés sans effet, faute de règle de retraite. Voir les réserves ci-dessous.
 
+### Un seul combat par unité et par phase
+
+Le fascicule limite chaque unité à **une attaque par phase** — seule ou dans un groupe
+d'attaquants — et chaque cible à **une attaque par phase**, même par des attaquants différents.
+`SuiviDeCombat` est le registre qui tient ce compte :
+
+```python
+from moteur.combat import SuiviDeCombat
+
+suivi = SuiviDeCombat()
+suivi.peut_attaquer("1,26,-27")            # True
+suivi.enregistrer(["1,26,-27"], "2,26,-28")
+suivi.peut_attaquer("1,26,-27")            # False — il a donné
+suivi.peut_etre_cible("2,26,-28")          # False — elle a été prise
+suivi.reinitialiser()                      # nouvelle phase de combat : tout le monde est libre
+```
+
+Trois choix s'y lisent :
+
+- **Il retient des cases**, en clés « q,r,s », et non des clés de pion. Un carton vaut pour
+  plusieurs unités et `CATALOGUE` n'en rend qu'un objet ; la case, elle, n'en désigne qu'une. Rien
+  ne bouge pendant une phase de combat, l'assimilation est donc exacte le temps où le registre vit
+  (voir les réserves).
+- **Le combat compte dès qu'il est livré**, quelle que soit son issue : un recul, que le moteur
+  laisse sans effet, engage ses unités tout autant qu'une élimination.
+- **Il ne sait rien du tour ni du plateau** — c'est l'appelant qui le vide. L'application le fait à
+  chaque changement de phase (`POST /phase/suivante`), ce qui couvre le passage d'une phase de
+  combat à l'autre comme le tour suivant.
+
 ## Réserves sur l'interprétation
 
 Comme pour la carte et l'inventaire des pions, les doutes sont conservés, pas tranchés.
@@ -337,9 +366,13 @@ Comme pour la carte et l'inventaire des pions, les doutes sont conservés, pas t
   **tous** les attaquants, sans le tri « force au moins égale » du fascicule. Ni charge de
   cavalerie (× 2), ni phalange (× 3), ni alternance jour/nuit, ni immunité des tireurs au recul :
   la force du carton et le terrain du défenseur sont les seuls facteurs.
-- **Un combat par clic, pas par phase entière.** Le fascicule limite chaque unité à une attaque
-  par phase et chaque cible à une attaque par phase : rien ne l'impose ici, l'application résout
-  chaque combat déclaré sans tenir de compte.
+- **Un seul combat par unité et par phase, compté par case.** La règle est tenue (voir
+  `SuiviDeCombat` ci-dessus), mais le registre désigne les unités par leur **case**, faute
+  d'identité d'unité dans le moteur : un carton vaut pour toutes les unités qu'il représente —
+  `orques-01-15-infanteries` est posé quinze fois dans le scénario n° 4 — et `CATALOGUE` n'en rend
+  qu'un seul objet. L'assimilation tient parce que rien ne bouge pendant une phase de combat et
+  que le registre se vide entre deux ; elle tomberait le jour où le mouvement et le combat se
+  mêleraient dans la même phase.
 - **L'empilement n'est pas géré au-delà d'une unité par case** : le fascicule autorise 3 unités
   dans une ville, un village ou une citadelle, et ne compte ni les leaders ni les magiciens. Le
   plateau, lui, ne pose qu'un pion par case.

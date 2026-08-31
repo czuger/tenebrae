@@ -55,8 +55,9 @@ let selection = null;
 let survole = null; // le pion dont la fiche est ouverte
 let vue = null; // le zoom, monté une fois la carte chargée
 
-// La phase courante, telle que le serveur la donne : { camp, type, armee, libelle, numero }.
-// Le type ne vaut jamais « magie » — le serveur la saute.
+// La phase courante, telle que le serveur la donne : { camp, type, armee, libelle, numero,
+// indisponibles }. Le type ne vaut jamais « magie » — le serveur la saute. `indisponibles` dit les
+// cases des unités qui ont déjà donné cette phase-ci : { attaquants: [...], cibles: [...] }.
 let phase = JSON.parse(document.getElementById("phase").value);
 
 // La sélection de la phase de combat : une cible adverse, et un ensemble d'attaquants alliés.
@@ -227,6 +228,10 @@ function auClic(evenement) {
 // Un clic sur une unité adverse en fait la cible (surlignée en rouge). Les clics suivants sur des
 // unités du camp actif les ajoutent comme attaquants s'ils sont à portée (surlignés en or) ; le
 // serveur seul juge de la portée. Le bouton « Attaquer » résout, « Annuler » vide la sélection.
+//
+// Une unité ne combat qu'une fois par phase — elle attaque une fois, elle n'est prise pour cible
+// qu'une fois. Là encore, c'est le serveur qui tient le compte : la page l'interroge avant de
+// surligner, et grise ce qu'il lui dit d'avoir déjà donné.
 
 function hexagoneDuPion(image) {
   return { q: Number(image.dataset.q), r: Number(image.dataset.r), s: Number(image.dataset.s) };
@@ -257,6 +262,12 @@ async function auClicDeCombat(hexagone) {
 
   if (!cible) {
     if (pion.pion.camp === phase.camp) return; // il faut d'abord une cible adverse
+    const c = pion.dataset;
+    const reponse = await fetch(`/combat/cible?cq=${c.q}&cr=${c.r}&cs=${c.s}`);
+    if (!reponse.ok) return;
+    const { disponible } = await reponse.json();
+    // Déjà attaquée cette phase-ci : le refus est parti au journal du serveur, et rien ne rougit.
+    if (!disponible || cible) return;
     cible = pion;
     cible.classList.add("cible");
     majBoutonsDeCombat();
@@ -277,12 +288,22 @@ async function auClicDeCombat(hexagone) {
   const reponse = await fetch(`/combat/portee?cq=${c.q}&cr=${c.r}&cs=${c.s}`
     + `&aq=${a.q}&ar=${a.r}&as=${a.s}`);
   if (!reponse.ok) return;
-  const { a_portee } = await reponse.json();
-  if (!a_portee) return; // le refus est parti au journal du serveur
+  const { a_portee, disponible } = await reponse.json();
+  if (!a_portee || !disponible) return; // le refus est parti au journal du serveur
 
   attaquants.add(pion);
   pion.classList.add("attaquant");
   majBoutonsDeCombat();
+}
+
+// Les unités qui ont déjà donné sont grisées : sans cela, rien ne distinguerait sur la carte une
+// unité qu'on peut encore engager d'une qui refusera le clic.
+function marquerLesIndisponibles(indisponibles) {
+  const cases = new Set([...(indisponibles?.attaquants ?? []),
+                         ...(indisponibles?.cibles ?? [])].map(cle));
+  for (const image of pionsPoses) {
+    image.classList.toggle("indisponible", cases.has(cle(image.dataset)));
+  }
 }
 
 async function attaquer() {
@@ -301,6 +322,7 @@ async function attaquer() {
     for (const elimine of resultat.elimines) retirerLePion(elimine);
   }
   nettoyerLeCombat();
+  marquerLesIndisponibles(resultat.indisponibles);
 }
 
 function retirerLePion(hexagone) {
@@ -318,6 +340,9 @@ function rafraichirLaPhase(nouvelle) {
   phaseLibelle.textContent = phase.libelle;
   effacerLesFantomes();
   nettoyerLeCombat();
+  // Une nouvelle phase de combat repart avec toutes ses unités : le serveur envoie des listes
+  // vides, et le grisage tombe de lui-même.
+  marquerLesIndisponibles(phase.indisponibles);
 }
 
 async function phaseSuivante() {
@@ -329,6 +354,7 @@ async function phaseSuivante() {
 function demarrer() {
   poserLesPions();
   phaseLibelle.textContent = phase.libelle;
+  marquerLesIndisponibles(phase.indisponibles);
   document.getElementById("phase-suivante").addEventListener("click", phaseSuivante);
   boutonAttaquer.addEventListener("click", attaquer);
   boutonAnnuler.addEventListener("click", nettoyerLeCombat);

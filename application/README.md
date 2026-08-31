@@ -9,7 +9,8 @@ Le jeu suit un **tour** : mouvement puis combat, pour les Nains puis pour les Or
 (la magie est sautée). Le bouton « Phase suivante » avance ; le libellé de la barre d'outils dit
 où l'on en est. En **phase de combat**, un clic sur une unité adverse la prend pour cible (rouge),
 un clic sur ses propres unités à portée les désigne comme attaquants (or), et « Attaquer » résout
-d'après le Tableau I du fascicule.
+d'après le Tableau I du fascicule. **Une unité ne combat qu'une fois par phase** : celles qui ont
+donné sont grisées et refusent le clic jusqu'à la phase suivante.
 
 Les règles ne sont pas ici : les déplacements viennent de `moteur/`, l'application ne fait que les
 servir. Le JavaScript ne décide jamais de la légalité d'un mouvement. **Chaque pion se déplace du
@@ -46,7 +47,7 @@ molette, boutons, défilement — dans `static/zoom.js` et `static/zoom.css`.
 | --- | --- |
 | `#pions` | une entrée par unité du scénario : `{q, r, s}` sa case, `{cle, image, nom}` le pion posé, `{mouvement, camp}` ce dont le déplacement se sert, et les valeurs de son carton (voir « Survoler une unité ») |
 | `#grille` | `origine`, `matrice` et `taille_pion` : le calage de la grille sur `map.jpg` |
-| `#phase` | la phase courante : `{camp, type, armee, libelle, numero}` (voir « Phases et combat ») |
+| `#phase` | la phase courante : `{camp, type, armee, libelle, numero, indisponibles}` (voir « Phases et combat ») |
 
 ## Le plateau du serveur
 
@@ -80,8 +81,8 @@ de pixels, on n'y lit rien. Le plateau se zoome donc comme la page de correction
 code (`static/zoom.js`) :
 
 - la **molette** approche en gardant sous le curseur le point qu'il désignait ; les boutons `+`,
-  `−` et « ajuster » de la barre d'outils font la même chose depuis le centre de la fenêtre — et
-  c'est cette même barre qui porte la fiche du pion survolé (voir « Survoler une unité ») ;
+  `−` et « ajuster » de la barre d'outils font la même chose depuis le centre de la fenêtre — la
+  fiche du pion survolé se pose sous cette barre (voir « Survoler une unité ») ;
 - l'échelle va de 5 % à 100 % — au-delà du scan, il n'y a plus rien à voir ;
 - **le zoom ne touche à rien d'autre.** Tout ce qui est posé sur la carte — pions, fantômes,
   surlignage — est exprimé en pixels de `map.jpg`, dans le repère de `#plateau` : le mettre à
@@ -136,33 +137,53 @@ pas implémentée, `Tour.suivante()` la saute — elle n'est jamais courante.
 
 | Route | Réponse |
 | --- | --- |
-| `GET /phase` | `{camp, type, armee, libelle, numero}` — pour rafraîchir le navigateur |
+| `GET /phase` | `{camp, type, armee, libelle, numero, indisponibles}` — pour rafraîchir le navigateur |
 | `POST /phase/suivante` | la phase suivante, même forme ; journalisée |
-| `GET /combat/portee?cq=&cr=&cs=&aq=&ar=&as=` | `{"a_portee": bool, "message": str\|null}` ; un refus part au journal |
+| `GET /combat/portee?cq=&cr=&cs=&aq=&ar=&as=` | `{"a_portee": bool, "disponible": bool, "message": str\|null}` ; un refus part au journal |
+| `GET /combat/cible?cq=&cr=&cs=` | `{"disponible": bool, "message": str\|null}` ; un refus part au journal |
 | `POST /combat` — corps `{"cible": {q,r,s}, "attaquants": [{q,r,s}, …]}` | voir plus bas |
 
 `GET /` porte `#phase` ; le JavaScript en tire le libellé de la barre d'outils et **ce qu'un clic
 fait** : en phase de mouvement, seul le camp actif montre ses fantômes ; en phase de combat,
 
-1. clic sur une unité **adverse** → elle devient la cible, surlignée en **rouge** ;
+1. clic sur une unité **adverse** → le serveur (`/combat/cible`) dit si elle peut encore être
+   prise ; si oui, elle devient la cible, surlignée en **rouge** ;
 2. clic sur une de ses **propres** unités → le serveur (`/combat/portee`) dit si elle est à portée
-   (distance ≤ 1, ou ≤ sa portée de tir) ; si oui, elle rejoint les attaquants, surlignée en
-   **or** ; si non, rien ne bouge et le refus est au journal ;
+   (distance ≤ 1, ou ≤ sa portée de tir) et si elle n'a pas déjà attaqué ; si oui, elle rejoint les
+   attaquants, surlignée en **or** ; si non, rien ne bouge et le refus est au journal ;
 3. « Attaquer » (visible dès qu'il y a une cible et un attaquant) → `POST /combat` ;
 4. « Annuler », ou un nouveau clic sur la cible → la sélection se vide et les surlignages tombent.
 
-`POST /combat` revalide tout côté serveur — phase, camp de la cible, portée de chaque attaquant —,
-lance le dé (`app.lancer_le_de`, isolé pour les tests), résout via `moteur.combat.livrer_combat`
-et applique le résultat :
+`POST /combat` revalide tout côté serveur — phase, camp de la cible, portée de chaque attaquant,
+et le registre de la phase —, lance le dé (`app.lancer_le_de`, isolé pour les tests), résout via
+`moteur.combat.livrer_combat` et applique le résultat :
 
 ```json
 {"resolu": true, "resultat": "DE", "message": "Combat résolu : Défenseur Éliminé",
- "elimines": [{"q": 1, "r": 26, "s": -27, "terrain": "plaine"}], "jet": 4, "de": 4, "rapport": [3, 1]}
+ "elimines": [{"q": 1, "r": 26, "s": -27, "terrain": "plaine"}], "jet": 4, "de": 4, "rapport": [3, 1],
+ "indisponibles": {"attaquants": [{"q": 0, "r": 26, "s": -26, "terrain": "plaine"}], "cibles": []}}
 ```
 
 Seules les issues `AE`, `DE` et `EX` retirent des pions ; les reculs (`AR`, `DR`) ne changent rien.
 `{"resolu": false, "message": …}` quand ce n'est pas la phase de combat, que la cible n'est pas
-adverse, ou qu'aucun attaquant n'est valide.
+adverse, qu'elle a déjà été attaquée, ou qu'aucun attaquant n'est valide.
+
+### Un seul combat par unité et par phase
+
+Le fascicule limite chaque unité à une attaque par phase, et chaque cible à une attaque par phase
+même par des attaquants différents. Le compte est tenu **côté serveur** par le module-global
+`SUIVI` (`moteur.combat.SuiviDeCombat`), à côté de `PLATEAU` et de `TOUR` :
+
+- il est **vidé à chaque changement de phase** (`POST /phase/suivante`) et à chaque `GET /` — donc
+  entre la phase de combat des Nains et celle des Orques, et au tour suivant ;
+- un combat **livré** y inscrit tous ses attaquants et sa cible, **quelle que soit son issue** : un
+  recul, que le moteur laisse sans effet, a tout de même engagé ses unités ;
+- un combat **refusé** (aucun attaquant valide) n'y inscrit rien.
+
+`indisponibles` — porté par `#phase`, `GET`/`POST /phase…` et la réponse de `POST /combat` — donne
+les **cases** de ce registre qui portent encore un pion, pour que la page grise ces unités
+(`.pion.indisponible`). Le registre désigne les unités par leur case et non par leur carton : voir
+`moteur/README.md` § « Un seul combat par unité et par phase » pour ce que cela suppose.
 
 **Le journal est un simple fichier local**, `application/journal_de_combat.log` (une ligne par
 événement : changement de phase, unité hors de portée, résultat de combat en français). C'est le
@@ -172,22 +193,26 @@ ignoré par git.
 ## Survoler une unité
 
 La carte s'ouvre ajustée à la fenêtre, où un pion fait une quinzaine de pixels : on n'y lit ni son
-dessin ni ses chiffres. **Survoler une unité remplit sa fiche**, qui n'est pas un encadré posé sur
-la carte mais **le prolongement de la barre des boutons de zoom** : un trait la sépare d'eux,
-comme le compteur de la page de correction. La barre s'allonge, elle ne se déplace pas.
+dessin ni ses chiffres. **Survoler une unité remplit sa fiche**, un encadré qui n'est pas posé
+n'importe où sur la carte mais **sous la barre des boutons de zoom**, dans le même panneau
+(`#panneau`) et aligné sur son bord gauche. La fiche paraît et disparaît sous la barre ; ni l'une
+ni l'autre ne se déplace.
 
 - **Le survol n'interroge jamais le serveur.** Tout ce que la fiche montre est déjà dans le champ
   caché `#pions`, valeurs du carton comprises ; c'est le même parti que la page de correction, où
   les 2280 terrains partent d'un coup.
-- **La barre garde la taille qu'elle a sans la fiche.** C'est ce qui règle le corps du texte
-  (0.1875 rem) et la vignette (20 px) : la hauteur reste celle des boutons de zoom, qu'on survole
-  une unité ou non. La fiche **ne passe donc jamais à la ligne** — sur une fenêtre étroite, elle
-  se laisse rogner par la droite, et les remarques cèdent la place les premières, étant ce qu'elle
-  a de moins utile au jeu.
+- **La barre garde la taille de référence que `carte.css` documente**, et que la fiche ne peut plus
+  toucher. La fiche a d'abord été *dans* la barre, à la suite des boutons ; il lui fallait pour
+  cela un corps de 0.1875 rem — trois pixels — pour ne pas l'allonger, ce qui la rendait illisible.
+  Descendue d'un cran, elle **reprend le corps de la barre** (0.85 rem) et une vignette de 48 px.
+- **Le rapport de taille de la barre ne se modifie pas.** `zoom.css` le fixe — corps 0.85 rem,
+  garniture 0.4/0.7 rem, boutons 0.15/0.6 rem, ancrage à 0.6 rem du coin —, `carte.css` le
+  documente en tête de sa section et se garde de le redéfinir. `#panneau` reprend l'ancrage à
+  l'identique et la barre y passe simplement en `position: static`.
 - **Un élément par ligne** : le nom, puis le camp et la case, puis le symbole, puis les six
-  valeurs chiffrées, puis les remarques — empilés à côté de la vignette, qui reste à gauche.
-  **Les six valeurs, elles, tiennent sur leur ligne** : une par ligne ferait dix lignes, et la
-  barre grandirait.
+  valeurs chiffrées, puis les remarques — empilés à côté de la vignette, qui reste à gauche. Les
+  six valeurs tiennent sur une ligne et **passent à la ligne sur une fenêtre étroite** : la fiche
+  grandit alors vers le bas, ce qu'elle ne pouvait pas se permettre dans la barre.
 - **La vignette sert à reconnaître le pion, pas à le lire** : ses chiffres sont écrits en toutes
   lettres à côté.
 - **Ce que le carton ne porte pas est rendu par un tiret**, jamais par un zéro : un pion sans tir
@@ -197,8 +222,9 @@ comme le compteur de la page de correction. La barre s'allonge, elle ne se dépl
 - « Mouvement » est le budget dont le moteur se sert — le mouvement au sol, à défaut celui de vol,
   0 pour un marqueur (voir `moteur/README.md`) —, et non la valeur brute que `pions.json` laisse
   parfois vide.
-- **La barre est hors de `#plateau`** : le zoom ne l'atteint pas, la fiche garde sa taille à toute
-  échelle. Et elle est **en place fixe** : d'un pion à l'autre, rien ne bouge.
+- **Le panneau est hors de `#plateau`** : le zoom ne l'atteint pas, la fiche garde sa taille à
+  toute échelle. Et il est **en place fixe**, hors du flux : d'un pion à l'autre rien ne bouge, et
+  la carte occupe la fenêtre comme s'il n'existait pas.
 - **La fiche laisse passer les clics** (`pointer-events: none`) là où les boutons, eux, les
   prennent : sans quoi elle rendrait injouable la bande de carte qu'elle recouvre.
 - **Les fantômes n'ont pas de fiche** : ils répètent l'unité déjà sélectionnée, et couvrir la
@@ -308,9 +334,13 @@ posé, qu'un adversaire au contact la réduit, qu'un ami ne la réduit pas, et q
 accepté change vraiment le plateau du serveur. Il couvre aussi le **tour** : `#phase` dans la
 page, `/phase/suivante` qui saute la magie et alterne les joueurs, `/deplacer` refusé hors de la
 phase de mouvement, `/combat/portee` selon la distance, et `/combat` qui retire le bon pion sur un
-`DE` (dé fixé par `monkeypatch` de `app.lancer_le_de`) et ne touche à rien sur un recul. Chaque
-test y part d'une **carte déserte** — la fixture `carte_deserte` vide le plateau *et* ramène le
-tour à sa première phase, l'un et l'autre étant partagés d'une requête à la suivante. Ce que
+`DE` (dé fixé par `monkeypatch` de `app.lancer_le_de`) et ne touche à rien sur un recul. La règle
+du **combat unique par phase** y a sa section : un attaquant et une cible refusés au second
+combat, tout un groupe d'attaquants marqué d'un coup, deux unités du même carton suivies à part,
+les listes `indisponibles` servies au navigateur, et la remise à zéro d'une phase de combat à la
+suivante puis au tour d'après. Chaque test y part d'une **carte déserte** — la fixture
+`carte_deserte` vide le plateau, ramène le tour à sa première phase et vide le registre des
+combats, tous trois étant partagés d'une requête à la suivante. Ce que
 contient le scénario lui-même est éprouvé à part, dans `moteur/tests/test_scenario.py` ; la
 résolution des combats, dans `moteur/tests/test_combat.py` et `test_phase.py`.
 
@@ -321,15 +351,20 @@ restent sur leur hexagone une fois approchés, échelle réglée à la main qu'u
 défait pas —, la fiche du survol — les valeurs du carton des cinquante-deux unités comparées au
 catalogue du moteur, la mention de remarques qui ne paraît qu'à bon escient, la photo, la case
 d'un pion qu'on vient de déplacer, la fiche qui se referme en quittant le pion, qui ne paraît pas
-sur un fantôme, dont les éléments s'empilent un par ligne, qui tient dans la barre d'outils sans
-la faire grandir — à la fenêtre étroite comme à la large —, qui n'en bouge pas d'un pion à l'autre
-et qui ne capte pas les clics —, puis le cycle complet clic → fantômes → déplacement, à
-l'ajustement comme une fois approché. Les fantômes attendus sont ceux que le plateau du serveur
-calcule — il tourne dans le même processus, on le lit directement — et un test pose un adversaire
-au contact pour vérifier que le clic en montre alors moins. Enfin le **tour et le combat** : le
-libellé de phase, « Phase suivante » qui saute la magie, le mouvement muet en phase de combat, la
-cible surlignée en rouge, et le cycle complet — amener un Nain au contact d'une Orque, passer en
-combat, désigner cible et attaquant, « Attaquer », et voir les surlignages retomber.
+sur un fantôme, dont les éléments s'empilent un par ligne, qui se pose **sous** la barre d'outils
+et alignée sur son bord gauche, qui se lit **au corps de la barre**, qui ne fait pas grandir la
+barre — à la fenêtre étroite comme à la large — et qui ne capte pas les clics —, la mise en page
+elle-même — le panneau qui ne déborde ni de la fenêtre ni en défilement latéral à 1400, 800 et
+480 px, et la carte qu'il ne déplace ni ne rétrécit —, puis le cycle complet clic → fantômes →
+déplacement, à l'ajustement comme une fois approché. Les fantômes attendus sont ceux que le
+plateau du serveur calcule — il tourne dans le même processus, on le lit directement — et un test
+pose un adversaire au contact pour vérifier que le clic en montre alors moins. Enfin le **tour et
+le combat** : le libellé de phase, « Phase suivante » qui saute la magie, le mouvement muet en
+phase de combat, la cible surlignée en rouge, le cycle complet — amener un Nain au contact d'une
+Orque, passer en combat, désigner cible et attaquant, « Attaquer », et voir les surlignages
+retomber —, et le **combat unique par phase** : les unités engagées grisées exactement là où le
+registre du serveur les inscrit, le clic qui ne les reprend pas, et le grisage qui tombe à la
+phase suivante.
 
 Les tests de navigateur demandent Chromium :
 

@@ -22,21 +22,25 @@
     </div>
   </div>
 
-  <div id="outils">
-    <button type="button" id="dezoomer" title="Reculer">−</button>
-    <span id="echelle">—</span>
-    <button type="button" id="zoomer" title="Approcher">+</button>
-    <button type="button" id="ajuster">ajuster</button>
+  <!-- Le panneau du coin haut-gauche : la barre d'outils, et sous elle la fiche de l'unité
+       survolée. Les deux sont hors de #plateau, ils échappent donc au zoom. -->
+  <div id="panneau">
+    <div id="outils">
+      <button type="button" id="dezoomer" title="Reculer">−</button>
+      <span id="echelle">—</span>
+      <button type="button" id="zoomer" title="Approcher">+</button>
+      <button type="button" id="ajuster">ajuster</button>
 
-    <!-- La phase courante et son avancement, dans le prolongement des boutons de zoom. -->
-    <span id="phase-libelle"></span>
-    <button type="button" id="phase-suivante">Phase suivante</button>
-    <button type="button" id="attaquer" hidden>Attaquer</button>
-    <button type="button" id="annuler-combat" hidden>Annuler</button>
+      <!-- La phase courante et son avancement, dans le prolongement des boutons de zoom. -->
+      <span id="phase-libelle"></span>
+      <button type="button" id="phase-suivante">Phase suivante</button>
+      <button type="button" id="attaquer" hidden>Attaquer</button>
+      <button type="button" id="annuler-combat" hidden>Annuler</button>
+    </div>
 
-    <!-- La fiche de l'unité survolée, dans le prolongement des boutons de zoom : le JavaScript la
-         remplit avec ce que porte le champ caché « pions ». La barre est hors de #plateau, elle
-         échappe donc au zoom. -->
+    <!-- La fiche de l'unité survolée, sous la barre plutôt qu'à sa suite : dans la barre, elle
+         devait rester minuscule pour ne pas l'allonger. Le JavaScript la remplit avec ce que porte
+         le champ caché « pions ». -->
     <div id="fiche" hidden>
       <img id="fiche-image" alt="">
       <div id="fiche-texte">

@@ -669,3 +669,88 @@ def hexagone_decouvert(page, interdits):
                          ".contains(document.elementFromPoint(x, y))", [x, y]):
             return hexagone
     raise AssertionError("aucun hexagone libre n'est cliquable")
+
+
+# --- Phases de jeu et combat --------------------------------------------------------------------
+
+
+def phase_lue(page):
+    return page.locator("#phase-libelle").inner_text()
+
+
+def passer_en_phase_de_combat(page):
+    """Clique « Phase suivante » et attend la phase de combat des Nains (la magie est sautée)."""
+    page.locator("#phase-suivante").click()
+    page.wait_for_function(
+        "document.getElementById('phase-libelle').textContent === 'Phase de combat — Nains'")
+
+
+def test_le_libelle_annonce_la_phase(plateau):
+    assert phase_lue(plateau) == "Phase de mouvement — Nains"
+
+
+def test_phase_suivante_saute_la_magie(plateau):
+    passer_en_phase_de_combat(plateau)
+    assert phase_lue(plateau) == "Phase de combat — Nains"
+
+
+def test_en_phase_de_combat_le_mouvement_ne_repond_plus(plateau):
+    pion, _, _ = pion_qui_peut_bouger(plateau, lambda p: p.camp == "alliance")
+    passer_en_phase_de_combat(plateau)
+    pion.click()
+    plateau.wait_for_timeout(150)
+    assert plateau.locator("img.fantome").count() == 0
+
+
+def test_cliquer_une_unite_adverse_la_surligne_en_rouge(plateau):
+    passer_en_phase_de_combat(plateau)
+    orque = Hex.depuis_cle(next(cle for cle, p in app.PLATEAU.pions.items()
+                                if p.camp == "tenebres"))
+    cliquer_l_hexagone(plateau, orque)
+    plateau.wait_for_selector("img.pion.cible")
+    assert plateau.locator("img.pion.cible").count() == 1
+
+
+def couple_pour_le_combat(page):
+    """Un Nain qui peut rejoindre le contact d'une Orque, la case de contact, et l'Orque."""
+    contacts = {voisin.cle: orque
+                for cle, p in app.PLATEAU.pions.items() if p.camp == "tenebres"
+                for orque in [Hex.depuis_cle(cle)] for voisin in orque.voisins()}
+    for pion, _, atteignables in pions_qui_peuvent_bouger(page, lambda p: p.camp == "alliance"):
+        for arrivee in atteignables:
+            if arrivee.cle in contacts:
+                return pion, arrivee, contacts[arrivee.cle]
+    pytest.skip("aucun Nain ne peut rejoindre le contact d'une Orque")
+
+
+def test_le_cycle_de_combat_surligne_les_unites_puis_les_libere(plateau, monkeypatch):
+    monkeypatch.setattr(app, "lancer_le_de", lambda: 1)
+    nain, contact, orque = couple_pour_le_combat(plateau)
+
+    nain.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length > 0")
+    cliquer_l_hexagone(plateau, contact)
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length === 0")
+
+    passer_en_phase_de_combat(plateau)
+
+    cliquer_l_hexagone(plateau, orque)
+    plateau.wait_for_selector("img.pion.cible")
+    cliquer_l_hexagone(plateau, contact)
+    plateau.wait_for_selector("img.pion.attaquant")
+    plateau.wait_for_selector("#attaquer", state="visible")
+
+    plateau.locator("#attaquer").click()
+    plateau.wait_for_function(
+        "!document.querySelector('img.pion.cible') && !document.querySelector('img.pion.attaquant')")
+    plateau.wait_for_selector("#attaquer", state="hidden")
+
+
+def test_annuler_retire_les_surlignages_de_combat(plateau):
+    passer_en_phase_de_combat(plateau)
+    orque = Hex.depuis_cle(next(cle for cle, p in app.PLATEAU.pions.items()
+                                if p.camp == "tenebres"))
+    cliquer_l_hexagone(plateau, orque)
+    plateau.wait_for_selector("img.pion.cible")
+    plateau.locator("#annuler-combat").click()
+    plateau.wait_for_function("!document.querySelector('img.pion.cible')")

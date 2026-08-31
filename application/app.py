@@ -10,6 +10,12 @@ Les règles, elles, ne sont pas ici : les déplacements possibles et leur valida
 se déplace du nombre de points lu sur son carton (`moteur.pion`) : le navigateur dit **quel** pion
 il a en main, jamais de combien de points il dispose — ce nombre est repris au catalogue.
 
+Le serveur tient aussi le **tour** (`moteur.phase.Tour`, le module-global `TOUR`) : les routes
+/phase/suivante, /combat et /combat/portee l'exposent, et /deplacer refuse un mouvement hors de la
+phase de mouvement du camp. La résolution d'un combat est dans `moteur.combat` ; seul le jet de dé
+(`lancer_le_de`) est ici, pour que les tests puissent le fixer. Le journal de la partie est un
+fichier local, `journal_de_combat.log` — le second endroit où l'application écrit sur le disque.
+
 La route /admin/map_fix est à part : elle sert à corriger à l'œil les erreurs de la transcription
 de la carte, et c'est le seul endroit où l'application écrit dans `game_box/` — dans un fichier à
 elle, `map_fix.json`, jamais dans `carte.json` ni `carte_details.json`. Elle travaille toujours sur
@@ -24,6 +30,8 @@ puis http://127.0.0.1:5000/
 """
 
 import json
+import logging
+import random
 import sys
 from pathlib import Path
 
@@ -32,8 +40,10 @@ from flask import Flask, abort, render_template, request, send_from_directory
 # Le dépôt n'est pas un paquet installé : on l'ajoute à sys.path pour atteindre `moteur`.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from moteur import combat  # noqa: E402
 from moteur import hexagone as moteur_hexagone  # noqa: E402
 from moteur.hexagone import CARTE_TRANSCRITE, Hex  # noqa: E402
+from moteur.phase import COMBAT, Tour  # noqa: E402
 from moteur.pion import CATALOGUE  # noqa: E402
 from moteur.plateau import Plateau  # noqa: E402
 from moteur.scenario import scenario  # noqa: E402
@@ -50,6 +60,23 @@ TERRAINS = ("ville", "fort", "chateau", "tour", "ruines", "village", "ile", "lac
 # nains contre orques (voir `scenarios/README.md`).
 NUMERO_DU_SCENARIO = 4
 
+# Le journal de la partie : changements de phase, combats déclarés, unités hors de portée,
+# résultats. C'est un simple fichier local — l'interface n'en montre que la phase courante.
+CHEMIN_DU_JOURNAL = Path(__file__).resolve().parent / "journal_de_combat.log"
+
+# Ce que le fascicule appelle « le résultat du jet de dé », de 1 à 6. Isolé dans une fonction pour
+# que les tests puissent le fixer sans toucher au hasard du moteur.
+def lancer_le_de():
+    return random.randint(1, 6)
+
+
+# Les trois issues de combat que le todo demande de jouer ; toute autre issue ne change rien.
+MESSAGES_DE_COMBAT = {
+    "DE": "Combat résolu : Défenseur Éliminé",
+    "AE": "Combat résolu : Attaquant Éliminé",
+    "EX": "Combat résolu : Échange — toutes les unités impliquées sont éliminées",
+}
+
 # Ce qui, dans `pions/`, ne montre pas un pion isolé : le répertoire des planches entières,
 # et les photos de planchettes de suivi prises « en vue d'ensemble ».
 REPERTOIRES_EXCLUS = {"21-vues-d-ensemble"}
@@ -65,6 +92,14 @@ GRILLE_MATRICE = [[107.5724, -0.3407], [62.8901, 125.6828]]
 PION_TAILLE = 104
 
 application = Flask(__name__)
+
+# Le journal est un fichier local, écrit une ligne par événement. On ne le configure qu'une fois.
+JOURNAL = logging.getLogger("tenebrae.journal")
+if not JOURNAL.handlers:
+    _trace = logging.FileHandler(CHEMIN_DU_JOURNAL, encoding="utf-8")
+    _trace.setFormatter(logging.Formatter("%(asctime)s  %(message)s", "%Y-%m-%d %H:%M:%S"))
+    JOURNAL.addHandler(_trace)
+    JOURNAL.setLevel(logging.INFO)
 
 
 def est_un_pion(chemin):
@@ -126,6 +161,10 @@ SCENARIO = scenario(NUMERO_DU_SCENARIO)
 # demandent de savoir qui occupe quelle case et dans quel camp.
 PLATEAU = Plateau()
 
+# La phase courante : quel camp joue, et à quoi. L'ordre des camps et le nom des armées viennent
+# du scénario. Comme le plateau, le tour est remis à zéro à chaque chargement de « / ».
+TOUR = Tour(SCENARIO.camps, {armee["camp"]: armee["armee"] for armee in SCENARIO.armees})
+
 
 def poser_la_mise_en_place():
     """Refait le plateau du serveur d'après le scénario, et rend ses unités pour l'affichage.
@@ -136,6 +175,7 @@ def poser_la_mise_en_place():
     Seul `chemin` est renommé, en `image`, parce que c'est ce que le navigateur met dans `src`.
     """
     PLATEAU.vider()
+    TOUR.recommencer()
     poses = []
     for case, cle in SCENARIO.placement.items():
         hexagone = Hex.depuis_cle(case)
@@ -153,6 +193,7 @@ def plateau():
         pions=json.dumps(poser_la_mise_en_place(), ensure_ascii=False),
         grille=json.dumps({"origine": GRILLE_ORIGINE, "matrice": GRILLE_MATRICE,
                            "taille_pion": PION_TAILLE}),
+        phase=json.dumps(TOUR.en_dict(), ensure_ascii=False),
     )
 
 
@@ -180,14 +221,19 @@ def deplacer():
     Le serveur ne croit pas le navigateur sur parole : il recalcule la portée, et c'est lui qui
     tient le plateau. Un déplacement accepté y est appliqué, sans quoi les zones de contrôle du
     coup d'après se calculeraient sur des positions périmées.
+
+    Le mouvement n'est ouvert qu'au camp actif, et seulement pendant sa phase de mouvement : hors
+    de là, le déplacement est refusé sans que le plateau ne bouge.
     """
     demande = request.get_json(silent=True) or {}
     depart = lire_un_hexagone(demande.get("depart") or {})
     arrivee = lire_un_hexagone(demande.get("arrivee") or {})
     pion = lire_un_pion(demande.get("pion"))
     decrit = decrire_un_deplacement(depart, pion)
+    pose = PLATEAU.pion_sur(depart)
+    hors_phase = pose is not None and not TOUR.autorise_mouvement(pose.camp)
     return decrit | {
-        "autorise": PLATEAU.deplacer(depart, arrivee, pion),
+        "autorise": not hors_phase and PLATEAU.deplacer(depart, arrivee, pion),
         "arrivee": arrivee.en_dict(),
     }
 
@@ -200,6 +246,92 @@ def decrire_un_deplacement(depart, pion):
         "pion": pose.cle if pose else None,
         "camp": pose.camp if pose else None,
         "mouvement": PLATEAU.mouvement_de(depart, pion),
+    }
+
+
+@application.route("/phase")
+def phase_courante():
+    """La phase en cours — le navigateur s'en sert pour son libellé et ses blocages."""
+    return TOUR.en_dict()
+
+
+@application.route("/phase/suivante", methods=["POST"])
+def phase_suivante():
+    """Passe à la phase suivante ; la magie est franchie d'elle-même."""
+    TOUR.suivante()
+    JOURNAL.info("Phase : %s (tour %s)", TOUR.libelle, TOUR.numero)
+    return TOUR.en_dict()
+
+
+def lire_un_hexagone_prefixe(prefixe, source):
+    """Un `Hex` depuis `{prefixe}q`, `{prefixe}r`, `{prefixe}s` — pour deux hexagones dans l'URL."""
+    return lire_un_hexagone({nom: source.get(f"{prefixe}{nom}") for nom in ("q", "r", "s")})
+
+
+@application.route("/combat/portee")
+def verifier_la_portee():
+    """Dit si l'unité en `a…` est à portée de la cible en `c…` (distance à vol d'oiseau).
+
+    Un attaquant hors de portée n'est pas ajouté au combat, et le refus part au journal — comme le
+    veut le todo.
+    """
+    cible = lire_un_hexagone_prefixe("c", request.args)
+    attaquant = lire_un_hexagone_prefixe("a", request.args)
+    pion_attaquant = PLATEAU.pion_sur(attaquant)
+    if pion_attaquant is None:
+        return {"a_portee": False, "message": "Aucune unité sur cette case."}
+    dans_la_portee = combat.a_portee(attaquant, pion_attaquant, cible)
+    message = None if dans_la_portee else "Cette unité n'est pas à portée de la cible"
+    if message:
+        JOURNAL.info(message)
+    return {"a_portee": dans_la_portee, "message": message}
+
+
+@application.route("/combat", methods=["POST"])
+def combattre():
+    """Résout un combat : une cible adverse, un ou plusieurs attaquants du camp actif.
+
+    Corps `{"cible": {q, r, s}, "attaquants": [{q, r, s}, …]}`. Le serveur revalide tout, écarte
+    les attaquants hors de portée (avec un message au journal), lance le dé, applique le résultat
+    au plateau et journalise l'issue en français.
+    """
+    demande = request.get_json(silent=True) or {}
+    if TOUR.type_de_phase != COMBAT:
+        return {"resolu": False, "message": "Ce n'est pas la phase de combat."}
+
+    cible = lire_un_hexagone(demande.get("cible") or {})
+    if cible.cle not in PLATEAU.adversaires_de(TOUR.camp_actif):
+        return {"resolu": False, "message": "La cible doit être une unité adverse."}
+
+    valides, messages = [], []
+    for case in demande.get("attaquants") or []:
+        attaquant = lire_un_hexagone(case or {})
+        pion_attaquant = PLATEAU.pion_sur(attaquant)
+        if pion_attaquant is None or pion_attaquant.camp != TOUR.camp_actif:
+            messages.append("Cette unité ne peut pas attaquer cette cible.")
+        elif not combat.a_portee(attaquant, pion_attaquant, cible):
+            messages.append("Cette unité n'est pas à portée de la cible")
+        else:
+            valides.append(attaquant)
+    for message in messages:
+        JOURNAL.info(message)
+
+    if not valides:
+        return {"resolu": False, "message": "Aucun attaquant valide.", "messages": messages}
+
+    jet = lancer_le_de()
+    resultat = combat.livrer_combat(PLATEAU, cible, valides, jet)
+    message = MESSAGES_DE_COMBAT.get(resultat.resultat, "Combat résolu : sans effet")
+    JOURNAL.info("%s — dé %s, rapport %s", message, resultat.de,
+                 "-".join(map(str, resultat.rapport)) if resultat.rapport else "?")
+    return {
+        "resolu": True,
+        "resultat": resultat.resultat,
+        "message": message,
+        "elimines": [hexagone.en_dict() for hexagone in resultat.elimines],
+        "jet": jet,
+        "de": resultat.de,
+        "rapport": list(resultat.rapport) if resultat.rapport else None,
     }
 
 

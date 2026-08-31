@@ -27,6 +27,17 @@ body {
   z-index: 0;
 }
 
+/* La cible d'un combat, surlignée en rouge ; les attaquants désignés, en or. */
+.pion.cible {
+  outline: 2px solid #d64545;
+  box-shadow: 0 0 12px rgba(214, 69, 69, 0.85);
+}
+
+.pion.attaquant {
+  outline: 2px solid #d4af37;
+  box-shadow: 0 0 12px rgba(212, 175, 55, 0.85);
+}
+
 /* La fiche allonge la barre d'outils, qui doit pourtant garder la taille qu'elle a sans elle :
    elle ne passe donc jamais à la ligne — sur une fenêtre étroite, elle se laisse rogner par la
    droite. Le repli reste possible sur la page de correction, dont la barre est plus courte. */

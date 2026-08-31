@@ -9,7 +9,7 @@ from werkzeug.serving import make_server
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app import PLATEAU, application  # noqa: E402
+from app import PLATEAU, TOUR, application  # noqa: E402
 
 
 @pytest.fixture
@@ -21,14 +21,17 @@ def client():
 
 @pytest.fixture
 def carte_deserte():
-    """Vide le plateau du serveur, et le laisse vide après le test.
+    """Vide le plateau du serveur et ramène le tour à sa première phase, avant et après le test.
 
     Le tirage est groupé : sans cela, un secteur tombant près de l'hexagone de référence d'un test
-    de déplacement y poserait des adversaires, et le résultat dépendrait du hasard.
+    de déplacement y poserait des adversaires, et le résultat dépendrait du hasard. Le tour est
+    partagé lui aussi — un test qui le fait avancer le laisserait avancé pour le suivant.
     """
     PLATEAU.vider()
+    TOUR.recommencer()
     yield PLATEAU
     PLATEAU.vider()
+    TOUR.recommencer()
 
 
 @pytest.fixture(scope="session")

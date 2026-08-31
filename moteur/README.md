@@ -9,6 +9,8 @@ servir ce que ce paquet décide. Un déplacement n'est jamais jugé légal par l
 | `pion.py` | le catalogue des pions lu en constante, et la classe `Pion` |
 | `plateau.py` | l'état de partie : quels pions sont posés, où, et dans quel camp |
 | `scenario.py` | les mises en place fixées dans `scenarios/`, et le `Plateau` qu'elles donnent |
+| `phase.py` | la machine à états d'un tour : quel camp joue, et à quoi (`Tour`) |
+| `combat.py` | la résolution d'un combat d'après le Tableau I du fascicule |
 
 Les deux premiers sont des constantes — la carte et les cartons sont imprimés depuis 1986. Le
 troisième est le seul objet mutable du moteur : les positions, elles, changent. Le quatrième dit
@@ -230,6 +232,57 @@ valeur la plus courante, portée par 35 pions. Ce que cela donne en plaine, en c
 
 Au cœur d'un bois, où chaque case coûte 2 points, il faut compter trois à quatre fois moins.
 
+## Les phases de jeu
+
+```python
+from moteur.phase import Tour
+
+tour = Tour(("alliance", "tenebres"), {"alliance": "Nains", "tenebres": "Orques"})
+tour.libelle                 # « Phase de mouvement — Nains »
+tour.type_de_phase           # « mouvement » — jamais « magie »
+tour.autorise_mouvement("alliance")   # True
+tour.suivante()              # passe au combat des Nains ; la magie est franchie d'elle-même
+tour.numero                  # 1, puis 2 quand la séquence reboucle
+```
+
+Le fascicule (`game_box/ave_tenebrae_regles.md`, § « Phases de jeu ») fixe l'ordre : chaque joueur
+enchaîne **mouvement → magie → combat**, puis c'est au joueur suivant, en boucle. `Tour` tient ce
+curseur. La **phase de magie n'est pas implémentée** : `suivante()` la saute, elle n'est jamais
+courante. `autorise_mouvement` / `autorise_combat` disent si un camp donné peut agir maintenant —
+c'est ce que l'application consulte pour bloquer un déplacement hors phase.
+
+`Tour` ne connaît ni le plateau ni les pions : il ne fait qu'ordonner les phases. L'application en
+tient un exemplaire, remis à zéro à chaque chargement de la carte, à côté de son `Plateau`.
+
+## Les combats
+
+```python
+from moteur.combat import a_portee, livrer_combat, resoudre
+
+a_portee(hex_attaquant, pion_attaquant, hex_cible)   # distance ≤ 1, ou ≤ portée si le pion tire
+resoudre([12, 4], pion_defenseur, hex_defenseur, jet=3)   # → « DE », « AE », « EX », « AR », « DR »
+resultat = livrer_combat(plateau, hex_cible, [hex_attaquant], jet=3)
+resultat.resultat, resultat.elimines, resultat.rapport, resultat.de
+```
+
+Le **Tableau I** du fascicule (`§ Combats`) est transcrit tel quel dans `TABLEAU_I` : le rapport
+de force en colonnes (de 1-5 à 6-1), le jet de dé en lignes. On additionne la `force` des
+attaquants, on la rapporte à celle du défenseur — **arrondi en faveur du défenseur**, borné —, on
+lance le dé, on lit la case.
+
+`force` est **la seule valeur du carton que le combat consomme** ; elle sert à la fois d'attaque
+et de défense, comme sur le pion. Le *Tableau des terrains* ajoute deux modificateurs, appliqués
+d'après le terrain du **défenseur** : sa force est multipliée (× 2 en village, ruines, rivière,
+lac ; × 3 en montagne, fort, château ; × 2 en bois pour les seuls Elfes), et l'attaquant gagne
+**+ 2 au dé** si le défenseur tient une colline ou un bois.
+
+Le hasard reste au bord du moteur : `jet` est **passé en argument**, jamais tiré ici. C'est
+l'application qui lance le dé (`app.lancer_le_de`), ce qui permet aux tests de le fixer.
+
+**Trois issues seulement changent le plateau**, et `livrer_combat` les applique en retirant les
+pions : `AE` (attaquant éliminé), `DE` (défenseur éliminé), `EX` (les deux). `AR` et `DR` — les
+reculs — sont lus mais laissés sans effet, faute de règle de retraite. Voir les réserves ci-dessous.
+
 ## Réserves sur l'interprétation
 
 Comme pour la carte et l'inventaire des pions, les doutes sont conservés, pas tranchés.
@@ -252,8 +305,9 @@ Comme pour la carte et l'inventaire des pions, les doutes sont conservés, pas t
 - **Une correction ne porte que sur le terrain principal.** Une route détectée à tort sous un bois
   survit à la correction de ce bois et reste praticable à ⅓ de point : `map_fix.json` ne sait pas
   retirer un élément secondaire. Cela se règle dans `game_box/extraction_carte.py`.
-- **Le mouvement est celui du carton, les autres valeurs dorment.** `pions.json` porte aussi la
-  force, le tir et la portée : le moteur les charge sans s'en servir, faute de combat.
+- **Le combat ne lit que la force.** `pions.json` porte aussi le tir et la portée : `combat.py`
+  ne s'en sert que pour la portée d'engagement d'un archer, jamais pour un tir résolu à part. Une
+  attaque de missile suit le même Tableau I qu'un corps à corps.
 - **Le vol n'est pas une règle**, seulement un nombre. Les unités volantes se déplacent au sol,
   avec leur mouvement au sol ; la chauve-souris, dont le mouvement au sol n'a pas pu être lu sur
   la photo, se déplace de son vol (2 points) sur les mêmes règles de terrain. Voler par-dessus un
@@ -271,12 +325,24 @@ Comme pour la carte et l'inventaire des pions, les doutes sont conservés, pas t
 - **Le camp est celui de la faction**, sans égard au scénario, et **le neutre n'a pas
   d'adversaire** : volants, conjurations et marqueurs n'arrêtent personne et ne sont arrêtés par
   personne.
-- **Un scénario n'est qu'une position de départ.** Ni tour de jeu, ni joueurs, ni renforts, ni
-  condition de victoire : `scenario.py` pose les pions et s'arrête là. Le potentiel de magie que
-  le fascicule donne à chaque camp est enregistré dans le fichier et rien ne le dépense.
+- **Un scénario n'est qu'une position de départ.** `scenario.py` pose les pions et s'arrête là :
+  ni renforts, ni condition de victoire. Le tour de jeu, lui, existe désormais — `phase.py` —,
+  mais il vit à côté du scénario, pas dedans, et le potentiel de magie que le fascicule donne à
+  chaque camp reste enregistré sans que rien ne le dépense.
+- **La magie n'est pas jouée.** La phase de magie est prévue dans la séquence du fascicule ;
+  `Tour.suivante()` la franchit sans rien faire. Sorts, potentiel de magie, jeteurs de sorts et
+  facultés spéciales (peur, paralysie, jets de protection) attendent.
+- **Le combat s'arrête aux trois éliminations.** `AR` et `DR` — les reculs — ne sont pas joués,
+  donc il n'y a ni retraite, ni élimination faute de retraite, ni avance après combat. `EX` retire
+  **tous** les attaquants, sans le tri « force au moins égale » du fascicule. Ni charge de
+  cavalerie (× 2), ni phalange (× 3), ni alternance jour/nuit, ni immunité des tireurs au recul :
+  la force du carton et le terrain du défenseur sont les seuls facteurs.
+- **Un combat par clic, pas par phase entière.** Le fascicule limite chaque unité à une attaque
+  par phase et chaque cible à une attaque par phase : rien ne l'impose ici, l'application résout
+  chaque combat déclaré sans tenir de compte.
 - **L'empilement n'est pas géré au-delà d'une unité par case** : le fascicule autorise 3 unités
   dans une ville, un village ou une citadelle, et ne compte ni les leaders ni les magiciens. Le
   plateau, lui, ne pose qu'un pion par case.
-- **Ni retraite, ni avance après combat, ni pouvoirs** : les autres effets des zones de contrôle —
-  l'interdiction de reculer dedans, l'unité éliminée faute de retraite, l'invisibilité qui les
-  ignore — attendent le combat. Toutes les unités restent terrestres.
+- **Les zones de contrôle ne pèsent que sur le mouvement.** Leurs autres effets — l'interdiction
+  de reculer dedans, l'unité éliminée faute de retraite, l'invisibilité qui les ignore — supposent
+  une règle de retraite qui n'existe pas. Toutes les unités restent terrestres.

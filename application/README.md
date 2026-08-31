@@ -5,6 +5,12 @@ Une application Flask qui sert `game_box/map.jpg`, y **met en place un scénario
 Cliquer un pion montre en **fantômes** les cases où il peut aller ; cliquer un fantôme l'y
 déplace. Le survoler ouvre sa **fiche** : sa photo agrandie et tout ce que son carton porte.
 
+Le jeu suit un **tour** : mouvement puis combat, pour les Nains puis pour les Orques, en boucle
+(la magie est sautée). Le bouton « Phase suivante » avance ; le libellé de la barre d'outils dit
+où l'on en est. En **phase de combat**, un clic sur une unité adverse la prend pour cible (rouge),
+un clic sur ses propres unités à portée les désigne comme attaquants (or), et « Attaquer » résout
+d'après le Tableau I du fascicule.
+
 Les règles ne sont pas ici : les déplacements viennent de `moteur/`, l'application ne fait que les
 servir. Le JavaScript ne décide jamais de la légalité d'un mouvement. **Chaque pion se déplace du
 nombre de points imprimé sur son carton** — de 1 à 20 selon l'unité, lu dans
@@ -40,6 +46,7 @@ molette, boutons, défilement — dans `static/zoom.js` et `static/zoom.css`.
 | --- | --- |
 | `#pions` | une entrée par unité du scénario : `{q, r, s}` sa case, `{cle, image, nom}` le pion posé, `{mouvement, camp}` ce dont le déplacement se sert, et les valeurs de son carton (voir « Survoler une unité ») |
 | `#grille` | `origine`, `matrice` et `taille_pion` : le calage de la grille sur `map.jpg` |
+| `#phase` | la phase courante : `{camp, type, armee, libelle, numero}` (voir « Phases et combat ») |
 
 ## Le plateau du serveur
 
@@ -48,9 +55,11 @@ serveur tient donc un `moteur.plateau.Plateau`, refait à chaque chargement de `
 par `/deplacer`. Sans lui, les zones se calculeraient sur des positions périmées dès le premier
 déplacement.
 
-C'est le premier état de partie du dépôt, et il reste mince : les 52 unités du scénario posées,
-pas de tour de jeu, pas de joueurs, rien qui survive au rechargement de la page. Deux onglets
-ouverts sur `/` se partagent le même plateau — le dernier chargement gagne.
+À côté du plateau, le serveur tient un `moteur.phase.Tour` — le module-global `TOUR` — : quel
+camp joue, et à quoi. Il est lui aussi refait à chaque chargement de `/`, donc le rechargement
+ramène toujours à « Phase de mouvement — Nains », tour 1. Rien d'autre ne survit : pas de reprise
+de partie. Deux onglets ouverts sur `/` se partagent le même plateau et le même tour — le dernier
+chargement gagne.
 
 Le JavaScript convertit chaque hexagone en pixels avec la formule relevée dans
 `game_box/carte.md` :
@@ -95,6 +104,10 @@ est un aller-retour avec le serveur.
 Coordonnées illisibles ou de somme non nulle → 400 ; hexagone hors carte → 404 ; pion inconnu du
 catalogue → 400.
 
+`/deplacements` reste en lecture seule et n'est jamais bloqué. `/deplacer`, lui, **refuse
+(`autorise: false`, sans toucher au plateau) tout déplacement hors de la phase de mouvement du
+camp du pion** : c'est le seul endroit où le tour pèse sur le mouvement.
+
 **C'est le plateau du serveur qui dit quel pion se tient sur la case de départ**, dans quel camp,
 et quels adversaires lui opposent leurs zones de contrôle. Le paramètre `pion` — la clé de
 `pions.json`, `reissland-02-8-cavaleries` — ne sert qu'à interroger une **case vide** : le pion
@@ -111,6 +124,50 @@ de 5 points s'applique et la carte est réputée sans adversaire.
 3. clic ailleurs, ou de nouveau sur le pion sélectionné → les fantômes s'effacent.
 
 `/deplacer` recalcule la portée côté serveur au lieu de croire le navigateur.
+
+En **phase de combat**, le clic ne sert plus à déplacer : il désigne une cible puis des attaquants
+(voir « Phases et combat »).
+
+## Phases et combat
+
+Le serveur tient la phase courante dans `TOUR` (`moteur.phase.Tour`) et la passe au gabarit dans
+`#phase`. Le fascicule enchaîne, pour chaque camp, **mouvement → magie → combat** ; la magie n'est
+pas implémentée, `Tour.suivante()` la saute — elle n'est jamais courante.
+
+| Route | Réponse |
+| --- | --- |
+| `GET /phase` | `{camp, type, armee, libelle, numero}` — pour rafraîchir le navigateur |
+| `POST /phase/suivante` | la phase suivante, même forme ; journalisée |
+| `GET /combat/portee?cq=&cr=&cs=&aq=&ar=&as=` | `{"a_portee": bool, "message": str\|null}` ; un refus part au journal |
+| `POST /combat` — corps `{"cible": {q,r,s}, "attaquants": [{q,r,s}, …]}` | voir plus bas |
+
+`GET /` porte `#phase` ; le JavaScript en tire le libellé de la barre d'outils et **ce qu'un clic
+fait** : en phase de mouvement, seul le camp actif montre ses fantômes ; en phase de combat,
+
+1. clic sur une unité **adverse** → elle devient la cible, surlignée en **rouge** ;
+2. clic sur une de ses **propres** unités → le serveur (`/combat/portee`) dit si elle est à portée
+   (distance ≤ 1, ou ≤ sa portée de tir) ; si oui, elle rejoint les attaquants, surlignée en
+   **or** ; si non, rien ne bouge et le refus est au journal ;
+3. « Attaquer » (visible dès qu'il y a une cible et un attaquant) → `POST /combat` ;
+4. « Annuler », ou un nouveau clic sur la cible → la sélection se vide et les surlignages tombent.
+
+`POST /combat` revalide tout côté serveur — phase, camp de la cible, portée de chaque attaquant —,
+lance le dé (`app.lancer_le_de`, isolé pour les tests), résout via `moteur.combat.livrer_combat`
+et applique le résultat :
+
+```json
+{"resolu": true, "resultat": "DE", "message": "Combat résolu : Défenseur Éliminé",
+ "elimines": [{"q": 1, "r": 26, "s": -27, "terrain": "plaine"}], "jet": 4, "de": 4, "rapport": [3, 1]}
+```
+
+Seules les issues `AE`, `DE` et `EX` retirent des pions ; les reculs (`AR`, `DR`) ne changent rien.
+`{"resolu": false, "message": …}` quand ce n'est pas la phase de combat, que la cible n'est pas
+adverse, ou qu'aucun attaquant n'est valide.
+
+**Le journal est un simple fichier local**, `application/journal_de_combat.log` (une ligne par
+événement : changement de phase, unité hors de portée, résultat de combat en français). C'est le
+deuxième endroit où l'application écrit sur le disque, après `/admin/map_fix` ; le fichier est
+ignoré par git.
 
 ## Survoler une unité
 
@@ -219,8 +276,8 @@ chargement de `/`.
   qui permet d'éprouver un déplacement deux fois de suite et d'obtenir le même résultat. En
   contrepartie, il n'y a aucun moyen de reprendre une partie en cours — le rechargement l'efface.
 - **Le mouvement est celui du carton** : chaque pion emporte ses points, lus sur la photo et
-  rangés dans `game_box/pions/pions.json`. Le reste des valeurs — force, tir, portée — ne joue
-  encore aucun rôle dans les règles, mais la fiche du survol le montre.
+  rangés dans `game_box/pions/pions.json`. La **force** sert maintenant au combat ; le tir et la
+  portée n'y servent que pour la distance d'engagement d'un archer.
 - **Le camp vient de la faction** (voir `moteur/README.md`) : il décide qui gêne qui. Ici, les
   nains sont l'alliance et les orques les ténèbres, et les deux masses se font face à 3 cases.
 - Les vues d'ensemble ne sont toujours pas servies : les 4 photos de `21-vues-d-ensemble/` et les
@@ -248,10 +305,14 @@ mise en place servie case par case — elle doit être celle du
 scénario, et la même d'un chargement à l'autre —, et les deux routes de déplacement, dont la
 vérification qu'elles n'ajoutent rien aux règles du moteur, que la portée suit le carton du pion
 posé, qu'un adversaire au contact la réduit, qu'un ami ne la réduit pas, et qu'un déplacement
-accepté change vraiment le plateau du serveur. Chaque test y part d'une **carte déserte** — le
-plateau survit d'une requête à l'autre, et les 52 unités du scénario se retrouveraient sinon sous
-les pieds du test suivant. Ce que contient le scénario lui-même est éprouvé à part, dans
-`moteur/tests/test_scenario.py`.
+accepté change vraiment le plateau du serveur. Il couvre aussi le **tour** : `#phase` dans la
+page, `/phase/suivante` qui saute la magie et alterne les joueurs, `/deplacer` refusé hors de la
+phase de mouvement, `/combat/portee` selon la distance, et `/combat` qui retire le bon pion sur un
+`DE` (dé fixé par `monkeypatch` de `app.lancer_le_de`) et ne touche à rien sur un recul. Chaque
+test y part d'une **carte déserte** — la fixture `carte_deserte` vide le plateau *et* ramène le
+tour à sa première phase, l'un et l'autre étant partagés d'une requête à la suivante. Ce que
+contient le scénario lui-même est éprouvé à part, dans `moteur/tests/test_scenario.py` ; la
+résolution des combats, dans `moteur/tests/test_combat.py` et `test_phase.py`.
 
 `tests/test_plateau.py` ouvre la page dans Chromium avec Playwright : les 52 pions chargés et
 centrés à moins d'un pixel, inclinés de moins de 5°, carte qui reste à l'échelle après
@@ -265,7 +326,10 @@ la faire grandir — à la fenêtre étroite comme à la large —, qui n'en bou
 et qui ne capte pas les clics —, puis le cycle complet clic → fantômes → déplacement, à
 l'ajustement comme une fois approché. Les fantômes attendus sont ceux que le plateau du serveur
 calcule — il tourne dans le même processus, on le lit directement — et un test pose un adversaire
-au contact pour vérifier que le clic en montre alors moins.
+au contact pour vérifier que le clic en montre alors moins. Enfin le **tour et le combat** : le
+libellé de phase, « Phase suivante » qui saute la magie, le mouvement muet en phase de combat, la
+cible surlignée en rouge, et le cycle complet — amener un Nain au contact d'une Orque, passer en
+combat, désigner cible et attaquant, « Attaquer », et voir les surlignages retomber.
 
 Les tests de navigateur demandent Chromium :
 

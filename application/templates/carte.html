@@ -12,6 +12,7 @@
        pour convertir les coordonnées cubiques en pixels et poser les pions. -->
   <input type="hidden" id="pions" value="{{ pions }}">
   <input type="hidden" id="grille" value="{{ grille }}">
+  <input type="hidden" id="phase" value="{{ phase }}">
 
   <div id="cadre">
     <div id="toile">
@@ -26,6 +27,12 @@
     <span id="echelle">—</span>
     <button type="button" id="zoomer" title="Approcher">+</button>
     <button type="button" id="ajuster">ajuster</button>
+
+    <!-- La phase courante et son avancement, dans le prolongement des boutons de zoom. -->
+    <span id="phase-libelle"></span>
+    <button type="button" id="phase-suivante">Phase suivante</button>
+    <button type="button" id="attaquer" hidden>Attaquer</button>
+    <button type="button" id="annuler-combat" hidden>Annuler</button>
 
     <!-- La fiche de l'unité survolée, dans le prolongement des boutons de zoom : le JavaScript la
          remplit avec ce que porte le champ caché « pions ». La barre est hors de #plateau, elle

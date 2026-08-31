@@ -387,3 +387,100 @@ def test_une_demande_de_deplacement_incomplete_est_refusee(client):
     assert client.post("/deplacer", json={"depart": PLAINE}).status_code == 400
     assert client.post("/deplacer", json={}).status_code == 400
     assert client.post("/deplacer", data="pas du json").status_code == 400
+
+
+# --- Phases de jeu --------------------------------------------------------------------------
+
+NAIN = "nains-01-5-infanteries"        # alliance, force 12
+ARCHER = "yzent-03-8-archers"          # ténèbres, force 2, tir 4, portée 3
+
+
+def test_la_page_porte_la_phase_courante(client):
+    phase = lire_le_champ_cache(client.get("/").get_data(as_text=True), "phase")
+    assert phase == {"camp": ALLIANCE, "type": "mouvement", "armee": "Nains",
+                     "libelle": "Phase de mouvement — Nains", "numero": 1}
+
+
+def test_phase_suivante_saute_la_magie_et_alterne_les_joueurs(client):
+    suite = [client.post("/phase/suivante").json for _ in range(4)]
+    assert [(p["armee"], p["type"]) for p in suite] == [
+        ("Nains", "combat"), ("Orques", "mouvement"), ("Orques", "combat"), ("Nains", "mouvement")]
+    assert suite[-1]["numero"] == 2
+
+
+def test_le_mouvement_est_bloque_hors_de_sa_phase(client):
+    poser(PLAINE, NAIN)
+    client.post("/phase/suivante")  # phase de combat des Nains
+    refuse = client.post("/deplacer", json={"depart": PLAINE, "arrivee": VOISINE}).json
+    assert refuse["autorise"] is False
+    assert app.PLATEAU.pion_sur(Hex(**PLAINE)).cle == NAIN
+
+
+def test_le_mouvement_est_bloque_pour_le_camp_inactif(client):
+    poser(PLAINE, ARCHER)  # une unité des ténèbres, alors que c'est le tour des Nains
+    refuse = client.post("/deplacer", json={"depart": PLAINE, "arrivee": VOISINE}).json
+    assert refuse["autorise"] is False
+
+
+# --- Résolution des combats ----------------------------------------------------------------
+
+def test_la_portee_de_combat_suit_la_distance(client):
+    poser(PLAINE, ARCHER)
+    reponse = client.get("/combat/portee", query_string={
+        "cq": VOISINE["q"], "cr": VOISINE["r"], "cs": VOISINE["s"],
+        "aq": PLAINE["q"], "ar": PLAINE["r"], "as": PLAINE["s"]}).json
+    assert reponse["a_portee"] is True
+    loin = client.get("/combat/portee", query_string={
+        "cq": LOINTAINE["q"], "cr": LOINTAINE["r"], "cs": LOINTAINE["s"],
+        "aq": PLAINE["q"], "ar": PLAINE["r"], "as": PLAINE["s"]}).json
+    assert loin["a_portee"] is False
+    assert loin["message"] == "Cette unité n'est pas à portée de la cible"
+
+
+def test_un_combat_hors_phase_est_refuse(client):
+    poser(PLAINE, NAIN)
+    poser(VOISINE, ARCHER)
+    reponse = client.post("/combat", json={"cible": VOISINE, "attaquants": [PLAINE]}).json
+    assert reponse["resolu"] is False
+
+
+def test_un_combat_gagne_retire_le_defenseur(client, monkeypatch):
+    monkeypatch.setattr(app, "lancer_le_de", lambda: 1)
+    poser(PLAINE, NAIN)       # force 12
+    poser(VOISINE, ARCHER)    # force 2, ténèbres → rapport 6-1, dé 1 → DE
+    client.post("/phase/suivante")  # phase de combat des Nains
+    reponse = client.post("/combat", json={"cible": VOISINE, "attaquants": [PLAINE]}).json
+    assert reponse["resolu"] is True
+    assert reponse["resultat"] == "DE"
+    assert reponse["message"] == "Combat résolu : Défenseur Éliminé"
+    assert reponse["elimines"] == [{**VOISINE, "terrain": "plaine"}]
+    assert app.PLATEAU.pion_sur(Hex(**VOISINE)) is None
+    assert app.PLATEAU.pion_sur(Hex(**PLAINE)).cle == NAIN
+
+
+def test_un_recul_ne_change_rien_au_plateau(client, monkeypatch):
+    monkeypatch.setattr(app, "lancer_le_de", lambda: 1)
+    poser(PLAINE, NAIN)                       # force 12
+    poser(VOISINE, ORQUE)                     # force 8 → rapport 1-1, dé 1 → DR
+    client.post("/phase/suivante")
+    reponse = client.post("/combat", json={"cible": VOISINE, "attaquants": [PLAINE]}).json
+    assert reponse["resultat"] in ("AR", "DR")
+    assert app.PLATEAU.pion_sur(Hex(**VOISINE)).cle == ORQUE
+    assert app.PLATEAU.pion_sur(Hex(**PLAINE)).cle == NAIN
+
+
+def test_un_attaquant_hors_de_portee_ne_resout_pas_le_combat(client):
+    poser(LOINTAINE, NAIN)
+    poser(VOISINE, ORQUE)
+    client.post("/phase/suivante")
+    reponse = client.post("/combat", json={"cible": VOISINE, "attaquants": [LOINTAINE]}).json
+    assert reponse["resolu"] is False
+    assert app.PLATEAU.pion_sur(Hex(**VOISINE)).cle == ORQUE
+
+
+def test_la_cible_doit_etre_adverse(client):
+    poser(PLAINE, NAIN)
+    poser(VOISINE, "nains-01-5-infanteries")
+    client.post("/phase/suivante")
+    reponse = client.post("/combat", json={"cible": VOISINE, "attaquants": [PLAINE]}).json
+    assert reponse["resolu"] is False

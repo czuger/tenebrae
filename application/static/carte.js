@@ -40,6 +40,10 @@ const ficheSymbole = document.getElementById("fiche-symbole");
 const ficheValeurs = document.getElementById("fiche-valeurs");
 const ficheRemarques = document.getElementById("fiche-remarques");
 
+const phaseLibelle = document.getElementById("phase-libelle");
+const boutonAttaquer = document.getElementById("attaquer");
+const boutonAnnuler = document.getElementById("annuler-combat");
+
 const pions = JSON.parse(document.getElementById("pions").value);
 const grille = JSON.parse(document.getElementById("grille").value);
 const { centre: centreDeLHexagone, hexagoneDuPixel } = calage(grille);
@@ -50,6 +54,14 @@ let fantomes = [];
 let selection = null;
 let survole = null; // le pion dont la fiche est ouverte
 let vue = null; // le zoom, monté une fois la carte chargée
+
+// La phase courante, telle que le serveur la donne : { camp, type, armee, libelle, numero }.
+// Le type ne vaut jamais « magie » — le serveur la saute.
+let phase = JSON.parse(document.getElementById("phase").value);
+
+// La sélection de la phase de combat : une cible adverse, et un ensemble d'attaquants alliés.
+let cible = null;
+let attaquants = new Set();
 
 function hexagoneClique(evenement) {
   const { x, y } = pixelDuPointeur(evenement, carte);
@@ -191,21 +203,135 @@ async function deplacer(image, hexagone) {
 function auClic(evenement) {
   const hexagone = hexagoneClique(evenement);
 
+  if (phase.type === "combat") {
+    auClicDeCombat(hexagone);
+    return;
+  }
+
   if (selection && fantomeSurLHexagone(hexagone)) {
     deplacer(selection, hexagone);
     return;
   }
 
   const pion = pionSurLHexagone(hexagone);
-  if (!pion || pion === selection) {
+  if (!pion || pion === selection || pion.pion.camp !== phase.camp) {
+    // Hors de sa phase de mouvement, une unité ne montre pas ses cases : seul le camp actif joue.
     effacerLesFantomes();
     return;
   }
   montrerLesDeplacements(pion);
 }
 
+// --- La phase de combat ---
+//
+// Un clic sur une unité adverse en fait la cible (surlignée en rouge). Les clics suivants sur des
+// unités du camp actif les ajoutent comme attaquants s'ils sont à portée (surlignés en or) ; le
+// serveur seul juge de la portée. Le bouton « Attaquer » résout, « Annuler » vide la sélection.
+
+function hexagoneDuPion(image) {
+  return { q: Number(image.dataset.q), r: Number(image.dataset.r), s: Number(image.dataset.s) };
+}
+
+function majBoutonsDeCombat() {
+  const enCombat = phase.type === "combat";
+  boutonAnnuler.hidden = !(enCombat && cible);
+  boutonAttaquer.hidden = !(enCombat && cible && attaquants.size > 0);
+}
+
+function nettoyerLeCombat() {
+  if (cible) cible.classList.remove("cible");
+  for (const attaquant of attaquants) attaquant.classList.remove("attaquant");
+  cible = null;
+  attaquants = new Set();
+  majBoutonsDeCombat();
+}
+
+async function auClicDeCombat(hexagone) {
+  const pion = pionSurLHexagone(hexagone);
+  if (!pion) return;
+
+  if (pion === cible) {
+    nettoyerLeCombat();
+    return;
+  }
+
+  if (!cible) {
+    if (pion.pion.camp === phase.camp) return; // il faut d'abord une cible adverse
+    cible = pion;
+    cible.classList.add("cible");
+    majBoutonsDeCombat();
+    return;
+  }
+
+  if (pion.pion.camp !== phase.camp) return; // une autre unité adverse : sans effet
+
+  if (attaquants.has(pion)) {
+    attaquants.delete(pion);
+    pion.classList.remove("attaquant");
+    majBoutonsDeCombat();
+    return;
+  }
+
+  const c = cible.dataset;
+  const a = pion.dataset;
+  const reponse = await fetch(`/combat/portee?cq=${c.q}&cr=${c.r}&cs=${c.s}`
+    + `&aq=${a.q}&ar=${a.r}&as=${a.s}`);
+  if (!reponse.ok) return;
+  const { a_portee } = await reponse.json();
+  if (!a_portee) return; // le refus est parti au journal du serveur
+
+  attaquants.add(pion);
+  pion.classList.add("attaquant");
+  majBoutonsDeCombat();
+}
+
+async function attaquer() {
+  if (!cible || attaquants.size === 0) return;
+  const reponse = await fetch("/combat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      cible: hexagoneDuPion(cible),
+      attaquants: [...attaquants].map(hexagoneDuPion),
+    }),
+  });
+  if (!reponse.ok) return;
+  const resultat = await reponse.json();
+  if (resultat.resolu) {
+    for (const elimine of resultat.elimines) retirerLePion(elimine);
+  }
+  nettoyerLeCombat();
+}
+
+function retirerLePion(hexagone) {
+  const image = pionSurLHexagone(hexagone);
+  if (!image) return;
+  const rang = pionsPoses.indexOf(image);
+  if (rang >= 0) pionsPoses.splice(rang, 1);
+  attaquants.delete(image);
+  if (cible === image) cible = null;
+  image.remove();
+}
+
+function rafraichirLaPhase(nouvelle) {
+  phase = nouvelle;
+  phaseLibelle.textContent = phase.libelle;
+  effacerLesFantomes();
+  nettoyerLeCombat();
+}
+
+async function phaseSuivante() {
+  const reponse = await fetch("/phase/suivante", { method: "POST" });
+  if (!reponse.ok) return;
+  rafraichirLaPhase(await reponse.json());
+}
+
 function demarrer() {
   poserLesPions();
+  phaseLibelle.textContent = phase.libelle;
+  document.getElementById("phase-suivante").addEventListener("click", phaseSuivante);
+  boutonAttaquer.addEventListener("click", attaquer);
+  boutonAnnuler.addEventListener("click", nettoyerLeCombat);
   // La carte fait 6173 × 5102 px : elle s'ouvre réduite à la fenêtre, et la molette ou les
   // boutons « + », « − » et « ajuster » la rapprochent — jusqu'à la taille du scan, où un pion
   // se lit vraiment.

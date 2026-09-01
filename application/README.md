@@ -95,7 +95,7 @@ ne pouvant plus ouvrir de session, donc prendre place, donc jouer. La promesse d
 | Route | Effet |
 | --- | --- |
 | `GET /` | reprend la dernière partie ; à défaut — base vide, ou sauvegarde d'un autre scénario — repose le scénario et en ouvre une |
-| `POST /partie/nouvelle` | repose le scénario et ouvre une nouvelle partie, **sans lever la table** ; rend `{"pions": […], "phase": {…}}` |
+| `POST /partie/nouvelle` | repose le scénario et ouvre une nouvelle partie, **sans lever la table** ; avec le corps `{"contre_ia": true}`, confie le camp adverse à l'IA (voir « Jouer contre l'IA ») ; rend `{"pions": […], "phase": {…}}` et la table |
 
 Les parties précédentes restent en base : `POST /partie/nouvelle` n'efface rien, il ouvre un
 document de plus, et c'est le plus récent que `/` reprend.
@@ -445,6 +445,29 @@ Le reste des échecs garde le silence qu'il avait, leurs refus partant au journa
 
 Se déconnecter ne rend pas sa place : on revient s'y asseoir.
 
+### Jouer contre l'IA
+
+Le second compte peut être une machine. Le bouton **« Nouvelle partie contre l'IA »** du dialogue
+de la table — visible quand on est assis et que l'autre camp est à donner : libre, ou déjà tenu
+par l'IA — envoie `POST /partie/nouvelle` avec le corps `{"contre_ia": true}` : le scénario est
+reposé, et le camp que le demandeur ne tient pas est confié à l'IA. Un camp tenu par un autre
+humain n'est pas à donner — 409, on ne met personne à la porte, et la mise en place n'est pas
+refaite.
+
+L'IA n'a ni session ni compte Discord : elle occupe sa place sous la sentinelle `ia.JOUEUR_IA`
+(`"ia"`, qu'aucun identifiant Discord — des chaînes de chiffres — ne peut porter), qui voyage
+dans le dict des places comme n'importe quel identifiant — rien de plus à sauvegarder, rien de
+plus à reprendre — et que `la_table()` affiche sous le nom « IA ». Un humain ne peut pas s'y
+asseoir — la place est occupée — et `camp_actif_requis` ne peut jamais lui apparier une session.
+
+Son tour se joue **côté serveur, dans la requête qui lui rend la main** : `faire_jouer_l_ia()`,
+appelé à la fin de `POST /phase/suivante` — et à la création de la partie, pour le cas où le
+scénario ouvre sur son camp. La stratégie vit dans le moteur (`moteur/ia.py`, voir
+`moteur/README.md`) ; l'application ne fait qu'y passer le dé (`lancer_le_de`), sauvegarder et
+journaliser. Une seule sauvegarde à la fin du tour : la version monte, et le navigateur voit les
+coups de l'IA à son prochain sondage, comme il verrait ceux d'un adversaire humain. Une
+sauvegarde ne tombe donc jamais sur une phase tenue par l'IA — « / » n'a jamais à la faire jouer.
+
 ### Suivre la partie de l'adversaire
 
 Chaque coup joué fait monter d'un cran le module-global `VERSION`. Le navigateur interroge
@@ -648,6 +671,16 @@ l'avatar posé — c'est ce test qui a fait choisir un avatar dimensionné en `e
 rallonge qui ne pousse pas les boutons hors de vue, le dialogue de la table, le grisage hors de son
 tour, le message qu'un coup refusé affiche, et surtout **deux navigateurs ouverts en même temps** :
 l'un passe sa phase ou prend place, l'autre l'apprend sans rien recharger.
+
+`tests/test_ia.py` éprouve la partie contre l'IA côté serveur : la création refusée à l'anonyme,
+au joueur sans place et quand l'autre camp est tenu par un humain, l'IA assise et montrée « IA »
+à la table, son tour d'ouverture joué dans la foulée quand elle tient l'Alliance, son tour
+déclenché par le `POST /phase/suivante` qui lui rend la main — le dé fixé par `monkeypatch`,
+comme partout —, et sa place que personne ne peut prendre. La stratégie elle-même est éprouvée
+dans le moteur (`moteur/tests/test_adversaire_artificiel.py`) ; la persistance de sa place, dans
+`tests/test_persistance.py`. `tests/test_ia_navigateur.py` refait le tour à l'écran : le bouton
+caché à qui n'est pas assis, le camp adverse confié à l'IA d'un clic, et l'ouverture du scénario
+jouée par elle avant que la main revienne au joueur.
 
 **Toute la suite joue connectée.** La fixture `client` du `conftest.py` ouvre une session et assied
 le joueur de test **aux deux camps** — c'est ce qui laisse les tests écrits avant les joueurs

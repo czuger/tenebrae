@@ -327,6 +327,35 @@ class TestPlacesPersistees:
             assert app.le_depot_de_joueurs().par_discord_id("999") is None
 
 
+class TestPartieContreLIAPersistee:
+    """La place de l'IA voyage dans le dict des places, sous sa sentinelle : rien de plus à
+    sauver, rien de plus à reprendre."""
+
+    def test_la_place_de_l_ia_est_ecrite_avec_la_partie(self, application_mongo,
+                                                        installer_le_joueur, parties):
+        from moteur import ia
+        client = application_mongo.test_client()
+        installer_le_joueur(application_mongo, client, camps=["alliance"])
+        reponse = client.post("/partie/nouvelle", json={"contre_ia": True})
+        assert reponse.status_code == 200
+        assert dict(parties.objects.first().places)["tenebres"] == ia.JOUEUR_IA
+
+    def test_la_place_de_l_ia_est_reprise_apres_un_redemarrage(self, application_mongo,
+                                                               installer_le_joueur):
+        from moteur import ia
+        client = application_mongo.test_client()
+        installer_le_joueur(application_mongo, client, camps=["alliance"])
+        client.post("/partie/nouvelle", json={"contre_ia": True})
+
+        # Le serveur redémarre : la table de la mémoire est levée, seule la base la connaît.
+        app.PLACES.vider()
+        app.PLATEAU.vider()
+        app.TOUR.recommencer()
+        client.get("/")
+
+        assert app.PLACES.occupant("tenebres") == ia.JOUEUR_IA
+
+
 # --- Contre un vrai MongoDB ---------------------------------------------------------------------
 #
 # Mongomock imite l'API, pas le stockage : il n'éprouve ni l'encodage BSON des clés du placement —

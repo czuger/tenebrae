@@ -9,7 +9,6 @@ l'arithmétique.
 from moteur.hexagone import CARTE, Hex
 
 RAYON_DU_COIN = 2                     # le centre, sa couronne, et la couronne d'après
-CASES_DU_COIN = 19                    # 1 + 6 + 12
 BUDGET_MAXIMAL = 8                    # au-delà, c'est que le trajet cherché n'existe pas
 
 
@@ -23,14 +22,15 @@ def alentours(hexagone, rayon=RAYON_DU_COIN):
     return atteints
 
 
-def plaine_bien_entouree():
-    """Une plaine dont tout le voisinage à deux cases est de la plaine nue."""
+def plaine_bien_entouree(rayon=RAYON_DU_COIN):
+    """Une plaine dont tout le voisinage à `rayon` cases est de la plaine nue."""
+    cases_attendues = 1 + 3 * rayon * (rayon + 1)
     for cle, elements in CARTE.items():
         if elements != ("plaine",):
             continue
         hexagone = Hex.depuis_cle(cle)
-        voisinage = alentours(hexagone)
-        if (len(voisinage) == CASES_DU_COIN
+        voisinage = alentours(hexagone, rayon)
+        if (len(voisinage) == cases_attendues
                 and all(CARTE.get(voisin.cle) == ("plaine",) for voisin in voisinage)):
             return hexagone
     raise AssertionError("aucun coin de plaine nue assez large sur la carte")

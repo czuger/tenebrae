@@ -52,6 +52,10 @@ const dialogueDeLaTable = document.getElementById("table-dialogue");
 const tableTitre = document.getElementById("table-titre");
 const tablePlaces = document.getElementById("table-places");
 const boutonQuitter = document.getElementById("table-quitter");
+const boutonContreIA = document.getElementById("table-contre-ia");
+
+// Le pseudo que le serveur donne à la place tenue par l'IA (voir `moteur/ia.py`).
+const NOM_IA = "IA";
 
 let pions = JSON.parse(document.getElementById("pions").value);
 const grille = JSON.parse(document.getElementById("grille").value);
@@ -495,6 +499,11 @@ function construireLesPlaces() {
     tablePlaces.appendChild(ligne);
   }
   boutonQuitter.hidden = table.camps.length === 0;
+  // Repartir de zéro contre l'IA demande d'être assis, et que l'autre camp soit à donner :
+  // libre, ou déjà tenu par l'IA. Un camp tenu par un humain n'est pas à donner.
+  const adverses = Object.keys(table.armees).filter((camp) => !table.camps.includes(camp));
+  boutonContreIA.hidden = table.camps.length === 0
+    || !adverses.every((camp) => !table.places[camp] || table.places[camp] === NOM_IA);
 }
 
 function ouvrirLaTable() {
@@ -531,6 +540,22 @@ async function quitterLaPlace() {
   const reponse = await envoyer("/partie/place/quitter", { method: "POST" });
   if (!reponse) return;
   majLaTable(await reponse.json());
+}
+
+async function nouvellePartieContreIA() {
+  const reponse = await envoyer("/partie/nouvelle", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contre_ia: true }),
+  });
+  if (!reponse) return;
+  const resultat = await reponse.json();
+  // La réponse porte la partie neuve entière — et si l'IA ouvrait le scénario, son premier tour
+  // est déjà joué : les pions arrivent tels qu'elle les a laissés.
+  reposerLesPions(resultat.pions);
+  rafraichirLaPhase(resultat.phase);
+  majLaTable(resultat);
+  dialogueDeLaTable.close();
 }
 
 async function seDeconnecter() {
@@ -586,6 +611,7 @@ function demarrer() {
     else location.href = "/connexion";
   });
   boutonQuitter.addEventListener("click", quitterLaPlace);
+  boutonContreIA.addEventListener("click", nouvellePartieContreIA);
   document.getElementById("table-deconnexion").addEventListener("click", seDeconnecter);
   document.getElementById("table-fermer").addEventListener("click", () => {
     dialogueDeLaTable.close();

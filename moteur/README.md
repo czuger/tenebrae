@@ -11,6 +11,7 @@ servir ce que ce paquet décide. Un déplacement n'est jamais jugé légal par l
 | `scenario.py` | les mises en place fixées dans `scenarios/`, et le `Plateau` qu'elles donnent |
 | `phase.py` | la machine à états d'un tour : quel camp joue, et à quoi (`Tour`) |
 | `combat.py` | la résolution d'un combat d'après le Tableau I du fascicule |
+| `ia.py` | l'adversaire artificiel : le camp que le serveur joue seul |
 | `models/` | les entités du jeu, un fichier par modèle : `Partie`, `Joueur`, `Places` |
 | `depots/` | leur accès en base, un module par sujet : `partie.py`, `joueur.py` |
 
@@ -359,6 +360,42 @@ Trois choix s'y lisent :
   chaque changement de phase (`POST /phase/suivante`), ce qui couvre le passage d'une phase de
   combat à l'autre comme le tour suivant.
 
+## L'adversaire artificiel — `ia.py`
+
+```python
+from moteur import ia
+
+ia.jouer_le_tour(plateau, tour, suivi, jet=lancer_le_de)   # mouvement, combat, la main rendue
+```
+
+Le fascicule suppose deux joueurs autour de la carte ; `ia.py` tient la place du second. Il ne
+fait que **choisir** : chaque déplacement passe par `Plateau.deplacer`, chaque combat par
+`livrer_combat`, chaque disponibilité par `SuiviDeCombat` — aucune règle n'y est dupliquée, et une
+décision illégale est refusée comme elle le serait à un humain.
+
+La stratégie tient en trois points :
+
+- **Le ciblage est commun** au mouvement et au combat : `priorite_des_cibles` trie les cases
+  adverses par distance à vol d'oiseau, puis par force défensive effective — la force du carton
+  multipliée par le terrain occupé —, puis par clé de case. C'est là que se réglerait une
+  difficulté future : changer ce tri change toute l'IA.
+- **Chaque unité marche jusqu'à sa portée d'engagement** (`portee_de_combat` : le contact, ou la
+  portée de tir) et s'y arrête — un archer en position ne colle pas à sa cible, une infanterie au
+  contact y reste.
+- **Les attaques se concentrent** : toutes les unités disponibles à portée d'une cible l'engagent
+  ensemble, en un seul combat. Sous la parité (`RAPPORT_MINIMAL`, la colonne 1-1 du Tableau I),
+  l'IA renonce — c'est le seul bouton de difficulté.
+
+`jouer_le_tour` joue la phase de mouvement, franchit la phase comme le ferait un joueur —
+`Tour.suivante()` et le registre des combats vidé —, joue la phase de combat, et rend la main. Le
+dé reste au bord du moteur : `jet` est un **appelable**, appelé une fois par combat livré. Tous
+les départages se font par les clés de case : à dé égal, deux parties identiques se rejouent à
+l'identique — c'est ce qui rend l'IA testable (`moteur/tests/test_adversaire_artificiel.py`).
+
+Côté application, l'IA occupe sa place sous la sentinelle `JOUEUR_IA` (`"ia"`, qu'aucun
+identifiant Discord — des chaînes de chiffres — ne peut porter) et s'affiche sous `NOM_IA`. Le
+moteur, lui, n'en sait rien : `jouer_le_tour` joue le camp actif, quel qu'il soit.
+
 ## Réserves sur l'interprétation
 
 Comme pour la carte et l'inventaire des pions, les doutes sont conservés, pas tranchés.
@@ -426,3 +463,8 @@ Comme pour la carte et l'inventaire des pions, les doutes sont conservés, pas t
 - **Les zones de contrôle ne pèsent que sur le mouvement.** Leurs autres effets — l'interdiction
   de reculer dedans, l'unité éliminée faute de retraite, l'invisibilité qui les ignore — supposent
   une règle de retraite qui n'existe pas. Toutes les unités restent terrestres.
+- **L'IA marche à vol d'oiseau.** `deplacements()` rend les cases atteignables, pas le coût des
+  chemins ; l'IA choisit donc la case qui réduit la distance cubique, ce qui peut la faire buter
+  sur un lac au lieu de le contourner au plus court. Elle ne joue ni repli, ni garnison, ni
+  magie — elle avance, toujours — et son seuil de parité est un choix de prudence, pas une règle
+  du fascicule.

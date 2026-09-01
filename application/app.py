@@ -69,6 +69,7 @@ from config import Config  # noqa: E402
 from models.connexion import Connexion  # noqa: E402
 from moteur import combat  # noqa: E402
 from moteur import hexagone as moteur_hexagone  # noqa: E402
+from moteur import ia  # noqa: E402
 from moteur.hexagone import CARTE_TRANSCRITE, Hex  # noqa: E402
 from moteur.phase import COMBAT, Tour  # noqa: E402
 from moteur.pion import CATALOGUE  # noqa: E402
@@ -326,6 +327,32 @@ def sauvegarder_la_partie():
     le_depot().sauvegarder(photographier_la_partie())
 
 
+def faire_jouer_l_ia():
+    """Si le camp actif est tenu par l'IA, elle joue son tour entier, et la partie est sauvée.
+
+    Le tour se joue en entier dans la requête — mouvement, combat, et la main rendue au camp
+    d'en face : quelques millisecondes pour une trentaine d'unités. Une seule sauvegarde à la
+    fin ; la version monte, et le navigateur voit les coups de l'IA à son prochain sondage,
+    comme il verrait ceux d'un adversaire humain.
+
+    Un `if`, pas un `while` : l'IA ne tient qu'un camp — la création de partie y veille — et
+    son tour joué rend toujours la main. Une sauvegarde ne tombe donc jamais sur une phase
+    tenue par l'IA, et « / » n'a jamais à la faire jouer.
+    """
+    if PLACES.occupant(TOUR.camp_actif) != ia.JOUEUR_IA:
+        return
+    deplacements, combats = ia.jouer_le_tour(PLATEAU, TOUR, SUIVI, lancer_le_de)
+    sauvegarder_la_partie()
+    for depart, arrivee in deplacements:
+        JOURNAL.info("IA : déplacement %s → %s", depart.cle, arrivee.cle)
+    for cible, attaquants, resultat in combats:
+        message = MESSAGES_DE_COMBAT.get(resultat.resultat, "Combat résolu : sans effet")
+        JOURNAL.info("IA : %s attaquant(s) sur %s — %s (dé %s, rapport %s)",
+                     len(attaquants), cible.cle, message, resultat.de,
+                     "-".join(map(str, resultat.rapport)) if resultat.rapport else "?")
+    JOURNAL.info("IA : tour joué — %s (tour %s)", TOUR.libelle, TOUR.numero)
+
+
 def les_unites_posees():
     """Les unités du plateau sous la forme que le navigateur attend, comme à la mise en place.
 
@@ -394,8 +421,15 @@ def la_table():
     une donnée personnelle pour rien.
     """
     joueur = le_joueur_courant()
-    occupants = {camp: le_depot_de_joueurs().par_discord_id(PLACES.occupant(camp))
-                 for camp in SCENARIO.camps}
+
+    def occupant_de(camp):
+        """Le joueur assis à ce camp — l'IA n'est pas en base, elle n'a qu'un nom."""
+        occupant = PLACES.occupant(camp)
+        if occupant == ia.JOUEUR_IA:
+            return {"pseudo": ia.NOM_IA}
+        return le_depot_de_joueurs().par_discord_id(occupant)
+
+    occupants = {camp: occupant_de(camp) for camp in SCENARIO.camps}
     return {
         "connecte": joueur is not None,
         "pseudo": joueur["pseudo"] if joueur else None,
@@ -588,11 +622,33 @@ def nouvelle_partie():
 
     Les parties précédentes restent en base — c'est le dépôt qui en décide —, mais celle-ci
     devient la plus récente, donc celle que « / » reprendra.
+
+    Avec un corps `{"contre_ia": true}`, le camp que le demandeur ne tient pas est confié à
+    l'IA — s'il est libre, ou déjà à elle : on ne met pas un joueur humain à la porte. Et si le
+    scénario ouvre sur le camp de l'IA, elle joue son premier tour dans la foulée : la réponse
+    porte les pions tels qu'elle les a laissés.
     """
-    poses = poser_la_mise_en_place()
+    contre_ia = bool((request.get_json(silent=True) or {}).get("contre_ia"))
+    if contre_ia:
+        joueur = le_joueur_courant()["discord_id"]
+        camps_adverses = [camp for camp in SCENARIO.camps if not PLACES.tient(joueur, camp)]
+        if not camps_adverses:
+            return {"message": "Aucun camp à confier à l'IA."} | la_table(), 409
+        for camp in camps_adverses:
+            if PLACES.occupant(camp) not in (None, ia.JOUEUR_IA):
+                return {"message": "Ce camp est déjà tenu."} | la_table(), 409
+
+    poser_la_mise_en_place()
+    if contre_ia:
+        for camp in camps_adverses:
+            PLACES.asseoir(camp, ia.JOUEUR_IA)
+        JOURNAL.info("Nouvelle partie contre l'IA : scénario %s, l'IA tient %s",
+                     NUMERO_DU_SCENARIO, ", ".join(camps_adverses))
+    else:
+        JOURNAL.info("Nouvelle partie : scénario %s", NUMERO_DU_SCENARIO)
     le_depot().nouvelle_partie(photographier_la_partie())
-    JOURNAL.info("Nouvelle partie : scénario %s", NUMERO_DU_SCENARIO)
-    return {"pions": poses, "phase": la_phase_courante()}
+    faire_jouer_l_ia()
+    return {"pions": les_unites_posees(), "phase": la_phase_courante()} | la_table()
 
 
 @jeu.route("/partie/etat")
@@ -684,6 +740,7 @@ def phase_suivante():
     SUIVI.reinitialiser()
     sauvegarder_la_partie()
     JOURNAL.info("Phase : %s (tour %s)", TOUR.libelle, TOUR.numero)
+    faire_jouer_l_ia()
     return la_phase_courante()
 
 

@@ -6,10 +6,11 @@ bataille : attaquant éliminé, défenseur éliminé, échange, ou l'un des deux
 transcrit cette table, calcule le rapport de force (« toujours arrondi en faveur du défenseur »)
 et applique les modificateurs de terrain du *Tableau des terrains*.
 
-Les reculs ne sont pas joués : `AR` et `DR` laissent le plateau intact. `EX` retire toutes les
-unités engagées, sans le tri « attaquants totalisant une force au moins égale » du fascicule. Les
-facultés spéciales, la charge de cavalerie, les phalanges et l'alternance jour/nuit sont hors de
-portée — voir `moteur/README.md`.
+Les reculs ne sont pas joués : `AR` et `DR` laissent le plateau intact. `EX` retire les unités
+engagées, sans le tri « attaquants totalisant une force au moins égale » du fascicule — mais
+**les tireurs y échappent** : « une unité tirant des missiles ne peut en aucun cas subir un
+résultat de retraite ou d'échange ». Les facultés spéciales, la charge de cavalerie, les phalanges
+et l'alternance jour/nuit sont hors de portée — voir `moteur/README.md`.
 
 `SuiviDeCombat` tient à part ce qu'une phase de combat a déjà consommé : une unité n'attaque
 qu'une fois, une unité n'est attaquée qu'une fois. C'est un registre, pas une résolution — il ne
@@ -72,9 +73,21 @@ def bonus_de_terrain(hexagone):
     return 2 if hexagone.terrain in BONUS_AU_DE else 0
 
 
+def tire_des_missiles(pion):
+    """Dit si ce pion engage par le tir : il porte une force de tir **et** une portée.
+
+    C'est la seule façon d'engager qu'on lui connaisse — le moteur ne lui donne pas le choix entre
+    le tir et le corps à corps, et sa portée couvre la case au contact. Un pion qui tire est donc
+    réputé tirer à chaque combat qu'il livre, quelle que soit la distance.
+    """
+    if pion is None:
+        return False
+    return bool(pion.tir and pion.portee)
+
+
 def portee_de_combat(pion):
     """La distance à laquelle ce pion peut engager : sa portée de tir s'il tire, 1 sinon."""
-    if pion.tir and pion.portee:
+    if tire_des_missiles(pion):
         return pion.portee
     return 1
 
@@ -197,6 +210,11 @@ def livrer_combat(plateau, hexagone_cible, hexagones_attaquants, jet):
     Les attaquants sont réputés valides — à portée, du bon camp : c'est à l'appelant de les avoir
     filtrés. Un attaquant sans force lisible est ignoré dans le calcul mais suit le sort du groupe.
     `AE` retire les attaquants, `DE` la cible, `EX` les deux ; `AR` et `DR` ne changent rien.
+
+    Une exception, et elle vient du fascicule : sur un échange, **les attaquants qui tirent des
+    missiles ne sont pas retirés** — ils ont frappé de loin, l'échange ne les atteint pas. Ils
+    comptent en revanche dans le rapport de force, et un `AE` les élimine comme les autres : le
+    fascicule ne les dispense que de la retraite et de l'échange.
     """
     pion_cible = plateau.pion_sur(hexagone_cible)
     forces = [plateau.pion_sur(hexagone).force
@@ -209,8 +227,11 @@ def livrer_combat(plateau, hexagone_cible, hexagones_attaquants, jet):
     resultat = detail.issue
 
     elimines = []
-    if resultat in (AE, EX):
+    if resultat == AE:
         elimines.extend(hexagones_attaquants)
+    elif resultat == EX:
+        elimines.extend(hexagone for hexagone in hexagones_attaquants
+                        if not tire_des_missiles(plateau.pion_sur(hexagone)))
     if resultat in (DE, EX):
         elimines.append(hexagone_cible)
     for hexagone in elimines:

@@ -17,6 +17,8 @@ NAIN = "nains-01-5-infanteries"            # alliance, force 12
 ORQUE = "orques-01-15-infanteries"        # ténèbres, force 8
 ARCHER = "yzent-03-8-archers"             # ténèbres, force 2, tir 4, portée 3
 ELFE = "elfes-01-5-infanteries"           # alliance, force 7
+ARBALETRIER = "nains-02-4-arbaletriers"   # alliance, force 6, tir 4, portée 2
+ARBALETRIER_LOURD = "nains-03-4-arbaletriers-lourds"   # alliance, force 8, tir 5
 
 
 def hexagone_de_terrain(terrain):
@@ -86,6 +88,24 @@ class TestPortee:
         assert not combat.a_portee(tres_loin, pion(ARCHER), a)
 
 
+class TestTireDesMissiles:
+    """Qui tire, au sens du moteur : un carton qui porte une force de tir **et** une portée."""
+
+    def test_l_archer_tire(self):
+        assert combat.tire_des_missiles(pion(ARCHER))
+
+    def test_l_infanterie_ne_tire_pas(self):
+        assert not combat.tire_des_missiles(pion(NAIN))
+
+    def test_une_case_vide_ne_tire_pas(self):
+        """`livrer_combat` interroge le plateau, qui peut ne rien rendre : pas d'exception ici."""
+        assert not combat.tire_des_missiles(None)
+
+    def test_la_portee_de_combat_suit_le_meme_partage(self):
+        assert combat.portee_de_combat(pion(ARCHER)) == pion(ARCHER).portee
+        assert combat.portee_de_combat(pion(NAIN)) == 1
+
+
 class TestLivrerCombat:
     @pytest.fixture
     def duo(self):
@@ -122,6 +142,56 @@ class TestLivrerCombat:
         assert resultat.resultat == EX
         assert plateau.pion_sur(cible) is None
         assert plateau.pion_sur(attaquant) is None
+
+    def test_l_echange_epargne_les_tireurs(self, duo):
+        """« Une unité tirant des missiles ne peut en aucun cas subir [...] un résultat d'échange. »
+
+        Le fantassin tombe avec la cible, l'arbalétrier reste : il a frappé de loin.
+        """
+        cible, fantassin = duo
+        _, _, tireur, *_ = couronne_de(cible)
+        plateau = Plateau([(cible, pion(ARCHER)),
+                           (fantassin, pion(NAIN)), (tireur, pion(ARBALETRIER))])
+        # NAIN 12 + ARBALETRIER 6 = 18 contre ARCHER 2 → 6-1 ; dé 6 → EX.
+        resultat = combat.livrer_combat(plateau, cible, [fantassin, tireur], jet=6)
+        assert resultat.resultat == EX
+        assert plateau.pion_sur(cible) is None
+        assert plateau.pion_sur(fantassin) is None
+        assert plateau.pion_sur(tireur) is not None
+        assert resultat.elimines == [fantassin, cible]
+
+    def test_un_tireur_seul_ressort_indemne_d_un_echange(self, duo):
+        """L'échange vide alors la seule case de la cible : l'attaquant n'y laisse rien."""
+        cible, tireur = duo
+        plateau = Plateau([(cible, pion(ARCHER)), (tireur, pion(ARBALETRIER_LOURD))])
+        # ARBALETRIER_LOURD 8 contre ARCHER 2 → 4-1 ; dé 6 → EX.
+        resultat = combat.livrer_combat(plateau, cible, [tireur], jet=6)
+        assert resultat.resultat == EX
+        assert resultat.elimines == [cible]
+        assert plateau.pion_sur(tireur) is not None
+
+    def test_le_tireur_compte_quand_meme_dans_le_rapport(self, duo):
+        """Épargné par l'échange, mais pas absent du combat : sa force pèse sur la colonne."""
+        cible, fantassin = duo
+        _, _, tireur, *_ = couronne_de(cible)
+        plateau = Plateau([(cible, pion(ARCHER)),
+                           (fantassin, pion(NAIN)), (tireur, pion(ARBALETRIER))])
+        detail = combat.livrer_combat(plateau, cible, [fantassin, tireur], jet=6).detail
+        assert detail.forces == [12, 6]
+        assert detail.force_attaquante == 18
+
+    def test_l_attaquant_elimine_n_epargne_pas_le_tireur(self, duo):
+        """Le fascicule ne dispense les tireurs que de la retraite et de l'échange, pas de `AE`."""
+        cible, tireur = duo
+        plateau = Plateau([(cible, pion(NAIN)), (tireur, pion(ARBALETRIER))])
+        # ARBALETRIER 6 contre NAIN 12 → 1-2 ; dé 6 → AR... on prend le rapport le plus défavorable.
+        resultat = combat.livrer_combat(plateau, cible, [tireur], jet=2)
+        assert resultat.resultat == AR
+        plateau = Plateau([(cible, pion(NAIN)), (tireur, pion(ARCHER))])
+        # ARCHER 2 contre NAIN 12 → 1-5 ; dé 2 → AE : le tireur est bien retiré.
+        resultat = combat.livrer_combat(plateau, cible, [tireur], jet=2)
+        assert resultat.resultat == AE
+        assert plateau.pion_sur(tireur) is None
 
     def test_un_recul_ne_change_rien(self, duo):
         cible, attaquant = duo

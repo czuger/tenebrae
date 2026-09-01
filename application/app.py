@@ -131,7 +131,7 @@ def lancer_le_de():
 MESSAGES_DE_COMBAT = {
     "DE": "Combat résolu : Défenseur Éliminé",
     "AE": "Combat résolu : Attaquant Éliminé",
-    "EX": "Combat résolu : Échange — toutes les unités impliquées sont éliminées",
+    "EX": "Combat résolu : Échange — la cible est éliminée, avec les attaquants qui ne tirent pas",
 }
 
 

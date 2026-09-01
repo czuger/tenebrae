@@ -20,6 +20,10 @@
   <!-- Le journal de la partie tel qu'il est à l'ouverture de la page ; la suite arrive par le
        flux, avec les pions et la phase. -->
   <input type="hidden" id="journal-initial" value="{{ journal }}">
+  <!-- Où ce joueur-ci en était sur la carte : son échelle et le point qu'il avait au centre.
+       « null » pour un anonyme, ou pour qui n'a encore rien réglé — la carte s'ouvre alors
+       ajustée à la fenêtre. -->
+  <input type="hidden" id="vue" value="{{ vue }}">
 
   <div id="cadre">
     <div id="toile">

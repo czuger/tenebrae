@@ -90,6 +90,10 @@ let table = JSON.parse(document.getElementById("table").value);
 // l'ouverture puis du flux à chaque coup joué — le sien comme celui d'en face.
 let lignesDuJournal = JSON.parse(document.getElementById("journal-initial").value);
 
+// Où le joueur en était sur la carte au dernier réglage : { echelle, x, y, ajustee }, ou null —
+// anonyme, ou personne n'a encore rien réglé. Voir « Retrouver sa vue de la carte ».
+const vueEnregistree = JSON.parse(document.getElementById("vue").value);
+
 // Le numéro de version de la partie. Il monte à chaque coup joué, du nôtre comme de celui d'en
 // face. Il ouvre le flux — le serveur sait ainsi si l'on a du retard à rattraper — et sert
 // ensuite d'identifiant au dernier message reçu (voir « Suivre la partie de l'adversaire »).
@@ -602,6 +606,74 @@ async function seDeconnecter() {
   location.reload();
 }
 
+// --- Retrouver sa vue de la carte ---
+//
+// La carte fait 6173 × 5102 px et l'on y joue approché : chaque rechargement de la page ramenait
+// tout le monde à l'ajustement, la carte entière dans la fenêtre, et il fallait refaire son zoom
+// et retrouver son coin de front. Le serveur retient donc, par joueur, ce qu'il regardait
+// (`models/vue.py`) et le rend au chargement suivant.
+//
+// Ce qu'on range n'est pas le défilement mais le **point de la carte qui est au centre de la
+// fenêtre**, en pixels de map.jpg : un `scrollLeft` en pixels d'écran ne voudrait plus rien dire
+// à une autre échelle, ni sur un autre écran. Et tant que la carte est encore réglée à la fenêtre,
+// on range ce fait-là plutôt qu'une échelle : la fenêtre suivante retrouvera son propre
+// ajustement au lieu d'hériter du zoom d'un autre écran.
+//
+// Elle n'est ni un coup joué ni un état partagé : rien n'est publié au flux — la vue de l'un ne
+// doit pas faire sauter la carte de l'autre.
+
+const DELAI_DE_LA_VUE = 500; // millisecondes de calme avant d'envoyer
+
+let minuterieDeLaVue = null;
+// Ce que le serveur a déjà : on ne lui renvoie rien tant que rien n'a bougé. C'est aussi ce qui
+// évite d'écrire au chargement — reposer la vue qu'on vient de recevoir déclenche un défilement,
+// donc un événement, et il ne dit rien de neuf.
+let derniereVueEnvoyee = vueEnregistree;
+
+function vueCourante() {
+  const { x, y } = vue.centreVu();
+  return { echelle: vue.echelle(), x, y, ajustee: vue.suitLaFenetre() };
+}
+
+function memeVue(une, autre) {
+  if (!une || !autre) return false;
+  return une.ajustee === autre.ajustee
+    && Math.abs(une.echelle - autre.echelle) < 0.0001
+    && Math.abs(une.x - autre.x) < 1
+    && Math.abs(une.y - autre.y) < 1;
+}
+
+// Appelée à chaque tour de molette, chaque bouton de zoom et chaque défilement : on attend le
+// calme plutôt que d'envoyer cent requêtes pour un seul geste.
+function retenirLaVue() {
+  if (!vue || !table.connecte) return; // un anonyme n'a pas d'endroit où la ranger
+  clearTimeout(minuterieDeLaVue);
+  minuterieDeLaVue = setTimeout(envoyerLaVue, DELAI_DE_LA_VUE);
+}
+
+async function envoyerLaVue() {
+  const courante = vueCourante();
+  if (memeVue(courante, derniereVueEnvoyee)) return;
+  derniereVueEnvoyee = courante;
+  // Sans `envoyer` : ce n'est pas un coup, et un échec n'a rien à signaler au joueur — on
+  // retrouvera simplement l'ajustement au prochain chargement.
+  await fetch("/vue", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(courante),
+  }).catch(() => null);
+}
+
+// Reprendre la vue rangée, ou ouvrir la carte ajustée à la fenêtre comme elle l'a toujours fait.
+function poserLaVue() {
+  if (!vueEnregistree || vueEnregistree.ajustee) {
+    vue.ajuster();
+    return;
+  }
+  vue.regler(vueEnregistree.echelle);
+  vue.centrer(vueEnregistree.x, vueEnregistree.y);
+}
+
 // --- Suivre la partie de l'adversaire ---
 //
 // Deux joueurs, deux navigateurs : sans cela, chacun resterait devant un plateau périmé jusqu'à
@@ -750,8 +822,11 @@ function demarrer() {
   // La carte fait 6173 × 5102 px : elle s'ouvre réduite à la fenêtre, et la molette ou les
   // boutons « + », « − » et « ajuster » la rapprochent — jusqu'à la taille du scan, où un pion
   // se lit vraiment.
-  vue = zoom({ cadre, toile, plateau, carte, affichage: document.getElementById("echelle") });
-  vue.ajuster();
+  vue = zoom({ cadre, toile, plateau, carte, affichage: document.getElementById("echelle"),
+               auChangement: retenirLaVue });
+  poserLaVue();
+  // Le défilement à la main ne passe pas par le zoom : il se surveille ici.
+  cadre.addEventListener("scroll", retenirLaVue);
   plateau.addEventListener("click", auClic);
   // Délégués sur le plateau, comme le clic : les fantômes naissent et meurent en cours de route,
   // et un écouteur par image serait à refaire à chaque déplacement.

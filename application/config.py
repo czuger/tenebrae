@@ -58,6 +58,16 @@ class Config:
     # En développement on parle http://127.0.0.1, où un cookie « Secure » ne serait pas posé du
     # tout : la variable est à « non » par défaut, et passe à « oui » derrière HTTPS.
     SESSION_COOKIE_SECURE = os.environ.get("COOKIE_SECURISE", "non") == "oui"
+    # Le cookie n'est réécrit que par les réponses qui ont **modifié** la session : ouvrir ou
+    # fermer une connexion, poser ou reprendre l'état de l'OAuth2. Par défaut Flask le réécrit à
+    # chaque réponse dès que la session est permanente — donc dès qu'elle porte un joueur —, et
+    # c'est ce qui cassait la connexion : une requête partie avec l'ancienne session avant
+    # `/connexion` — un sondage de repli, une reconnexion du flux depuis un autre onglet — répond
+    # après, et son cookie, sans l'état, écrase celui que `/connexion` venait de poser. Le retour
+    # de Discord ne trouvait plus rien à quoi se comparer. Ce qu'on y perd : l'expiration du
+    # cookie (`PERMANENT_SESSION_LIFETIME`, 31 jours) court depuis la connexion et non depuis la
+    # dernière visite — on se reconnecte une fois par mois, c'est tout.
+    SESSION_REFRESH_EACH_REQUEST = False
 
     # --- L'identité des joueurs ---
     AUTHENTIFICATION = "discord"

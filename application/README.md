@@ -54,8 +54,9 @@ La partie est enregistrée dans **MongoDB** à chaque coup joué — déplacemen
 phase —, et `GET /` la reprend. Seul l'état de jeu y va : les positions, l'angle sous lequel
 chaque carton est couché, la phase courante, ce que la phase de combat a déjà consommé, et **qui
 tient quel camp** — savoir qui joue l'Alliance fait partie de la partie, et un redémarrage ne doit
-pas vider la table. À côté d'elle, une seconde
-collection retient les **joueurs** connus (`joueurs`). La carte, le catalogue des pions et les
+pas vider la table. À côté d'elle, deux autres
+collections : les **joueurs** connus (`joueurs`), et la **vue de la carte** de chacun (`vues`,
+voir « Retrouver sa vue de la carte ») — la seule qui ne soit pas du jeu. La carte, le catalogue des pions et les
 scénarios restent des fichiers de `game_box/` et `scenarios/`, qui sont la source de vérité du
 dépôt.
 
@@ -100,6 +101,7 @@ ne pouvant plus ouvrir de session, donc prendre place, donc jouer. La promesse d
 | --- | --- |
 | `GET /` | reprend la dernière partie ; à défaut — base vide, ou sauvegarde d'un autre scénario — repose le scénario et en ouvre une |
 | `POST /partie/nouvelle` | repose le scénario et ouvre une nouvelle partie, **sans lever la table** ; avec le corps `{"contre_ia": true}`, confie le camp adverse à l'IA (voir « Jouer contre l'IA ») ; rend `{"pions": […], "phase": {…}}` et la table |
+| `POST /vue` — corps `{echelle, x, y, ajustee}` | retient où ce joueur en est sur la carte, et le rend tel quel ; **connexion requise, place non** ; ce n'est pas un coup joué (voir « Retrouver sa vue de la carte ») |
 
 Les parties précédentes restent en base : `POST /partie/nouvelle` n'efface rien, il ouvre un
 document de plus, et c'est le plus récent que `/` reprend.
@@ -123,15 +125,22 @@ l'extension redevient installable, ce fichier est le seul à changer.
 
 ## Les modèles
 
-L'application ne modélise **qu'une seule chose** : la connexion. Tout le reste est du jeu, et vit
-dans `moteur/models/` — un fichier par modèle, de part et d'autre.
+L'application ne modélise que **ce qui n'est pas du jeu** : la connexion, et la vue de la carte.
+Tout le reste vit dans `moteur/models/` — un fichier par modèle, de part et d'autre, et un dépôt
+par sujet à côté (`application/depots/`, `moteur/depots/`).
 
 | Classe | Module | Collection Mongo | Fichier |
 | --- | --- | --- | --- |
 | `Connexion` | application | — (le cookie signé de Flask) | `models/connexion.py` |
+| `Vue` | application | `vues` | `models/vue.py` |
 | `Partie` | moteur | `parties` | `moteur/models/partie.py` |
 | `Joueur` | moteur | `joueurs` | `moteur/models/joueur.py` |
 | `Places` | moteur | — (champ `places` de `Partie`) | `moteur/models/places.py` |
+
+**Pourquoi `Vue` est ici et non dans le moteur** : le moteur ne sait pas qu'il existe une image,
+des pixels ou une fenêtre — une partie se joue depuis un interpréteur, où le zoom ne veut rien
+dire. L'inclinaison d'un pion, elle, *est* du plateau : le carton est vraiment posé de travers, et
+les deux joueurs le voient pareil ; une vue de la carte n'appartient qu'à une paire d'yeux.
 
 `Connexion` est le lien entre une session Flask et le joueur du moteur. Elle ne double rien de ce
 que `Joueur` sait : elle ne retient qu'un **identifiant Discord**, celui que la session porte, et
@@ -167,6 +176,7 @@ molette, boutons, défilement — dans `static/zoom.js` et `static/zoom.css`.
 | `#phase` | la phase courante : `{camp, type, armee, libelle, numero, indisponibles}` (voir « Phases et combat ») |
 | `#table` | qui regarde et qui tient quel camp : `{connecte, pseudo, avatar, administrateur, camps, armees, places}` (voir « Deux joueurs, deux camps ») |
 | `#version` | le numéro de version de la partie, à quoi le navigateur voit que l'adversaire a joué |
+| `#vue` | où ce joueur-ci en était sur la carte : `{echelle, x, y, ajustee}`, ou `null` (voir « Retrouver sa vue de la carte ») |
 | `#journal-initial` | le journal de la partie à l'ouverture : `[{heure, texte}, …]`, de la plus ancienne ligne à la plus récente (voir « La colonne du journal ») |
 
 ## Le plateau du serveur
@@ -219,6 +229,40 @@ code (`static/zoom.js`) :
   position à recalculer, et viser un hexagone marche à toute échelle ;
 - redimensionner la fenêtre **réajuste** la carte, tant qu'on n'a pas réglé l'échelle soi-même —
   sans quoi le zoom qu'on vient de choisir serait défait.
+
+`zoom()` ne retient rien d'un chargement à l'autre : il expose de quoi relever une vue
+(`echelle()`, `centreVu()`) et de quoi la reposer (`regler()`, `centrer()`), et laisse la page
+décider où la ranger. `carte.js` l'envoie au serveur (voir la section suivante) ; `map_fix.html`,
+qui charge le même zoom, n'en fait rien.
+
+## Retrouver sa vue de la carte
+
+Sur une carte de 6173 × 5102 px, on joue approché : chaque rechargement de la page ramenait le
+joueur à l'ajustement, la carte entière dans la fenêtre, et il fallait refaire son zoom puis
+retrouver son coin de front. Le serveur retient donc, **par joueur**, ce qu'il regardait.
+
+| | |
+| --- | --- |
+| Ce qui est rangé | `{echelle, x, y, ajustee}` |
+| Où | la collection `vues`, un document par joueur, écrasé à chaque réglage |
+| Par qui | `POST /vue` → `depots/vue.py` → `models/vue.py` |
+| Rendu | dans le champ caché `#vue` de `GET /`, ou `null` |
+
+`x` et `y` ne sont **pas le défilement** : c'est le point de `map.jpg`, en pixels de l'image, qui
+se trouvait au centre de la fenêtre. Un `scrollLeft` en pixels d'écran ne voudrait plus rien dire
+à une autre échelle, ni sur un autre écran ; ce point-là, si. Et `ajustee` dit que la carte était
+encore réglée à la fenêtre : on ne fige alors aucune échelle, on réajuste — une fenêtre de taille
+différente retrouve son propre ajustement au lieu d'hériter du zoom d'un autre écran.
+
+Le navigateur envoie après **un demi-seconde de calme** (`DELAI_DE_LA_VUE`), et seulement si la
+vue a changé de ce que le serveur a déjà : un geste de molette vaut une requête, pas cent, et
+reposer au chargement la vue qu'on vient de recevoir n'en vaut aucune.
+
+Ce n'est **ni un coup joué, ni un état partagé** : la version ne monte pas, rien n'est poussé au
+flux, et `/partie/etat` n'en dit rien — la vue de l'un ne doit pas faire sauter la carte de
+l'autre. `POST /vue` demande une connexion mais **pas de place** : on retient la vue d'un
+spectateur connecté comme celle d'un joueur assis. Un anonyme, lui, n'a nulle part où la ranger,
+et la carte s'ouvre ajustée comme elle l'a toujours fait.
 
 ## Cliquer, montrer, déplacer
 
@@ -609,6 +653,23 @@ Le flux OAuth2 tient en quatre temps, et tout ce qui parle à Discord est dans
 4. `Connexion.ouvrir` crée ou met à jour le joueur en base et ouvre la session, et l'on revient au
    plateau.
 
+**Quand ça casse, le journal dit pourquoi.** Dès le départ, `GET /connexion` compare l'hôte
+demandé à celui de `DISCORD_REDIRECT_URI` et, s'ils diffèrent — la carte ouverte sur
+`localhost:5000` quand l'URI dit `127.0.0.1:5000` —, écrit que le cookie posé ici ne reviendra
+pas : le navigateur tient ces deux hôtes pour deux sites. Au retour, un `state` qui ne passe pas rend 400, et la ligne
+« Connexion refusée » du journal distingue les trois cas, qui ne se soignent pas pareil : *absent
+de la session* — le cookie posé à l'aller n'est pas revenu : hôte différent entre l'aller et le
+retour (`localhost` contre `127.0.0.1` dans `DISCORD_REDIRECT_URI`), cookie `Secure` sur du http,
+session vidée entre-temps —, *absent de la requête*, ou *différent de celui de la session* (un
+retour rejoué ou forgé). La ligne porte l'hôte demandé et l'état du cookie de session — absent ;
+présent mais **illisible**, c'est-à-dire signé par une autre `SECRET_KEY` (la clé a changé dans
+`.env`, ou deux serveurs se répondent sur le même hôte) ; ou lisible, avec la liste des clés que la
+session porte encore, qui dit d'où venait cette session-là quand une autre requête a réécrit le
+cookie entre l'aller et le retour. Les clés seules, jamais les valeurs ni les états eux-mêmes. Les deux échanges avec Discord, eux, **ne sont pas rattrapés** : une
+`ErreurDiscord` remonte telle quelle, avec le statut et le corps de la réponse — c'est là que
+Discord écrit `invalid_grant` ou `invalid_client` —, et Flask en trace la pile. Un 502 muet qui
+disait « Discord n'a pas répondu » ne laissait rien à lire.
+
 `POST /deconnexion` ferme la session. Elle est en POST comme tout ce qui change quelque chose ici :
 un lien ou une image d'un autre site ne doit pas pouvoir déconnecter le joueur.
 
@@ -622,6 +683,16 @@ Le cookie est `HttpOnly`, `SameSite=Lax` et `Secure` derrière HTTPS (`COOKIE_SE
 **`Lax` et non `Strict`** : le retour de Discord est une navigation de premier niveau venue d'un
 autre site, et `Strict` retiendrait le cookie — la session paraîtrait vide, le `state` serait
 introuvable, et le flux ne pourrait jamais aboutir.
+
+**Le cookie n'est réécrit que par les réponses qui modifient la session** — ouvrir, fermer,
+poser ou reprendre le `state` — et non à chaque réponse comme Flask le fait d'office dès que la
+session est permanente (`SESSION_REFRESH_EACH_REQUEST = False`). C'est un bogue vécu : une
+requête partie avec l'ancienne session avant `/connexion` — un sondage de repli, une reconnexion
+du flux depuis un autre onglet — répondait après, et son cookie, sans le `state`, écrasait celui
+que `/connexion` venait de poser ; le retour de Discord ne trouvait plus rien à quoi se comparer.
+Le journal le disait ainsi : « état absent de la session, cookie lisible, session portant
+_permanent, joueur ». Ce qu'on y perd tient en une ligne : l'expiration du cookie (31 jours)
+court depuis la connexion et non depuis la dernière visite.
 
 La portée demandée est `identify` seule. Pas `email` : le jeu n'en ferait rien, et une portée de
 moins est un consentement de moins à demander. Le champ `courriel` de `moteur.models.joueur`
@@ -805,12 +876,16 @@ identifiant inconnu qui redevient anonyme, et l'état de l'OAuth2 retiré dès q
 
 `tests/test_connexion.py` déroule le flux OAuth2 **en entier** contre le client factice : l'état
 tiré au sort et vérifié, celui qui ne correspond pas et celui qu'on rejoue, le retour sans code,
-le refus du joueur sur la page de Discord, un Discord muet qui rend 502, le joueur créé puis mis à
+le refus du joueur sur la page de Discord, l'erreur de Discord qui remonte entière, le joueur créé puis mis à
 jour, et le jeton d'accès qui n'entre jamais dans la session. Puis ce que le serveur refuse : le
 visiteur anonyme qui voit la carte mais ne déplace rien, le joueur qui ne tient pas le camp actif,
 celui qui n'a pris aucune place, le second camp refusé à qui en tient un, la place qu'on ne reprend
 pas, les deux joueurs qui s'assoient chacun au sien, les places conservées par
 `POST /partie/nouvelle`, et la correction de la carte réservée aux comptes déclarés.
+
+`tests/test_client_discord.py` éprouve `ClientDiscord` seul, `urlopen` remplacé dans le module :
+le jeton lu dans la réponse, l'erreur HTTP qui reprend le statut, l'URL appelée et le corps de la
+réponse de Discord, le Discord injoignable qui dit lequel et pourquoi, et la réponse sans jeton.
 
 `tests/test_connexion_navigateur.py` fait la même chose à l'écran : le bouton qui propose de se
 connecter puis montre le pseudo, **la barre d'outils qui ne grandit pas d'un pixel** une fois
@@ -828,6 +903,17 @@ dans le moteur (`moteur/tests/test_adversaire_artificiel.py`) ; la persistance d
 `tests/test_persistance.py`. `tests/test_ia_navigateur.py` refait le tour à l'écran : le bouton
 caché à qui n'est pas assis, le camp adverse confié à l'IA d'un clic, et l'ouverture du scénario
 jouée par elle avant que la main revienne au joueur.
+
+`tests/test_vue.py` et `tests/test_vue_navigateur.py` couvrent la **vue de la carte**. Le premier
+sans navigateur : `#vue` à `null` pour l'anonyme comme pour qui n'a rien réglé, la vue rangée puis
+rendue, l'anonyme refusé, la place non demandée, six corps illisibles refusés en 400, deux joueurs
+qui ne partagent pas leur vue, le second réglage qui écrase le premier — et surtout ce qu'elle
+n'est **pas** : la version ne monte pas, rien n'est déposé chez un abonné du flux, et
+`/partie/etat` n'en dit rien. Le second, dans Chromium : la carte ouverte ajustée quand rien n'est
+rangé, le zoom et le défilement rangés chacun de leur côté, l'anonyme qui ne range rien, le
+rechargement qui retrouve l'échelle **et** le point qu'on avait au centre, et l'ajustement qui se
+retrouve ajusté — à la taille de la nouvelle fenêtre, et non à l'échelle de l'ancienne. Ce que
+MongoDB en fait est dans `tests/test_persistance.py`.
 
 **Toute la suite joue connectée.** La fixture `client` du `conftest.py` ouvre une session et assied
 le joueur de test **aux deux camps** — c'est ce qui laisse les tests écrits avant les joueurs

@@ -14,10 +14,13 @@ mongomock = pytest.importorskip("mongomock")
 import mongoengine  # noqa: E402
 
 import app  # noqa: E402
+from client_discord import IDENTITE_PAR_DEFAUT  # noqa: E402
 from config import ConfigDeTest  # noqa: E402
 from moteur.hexagone import Hex  # noqa: E402
 from moteur.pion import CATALOGUE  # noqa: E402
 from moteur.phase import COMBAT, MOUVEMENT  # noqa: E402
+
+from test_serveur import lire_le_champ_cache  # noqa: E402
 
 # Les mêmes cases et les mêmes cartons que test_serveur.py : deux voisines de plaine, un nain de
 # force 12 et un orque de force 8 — de quoi livrer un combat sans rien laisser au hasard.
@@ -51,13 +54,16 @@ def application_mongo():
     partagés par toute la session, on les remet à zéro de la même façon.
     """
     application = app.create_app(ConfigMongomock)
+    from models.vue import Vue
     from moteur.models.joueur import Joueur
     from moteur.models.partie import Partie
     Partie.objects.delete()
     Joueur.objects.delete()
+    Vue.objects.delete()
     yield application
     Partie.objects.delete()
     Joueur.objects.delete()
+    Vue.objects.delete()
     mongoengine.disconnect_all()
     app.PLATEAU.vider()
     app.TOUR.recommencer()
@@ -432,6 +438,38 @@ class TestPartieContreLIAPersistee:
         assert app.PLACES.occupant("tenebres") == ia.JOUEUR_IA
 
 
+class TestVuePersistee:
+    """La vue de la carte : le seul document de l'application qui ne soit pas du jeu.
+
+    Son modèle et son dépôt sont à l'application (`models/vue.py`, `depots/vue.py`) et non au
+    moteur — le moteur ne sait pas qu'il existe une image, des pixels ou une fenêtre.
+    """
+
+    VUE = {"echelle": 0.37, "x": 3086.5, "y": 2551.25, "ajustee": False}
+
+    def test_regler_sa_vue_l_ecrit_en_base(self, client_mongo):
+        client_mongo.post("/vue", json=self.VUE)
+        from models.vue import Vue
+        rangee = Vue.objects.first()
+        assert rangee.discord_id == IDENTITE_PAR_DEFAUT["discord_id"]
+        assert (rangee.echelle, rangee.x, rangee.y, rangee.ajustee) \
+            == (self.VUE["echelle"], self.VUE["x"], self.VUE["y"], False)
+        assert rangee.modifiee_le is not None
+
+    def test_la_vue_est_reprise_apres_un_redemarrage(self, client_mongo):
+        """C'est la demande : seule la base sait où le joueur en était."""
+        client_mongo.post("/vue", json=self.VUE)
+        assert lire_le_champ_cache(client_mongo.get("/").get_data(as_text=True), "vue") == self.VUE
+
+    def test_un_second_reglage_ne_cree_pas_un_second_document(self, client_mongo):
+        """On ne garde pas d'historique de zoom : un document par joueur."""
+        client_mongo.post("/vue", json=self.VUE)
+        client_mongo.post("/vue", json={**self.VUE, "echelle": 1.0})
+        from models.vue import Vue
+        assert Vue.objects.count() == 1
+        assert Vue.objects.first().echelle == 1.0
+
+
 # --- Contre un vrai MongoDB ---------------------------------------------------------------------
 #
 # Mongomock imite l'API, pas le stockage : il n'éprouve ni l'encodage BSON des clés du placement —
@@ -469,15 +507,18 @@ def client_mongo_reel(installer_le_joueur):
     if not mongodb_est_joignable():
         pytest.skip(f"aucun MongoDB joignable sur {URI_DE_TEST}")
     application = app.create_app(ConfigMongoReel)
+    from models.vue import Vue
     from moteur.models.joueur import Joueur
     from moteur.models.partie import Partie
     Partie.objects.delete()
     Joueur.objects.delete()
+    Vue.objects.delete()
     client = application.test_client()
     installer_le_joueur(application, client)
     yield client
     Partie.objects.delete()
     Joueur.objects.delete()
+    Vue.objects.delete()
     mongoengine.disconnect_all()
     app.PLATEAU.vider()
     app.TOUR.recommencer()
@@ -519,3 +560,9 @@ class TestContreUnVraiMongo:
         partie = Partie.objects.first()
         assert partie.creee_le is not None
         assert partie.modifiee_le >= partie.creee_le
+
+    def test_la_vue_passe_par_un_vrai_mongo(self, client_mongo_reel):
+        """Des flottants et un booléen : rien d'exotique, mais la table est écrite pour de bon."""
+        vue = {"echelle": 0.37, "x": 3086.5, "y": 2551.25, "ajustee": False}
+        client_mongo_reel.post("/vue", json=vue)
+        assert lire_le_champ_cache(client_mongo_reel.get("/").get_data(as_text=True), "vue") == vue

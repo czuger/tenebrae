@@ -41,6 +41,14 @@ def table_vide(carte_deserte, application):
     application.extensions["discord"].identite_servie = dict(IDENTITE_PAR_DEFAUT)
 
 
+@pytest.fixture
+def journal():
+    """La file du journal, vidée avant et après : le test ne lit que ce qu'il a provoqué."""
+    app.MEMOIRE_DU_JOURNAL.lignes.clear()
+    yield app.MEMOIRE_DU_JOURNAL.lignes
+    app.MEMOIRE_DU_JOURNAL.lignes.clear()
+
+
 def se_connecter(client):
     """Déroule le flux entier, comme le ferait un navigateur : /connexion puis le retour."""
     depart = client.get("/connexion")
@@ -121,13 +129,101 @@ def test_un_refus_sur_la_page_de_discord_ramene_a_la_carte(client_anonyme):
         assert "joueur" not in session
 
 
-def test_un_discord_muet_rend_une_erreur_de_passerelle(client_anonyme, application, monkeypatch):
+def test_l_erreur_de_discord_remonte_entiere(client_anonyme, application, monkeypatch):
+    """Pas de 502 muet : l'erreur remonte telle quelle, son message avec, pour qu'on la lise."""
     def tomber(_code):
-        raise ErreurDiscord("connexion impossible")
+        raise ErreurDiscord("Discord a répondu 400 Bad Request : invalid_grant")
 
     monkeypatch.setattr(application.extensions["discord"], "echanger_le_code", tomber)
     depart = client_anonyme.get("/connexion")
-    assert client_anonyme.get(depart.headers["Location"]).status_code == 502
+    with pytest.raises(ErreurDiscord, match="invalid_grant"):
+        client_anonyme.get(depart.headers["Location"])
+
+
+# L'hôte que `DISCORD_REDIRECT_URI` attend sous la configuration de test, et un autre.
+HOTE_ATTENDU = "http://127.0.0.1:5000/"
+AUTRE_HOTE = "http://localhost:5000/"
+
+
+def test_un_depart_depuis_un_autre_hote_que_celui_du_retour_est_journalise(client_anonyme,
+                                                                            journal):
+    """Le cas de la carte ouverte sur `localhost` quand Discord renvoie sur `127.0.0.1` : deux
+    sites pour le navigateur, et le cookie de l'un ne revient pas chez l'autre. C'est au départ
+    que les deux hôtes sont connus, donc au départ que le journal doit le dire."""
+    client_anonyme.get("/connexion", base_url=AUTRE_HOTE)
+    assert journal[-1]["texte"] == ("Connexion : départ depuis localhost:5000, mais Discord "
+                                    "renverra sur 127.0.0.1:5000 — le cookie de session posé "
+                                    "ici ne reviendra pas ; ouvrir la carte sur "
+                                    "http://127.0.0.1:5000/")
+
+
+def test_un_depart_depuis_l_hote_du_retour_ne_dit_rien(client_anonyme, journal):
+    client_anonyme.get("/connexion", base_url=HOTE_ATTENDU)
+    assert not journal
+
+
+def test_un_etat_absent_de_la_session_est_journalise(client_anonyme, journal):
+    client_anonyme.get("/connexion/retour?code=x&state=un-etat")
+    assert journal[-1]["texte"] == ("Connexion refusée : état d'authentification absent de la "
+                                    "session (hôte localhost, cookie de session absent)")
+
+
+def test_un_cookie_signe_par_une_autre_cle_est_dit_illisible(client_anonyme, journal):
+    """Le cas d'une SECRET_KEY changée : le cookie revient, mais la session qu'il porte est
+    perdue — et le journal doit le dire, plutôt que « absent » qui ferait chercher ailleurs."""
+    client_anonyme.set_cookie("session", "un-cookie-signe-par-une-autre-cle")
+    client_anonyme.get("/connexion/retour?code=x&state=un-etat")
+    assert journal[-1]["texte"] == ("Connexion refusée : état d'authentification absent de la "
+                                    "session (hôte localhost, cookie de session présent mais "
+                                    "illisible — signé par une autre SECRET_KEY ?)")
+
+
+def test_une_session_reecrite_entre_temps_montre_ce_qu_elle_porte(client_anonyme, journal):
+    """Le cas d'un cookie réécrit par une autre requête : la session est lisible, sans état, et
+    le journal liste ses clés — ici celles d'un joueur connecté — pour dire d'où elle vient."""
+    se_connecter(client_anonyme)
+    client_anonyme.get("/connexion/retour?code=x&state=un-etat")
+    assert journal[-1]["texte"] == ("Connexion refusée : état d'authentification absent de la "
+                                    "session (hôte localhost, cookie de session lisible, "
+                                    "session portant _permanent, joueur)")
+
+
+def test_un_etat_absent_de_la_requete_est_journalise(client_anonyme, journal):
+    client_anonyme.get("/connexion")
+    client_anonyme.get("/connexion/retour?code=x")
+    assert journal[-1]["texte"] == ("Connexion refusée : état d'authentification absent de la "
+                                    "requête (hôte localhost, cookie de session lisible, "
+                                    "session vide)")
+
+
+def test_un_etat_different_est_journalise(client_anonyme, journal):
+    client_anonyme.get("/connexion")
+    client_anonyme.get("/connexion/retour?code=x&state=un-etat-invente")
+    assert journal[-1]["texte"] == ("Connexion refusée : état d'authentification différent de "
+                                    "celui de la session (hôte localhost, cookie de session "
+                                    "lisible, session vide)")
+
+
+def test_un_code_absent_est_journalise(client_anonyme, journal):
+    depart = client_anonyme.get("/connexion")
+    client_anonyme.get(f"/connexion/retour?state={etat_de(depart)}")
+    assert journal[-1]["texte"] == "Connexion refusée : code d'autorisation absent de la requête"
+
+
+def test_une_reponse_qui_ne_touche_pas_a_la_session_ne_reecrit_pas_le_cookie(client_anonyme):
+    """Le cœur du bogue : un joueur connecté a une session permanente, que Flask réécrivait dans
+    le cookie à chaque réponse. Une requête partie avec l'ancienne session avant `/connexion`
+    et répondant après effaçait alors l'état de l'OAuth2. Seules les réponses qui modifient la
+    session doivent poser le cookie."""
+    se_connecter(client_anonyme)
+    for route in ("/", "/partie/etat", "/partie/etat?version=0"):
+        assert "Set-Cookie" not in client_anonyme.get(route).headers, route
+
+
+def test_poser_l_etat_reecrit_le_cookie(client_anonyme):
+    """La contrepartie : `/connexion` modifie la session, et son cookie doit partir."""
+    se_connecter(client_anonyme)
+    assert "Set-Cookie" in client_anonyme.get("/connexion").headers
 
 
 def test_le_jeton_d_acces_ne_va_jamais_dans_la_session(client_anonyme):

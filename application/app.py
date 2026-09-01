@@ -62,6 +62,7 @@ puis http://127.0.0.1:5000/
 import collections
 import json
 import logging
+import math
 import random
 import secrets
 import sys
@@ -69,13 +70,13 @@ import time
 from functools import wraps
 from pathlib import Path
 
+from itsdangerous import BadSignature
 from flask import Blueprint, Flask, abort, current_app, g, redirect, render_template, \
     request, send_from_directory, session, url_for
 
 # Le dépôt n'est pas un paquet installé : on l'ajoute à sys.path pour atteindre `moteur`.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from client_discord import ErreurDiscord  # noqa: E402
 from config import Config  # noqa: E402
 from flux import Diffuseur  # noqa: E402
 from models.connexion import Connexion  # noqa: E402
@@ -411,6 +412,42 @@ def le_depot_de_joueurs():
     return current_app.extensions["depot_de_joueurs"]
 
 
+def le_depot_de_vues():
+    """Le dépôt des vues de la carte de l'application courante (voir `models/vue.py`)."""
+    return current_app.extensions["depot_de_vues"]
+
+
+def la_vue_du_joueur():
+    """Où le joueur de la session en était sur la carte, ou `None`.
+
+    `None` pour un anonyme comme pour un joueur qui n'a encore rien réglé : dans les deux cas la
+    page s'ouvre ajustée à la fenêtre, comme elle l'a toujours fait.
+    """
+    joueur = le_joueur_courant()
+    return le_depot_de_vues().par_discord_id(joueur["discord_id"]) if joueur else None
+
+
+def lire_une_vue(donnees):
+    """La vue envoyée par le navigateur, ramenée à ses quatre champs — ou `None` si elle ne l'est
+    pas.
+
+    Le corps vient du dehors : on n'y prend que ce qu'on attend, et on refuse ce qui n'est pas un
+    nombre. L'échelle n'est pas bornée ici — c'est `appliquer` (`static/zoom.js`) qui la borne
+    pour de bon, à la pose comme à la reprise, et une borne de plus, écrite ailleurs, finirait par
+    dire autre chose que celle-là.
+    """
+    if not isinstance(donnees, dict):
+        return None
+    try:
+        vue = {champ: float(donnees[champ]) for champ in ("echelle", "x", "y")}
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not all(math.isfinite(valeur) for valeur in vue.values()):
+        return None
+    vue["ajustee"] = bool(donnees.get("ajustee"))
+    return vue
+
+
 def photographier_la_partie():
     """Tout l'état de jeu du serveur, sous la forme que le dépôt sait écrire.
 
@@ -643,6 +680,46 @@ def administrateur_requis(vue):
     return enveloppe
 
 
+def diagnostic_de_l_etat_oauth(attendu, recu):
+    """Pourquoi l'état anti-CSRF ne passe pas, en clair pour le journal.
+
+    Trois cas, et ils ne se soignent pas pareil : un état absent de la **session** veut dire que
+    le cookie posé au départ n'est pas revenu — hôte différent entre l'aller et le retour
+    (`localhost` contre `127.0.0.1`), cookie « Secure » sur du http, session vidée entre-temps ;
+    un état absent de la **requête**, que Discord n'a pas rendu le paramètre ; deux états
+    différents, un retour rejoué ou forgé. Le journal dit lequel, l'hôte demandé et si un cookie
+    de session est arrivé du tout — sans jamais écrire les états eux-mêmes.
+    """
+    if not attendu:
+        cause = "état d'authentification absent de la session"
+    elif not recu:
+        cause = "état d'authentification absent de la requête"
+    else:
+        cause = "état d'authentification différent de celui de la session"
+    return f"{cause} (hôte {request.host}, {etat_du_cookie_de_session()})"
+
+
+def etat_du_cookie_de_session():
+    """Le cookie de session tel qu'il est arrivé : absent, illisible, ou lisible et portant quoi.
+
+    Un cookie **présent mais vide de l'état** a deux explications qui ne se ressemblent pas, et
+    seule cette ligne les départage. Illisible — la signature ne passe pas —, c'est qu'il a été
+    signé par une autre `SECRET_KEY` : la clé a changé dans `.env`, ou deux serveurs se
+    répondent sur le même hôte. Lisible, c'est qu'une autre requête a réécrit le cookie entre
+    l'aller et le retour — un onglet voisin, un sondage en vol — et la liste des clés qu'il
+    porte encore dit d'où venait cette session-là. Les clés seules : jamais les valeurs.
+    """
+    cookie = request.cookies.get(current_app.config["SESSION_COOKIE_NAME"])
+    if cookie is None:
+        return "cookie de session absent"
+    try:
+        current_app.session_interface.get_signing_serializer(current_app).loads(cookie)
+    except BadSignature:
+        return "cookie de session présent mais illisible — signé par une autre SECRET_KEY ?"
+    contenu = ", ".join(sorted(session.keys()))
+    return f"cookie de session lisible, session {'portant ' + contenu if contenu else 'vide'}"
+
+
 @jeu.route("/connexion")
 def connexion():
     """Part chez Discord, avec un état à usage unique contre le CSRF."""
@@ -665,17 +742,18 @@ def retour_de_connexion():
     attendu = connexion.reprendre_l_etat_oauth()
     recu = request.args.get("state")
     if not attendu or not recu or not secrets.compare_digest(attendu, recu):
+        JOURNAL.info("Connexion refusée : %s", diagnostic_de_l_etat_oauth(attendu, recu))
         abort(400, "état d'authentification absent ou inattendu")
     code = request.args.get("code")
     if not code:
+        JOURNAL.info("Connexion refusée : code d'autorisation absent de la requête")
         abort(400, "code d'autorisation absent")
 
-    try:
-        jeton = le_client_discord().echanger_le_code(code)
-        identite = le_client_discord().identite(jeton)
-    except ErreurDiscord as souci:
-        JOURNAL.info("Connexion refusée : %s", souci)
-        abort(502, "Discord n'a pas répondu")
+    # Pas de `try` autour des deux échanges : une `ErreurDiscord` remonte telle quelle, avec le
+    # statut et le corps de la réponse de Discord dans son message, et Flask en trace la pile.
+    # L'attraper pour rendre un 502 muet ne laissait que « Discord n'a pas répondu » à lire.
+    jeton = le_client_discord().echanger_le_code(code)
+    identite = le_client_discord().identite(jeton)
 
     joueur = connexion.ouvrir(identite)
     JOURNAL.info("Connexion : %s", joueur["pseudo"])
@@ -731,6 +809,25 @@ def quitter_la_place():
     return {"assis": False} | la_table()
 
 
+@jeu.route("/vue", methods=["POST"])
+@connexion_requise
+def enregistrer_la_vue():
+    """Retient où le joueur en est sur la carte — corps `{echelle, x, y, ajustee}`.
+
+    C'est la seule route de tout le serveur qui n'a rien à voir avec la partie : elle ne touche ni
+    au plateau, ni au tour, ni à la version, et **ne publie rien** — une vue n'appartient qu'à une
+    paire d'yeux, et la pousser au flux ferait sauter la carte de l'autre joueur. Elle n'est donc
+    pas non plus un coup joué : rien ne monte, rien n'est diffusé.
+
+    Connexion requise, et pas de place : on retient la vue d'un spectateur connecté comme celle
+    d'un joueur assis. Un anonyme, lui, n'a pas d'endroit où la ranger.
+    """
+    vue = lire_une_vue(request.get_json(silent=True))
+    if vue is None:
+        abort(400, "vue illisible ; attendu {echelle, x, y, ajustee}")
+    return le_depot_de_vues().enregistrer(le_joueur_courant()["discord_id"], vue)
+
+
 @jeu.route("/")
 def plateau():
     """La carte, ses pions et la phase courante.
@@ -755,6 +852,7 @@ def plateau():
         phase=json.dumps(la_phase_courante(), ensure_ascii=False),
         table=json.dumps(la_table(), ensure_ascii=False),
         journal=json.dumps(les_lignes_du_journal(), ensure_ascii=False),
+        vue=json.dumps(la_vue_du_joueur()),
         version=VERSION,
     )
 
@@ -1251,17 +1349,23 @@ def create_app(config=None):
             "dans .env — python3 -c \"import secrets; print(secrets.token_hex(32))\"")
 
     if application.config["PERSISTANCE"] == "mongo":
+        from depots.vue import DepotDeVuesMongo
         from extensions import db
         from moteur.depots.joueur import DepotDeJoueursMongo
         from moteur.depots.partie import DepotDePartieMongo
         db.init_app(application)  # avant les routes, et une seule fois : l'instance est partagée
-        depot, joueurs = DepotDePartieMongo(), DepotDeJoueursMongo()
+        depot, joueurs, vues = DepotDePartieMongo(), DepotDeJoueursMongo(), DepotDeVuesMongo()
     else:
+        from depots.vue import DepotDeVuesEnMemoire
         from moteur.depots.joueur import DepotDeJoueursEnMemoire
         from moteur.depots.partie import DepotDePartieNul
-        depot, joueurs = DepotDePartieNul(), DepotDeJoueursEnMemoire()
+        depot, joueurs, vues = (DepotDePartieNul(), DepotDeJoueursEnMemoire(),
+                                DepotDeVuesEnMemoire())
     application.extensions["depot_de_partie"] = depot
     application.extensions["depot_de_joueurs"] = joueurs
+    # La vue de la carte n'est pas du jeu : son modèle et son dépôt sont à l'application
+    # (`models/vue.py`, `depots/vue.py`), et non au moteur, qui ne sait pas qu'il existe une image.
+    application.extensions["depot_de_vues"] = vues
 
     if application.config["AUTHENTIFICATION"] == "discord":
         from client_discord import ClientDiscord

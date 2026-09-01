@@ -102,8 +102,14 @@ class ClientDiscord:
         try:
             with urlopen(requete, timeout=DELAI) as reponse:
                 return json.load(reponse)
-        except (HTTPError, URLError, ValueError, TimeoutError) as souci:
-            raise ErreurDiscord(f"Discord n'a pas répondu : {souci}") from souci
+        except HTTPError as souci:
+            # Le détail est dans le corps — `{"error": "invalid_grant", "error_description":
+            # ...}` —, que `str(souci)` ne montre pas : on le lit avant de le perdre.
+            corps = souci.read().decode("utf-8", "replace")
+            raise ErreurDiscord(
+                f"Discord a répondu {souci.code} {souci.reason} à {url} : {corps}") from souci
+        except (URLError, ValueError, TimeoutError) as souci:
+            raise ErreurDiscord(f"Discord n'a pas répondu à {url} : {souci!r}") from souci
 
 
 # Le compte que le client factice sert, à défaut d'un autre. L'identifiant est celui que

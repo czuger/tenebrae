@@ -1,7 +1,7 @@
 # `application/` — la carte affichée dans le navigateur
 
 Une application Flask qui sert `game_box/map.jpg`, y **met en place un scénario** — le n° 4,
-« La guerre des nains », 21 nains face à 31 orques — et laisse le navigateur faire la géométrie.
+« La guerre des nains », 18 nains face à 30 orques — et laisse le navigateur faire la géométrie.
 Cliquer un pion montre en **fantômes** les cases où il peut aller ; cliquer un fantôme l'y
 déplace. Le survoler ouvre sa **fiche** : sa photo agrandie et tout ce que son carton porte.
 
@@ -750,7 +750,7 @@ chargement de `/` — ou à chacun, si la persistance est débranchée.
   donne « case → clé de pion » ; l'application n'y ajoute que ce qu'il faut pour l'affichage —
   l'image, le nom lisible, le mouvement et le camp, tous repris au catalogue de
   `game_box/pions/`. Le détail du déploiement et ses réserves sont dans `scenarios/README.md`.
-- **La position de départ est reproductible.** Une partie neuve remet toujours les 52 unités aux
+- **La position de départ est reproductible.** Une partie neuve remet toujours les 48 unités aux
   mêmes cases : c'est ce qui permet d'éprouver un déplacement deux fois de suite et d'obtenir le
   même résultat. `POST /partie/nouvelle` — et, sans persistance, le simple rechargement — y
   ramène.
@@ -829,7 +829,7 @@ combats, tous trois étant partagés d'une requête à la suivante. Ce que
 contient le scénario lui-même est éprouvé à part, dans `moteur/tests/test_scenario.py` ; la
 résolution des combats, dans `moteur/tests/test_combat.py` et `test_phase.py`.
 
-`tests/test_plateau.py` ouvre la page dans Chromium avec Playwright : les 52 pions chargés et
+`tests/test_plateau.py` ouvre la page dans Chromium avec Playwright : les 48 pions chargés et
 centrés à moins d'un pixel, inclinés de moins de 5° — et **inclinés une fois pour toutes** : un
 coup joué hors de la page fait reposer la scène par le flux, et les angles doivent être les
 mêmes, seul un pion déplacé se recouchant —, carte qui reste à l'échelle après
@@ -867,7 +867,7 @@ aucune base, et `GET /` y repose la mise en place comme avant.
 
 `tests/test_reprise_navigateur.py` éprouve la reprise **vue de l'écran**, dans Chromium : déplacer
 un pion puis recharger la page et le retrouver à sa nouvelle case, la phase retrouvée de même,
-`POST /partie/nouvelle` qui repose les 52 unités, et les cartons qu'un rechargement retrouve
+`POST /partie/nouvelle` qui repose les 48 unités, et les cartons qu'un rechargement retrouve
 couchés sous le même angle — celui d'avant pour les pions immobiles, le nouveau pour le pion
 déplacé. Chaque test y tourne **deux fois** — sur
 mongomock, et sur le vrai MongoDB dès que `MONGODB_URI_TEST` en désigne un qui répond, ce que

@@ -133,7 +133,7 @@ def test_le_flux_est_public(client_anonyme):
 
 
 def test_un_navigateur_a_jour_ne_recoit_qu_un_commentaire(client):
-    """Rien n'a bougé depuis qu'il a chargé la page : lui renvoyer les 52 pions serait pour rien.
+    """Rien n'a bougé depuis qu'il a chargé la page : lui renvoyer les 48 pions serait pour rien.
 
     Un commentaire SSE — une ligne qui commence par « : » — ouvre tout de même la connexion, ce
     qui fait passer l'`EventSource` du navigateur à l'état « ouvert ».

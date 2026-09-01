@@ -242,7 +242,7 @@ guerre_des_nains = scenario(4)         # lu dans scenarios/scenario-04-…json
 guerre_des_nains.armees                # une entrée par joueur : camp, consigne, ancre, magie
 guerre_des_nains.camps                 # ('alliance', 'tenebres')
 guerre_des_nains.placement             # « q,r,s » → clé de pion
-len(guerre_des_nains)                  # 52 unités
+len(guerre_des_nains)                  # 48 unités
 guerre_des_nains.plateau()             # un Plateau neuf, chaque pion sur sa case
 ```
 

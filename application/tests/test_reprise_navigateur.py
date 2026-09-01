@@ -156,7 +156,7 @@ def test_la_phase_est_reprise_apres_rechargement(plateau_persistant, serveur_per
 
 
 def test_recommencer_repose_le_scenario(plateau_persistant, serveur_persistant):
-    """`POST /partie/nouvelle` ramène les 52 unités à leur case, et le rechargement le confirme."""
+    """`POST /partie/nouvelle` ramène les 48 unités à leur case, et le rechargement le confirme."""
     depart, arrivee = deplacer_un_pion(plateau_persistant)
 
     reponse = plateau_persistant.request.post(f"{serveur_persistant}/partie/nouvelle")

@@ -37,12 +37,12 @@ def test_la_page_repond(client):
 
 
 def test_la_page_porte_les_deux_armees_du_scenario(client):
-    """Le scénario n° 4 met 21 nains face à 31 orques : la page les porte toutes."""
+    """Le scénario n° 4 met 18 nains face à 30 orques : la page les porte toutes."""
     pions = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
-    assert len(pions) == len(app.SCENARIO) == 52
+    assert len(pions) == len(app.SCENARIO) == 48
     camps = [pion["camp"] for pion in pions]
-    assert camps.count(ALLIANCE) == 21
-    assert camps.count(TENEBRES) == 31
+    assert camps.count(ALLIANCE) == 18
+    assert camps.count(TENEBRES) == 30
 
 
 def test_la_page_pose_chaque_pion_sur_la_case_du_scenario(client):

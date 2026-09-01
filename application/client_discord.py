@@ -32,6 +32,10 @@ CDN = "https://cdn.discordapp.com"
 # Sans lui, `urlopen` attendrait indéfiniment : un Discord injoignable gèlerait la requête.
 DELAI = 10
 
+# Cloudflare, devant l'API Discord, refoule d'un 403 le `Python-urllib/3.x` que `urllib` enverrait
+# d'office : il faut se présenter, n'importe quel nom honnête suffit.
+AGENT = "AveTenebrae/1.0"
+
 # Tout ce dont le jeu a besoin : un identifiant, un pseudo, un avatar. Pas « email » — le jeu n'en
 # ferait rien, et une portée de moins est un consentement de moins à demander et une donnée
 # personnelle de moins à garder. Le champ `courriel` du modèle attend, au cas où.
@@ -93,7 +97,8 @@ class ClientDiscord:
     @staticmethod
     def _appeler(url, corps=None, entetes=None):
         requete = Request(url, data=corps,
-                          headers={"Accept": "application/json", **(entetes or {})})
+                          headers={"Accept": "application/json", "User-Agent": AGENT,
+                                   **(entetes or {})})
         try:
             with urlopen(requete, timeout=DELAI) as reponse:
                 return json.load(reponse)

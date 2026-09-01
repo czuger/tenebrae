@@ -349,6 +349,32 @@ def test_le_vrai_client_envoie_bien_chez_discord():
     assert "client_secret" not in url  # le secret ne part jamais dans une URL
 
 
+def test_le_vrai_client_se_presente_a_discord(monkeypatch):
+    """Chaque appel sortant porte un User-Agent : Cloudflare refoule d'un 403 celui d'`urllib`."""
+    import client_discord
+
+    requetes = []
+
+    class ReponseFactice:
+        def read(self):
+            return b'{"access_token": "jeton"}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    def urlopen_factice(requete, timeout=None):
+        requetes.append(requete)
+        return ReponseFactice()
+
+    monkeypatch.setattr(client_discord, "urlopen", urlopen_factice)
+    client = client_discord.ClientDiscord("000", "secret", "http://127.0.0.1:5000/retour")
+    client.echanger_le_code("un-code")
+    assert requetes and requetes[0].get_header("User-agent") == client_discord.AGENT
+
+
 def test_sans_secret_key_l_application_refuse_de_demarrer():
     """Mieux vaut un échec au démarrage qu'une erreur au premier clic sur « se connecter »."""
     class SansClef(ConfigDeTest):

@@ -9,6 +9,9 @@ avoir sauvegardé pousserait aux navigateurs un compte rendu en retard d'un coup
 Le rendu de la colonne, lui, est dans `test_journal_navigateur.py`.
 """
 
+import logging
+from pathlib import Path
+
 import pytest
 
 import app
@@ -200,3 +203,90 @@ def test_la_place_prise_part_avec_sa_ligne(application, client_anonyme, abonne,
 def test_la_partie_neuve_part_avec_sa_ligne(client, abonne):
     client.post("/partie/nouvelle")
     assert "Nouvelle partie : scénario 4" in textes(dernier_publie(abonne)["journal"])
+
+
+# --- Le journal sur le disque : des fichiers de mille lignes, trois archives derrière ---
+#
+# `JournalRotatif` compte des lignes là où `RotatingFileHandler` compte des octets. Ce qui vaut
+# d'être éprouvé tient en trois points : que le fichier soit bien mis de côté au seuil, qu'on
+# n'en garde pas plus que demandé, et qu'un serveur relancé ne reparte pas de zéro.
+
+
+def journaliser(handler, combien, depart=0):
+    """`combien` lignes dans le handler, numérotées, sans passer par le logger global."""
+    for numero in range(depart, depart + combien):
+        handler.emit(logging.LogRecord("test", logging.INFO, __file__, 0,
+                                       "ligne %s", (numero,), None))
+
+
+@pytest.fixture
+def journal_sur_disque(tmp_path):
+    """Un journal rotatif à soi, dans un répertoire jetable, refermé en sortant."""
+    ouverts = []
+
+    def ouvrir(lignes_par_fichier=3, fichiers_gardes=2):
+        handler = app.JournalRotatif(tmp_path / "logs" / "journal_de_combat.log",
+                                     lignes_par_fichier, fichiers_gardes)
+        ouverts.append(handler)
+        return handler
+
+    yield ouvrir
+    for handler in ouverts:
+        handler.close()
+
+
+def test_le_repertoire_des_logs_est_cree_au_besoin(journal_sur_disque, tmp_path):
+    """`logs/` n'est pas versionné : un clone neuf n'en a pas, et le journal doit l'ouvrir."""
+    assert not (tmp_path / "logs").exists()
+    journal_sur_disque()
+    assert (tmp_path / "logs" / "journal_de_combat.log").exists()
+
+
+def test_le_fichier_est_mis_de_cote_au_seuil(journal_sur_disque, tmp_path):
+    handler = journal_sur_disque(lignes_par_fichier=3)
+    journal = tmp_path / "logs" / "journal_de_combat.log"
+    journaliser(handler, 3)
+    assert journal.read_text(encoding="utf-8").splitlines() == ["ligne 0", "ligne 1", "ligne 2"]
+    assert not journal.with_suffix(".log.1").exists()
+
+    journaliser(handler, 1, depart=3)
+    assert journal.with_suffix(".log.1").read_text(encoding="utf-8").splitlines() \
+        == ["ligne 0", "ligne 1", "ligne 2"]
+    assert journal.read_text(encoding="utf-8").splitlines() == ["ligne 3"]
+
+
+def test_on_ne_garde_que_les_archives_demandees(journal_sur_disque, tmp_path):
+    """Au-delà, la plus vieille s'efface : le journal ne remplit pas le disque."""
+    handler = journal_sur_disque(lignes_par_fichier=2, fichiers_gardes=2)
+    journaliser(handler, 20)
+    fichiers = sorted(chemin.name for chemin in (tmp_path / "logs").iterdir())
+    assert fichiers == ["journal_de_combat.log",
+                        "journal_de_combat.log.1",
+                        "journal_de_combat.log.2"]
+    # Les dernières lignes écrites, et rien de plus ancien que les deux archives.
+    assert (tmp_path / "logs" / "journal_de_combat.log").read_text(
+        encoding="utf-8").splitlines() == ["ligne 18", "ligne 19"]
+    assert (tmp_path / "logs" / "journal_de_combat.log.2").read_text(
+        encoding="utf-8").splitlines() == ["ligne 14", "ligne 15"]
+
+
+def test_un_redemarrage_ne_repart_pas_de_zero(journal_sur_disque, tmp_path):
+    """Le compteur reprend ce que le fichier porte déjà : dix relances ne font pas dix mille
+    lignes dans le même fichier."""
+    journaliser(journal_sur_disque(lignes_par_fichier=3), 2)
+    journal = tmp_path / "logs" / "journal_de_combat.log"
+
+    handler = journal_sur_disque(lignes_par_fichier=3)
+    assert handler.lignes_ecrites == 2
+    journaliser(handler, 1, depart=2)
+    assert journal.read_text(encoding="utf-8").splitlines() == ["ligne 0", "ligne 1", "ligne 2"]
+
+    journaliser(handler, 1, depart=3)
+    assert journal.read_text(encoding="utf-8").splitlines() == ["ligne 3"]
+
+
+def test_le_journal_de_l_application_est_dans_logs_a_la_racine():
+    """Plus dans `application/` : les traces d'exécution vivent toutes au même endroit."""
+    assert app.CHEMIN_DU_JOURNAL.parent.name == "logs"
+    assert app.CHEMIN_DU_JOURNAL.parent.parent == Path(app.__file__).resolve().parent.parent
+    assert (app.LIGNES_PAR_FICHIER, app.JOURNAUX_GARDES) == (1000, 3)

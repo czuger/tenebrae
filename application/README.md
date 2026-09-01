@@ -379,8 +379,15 @@ il ne multiplie rien — c'est ce qu'on est venu chercher ; les trois termes, eu
 détail que lorsqu'il y a un détail à écrire (un attaquant seul, un terrain neutre et un dé que
 rien n'augmente s'écrivent d'un seul nombre).
 
-- `application/journal_de_combat.log`, **le fichier**, qui garde tout. C'est le deuxième endroit
-  où l'application écrit sur le disque, après `/admin/map_fix` ; il est ignoré par git ;
+- `logs/journal_de_combat.log`, **le fichier**, à la racine du dépôt. C'est le deuxième endroit
+  où l'application écrit sur le disque, après `/admin/map_fix` ; tout `logs/` est ignoré par git.
+  Il est **rotatif** : au bout de `LIGNES_PAR_FICHIER` lignes (mille) il est mis de côté en
+  `journal_de_combat.log.1`, les archives se décalant derrière lui jusqu'à `JOURNAUX_GARDES`
+  (trois) — soit au plus quatre mille lignes gardées, la plus vieille archive s'effaçant ensuite.
+  Le seuil se compte en **lignes** et non en octets (`JournalRotatif`, qui redéfinit le
+  `shouldRollover` de `RotatingFileHandler`) : c'est en lignes que ce journal se lit, une par
+  événement de la partie. Le compteur repart de ce que le fichier porte déjà, pour qu'un serveur
+  relancé dix fois dans la journée n'écrive pas dix fois mille lignes dans le même fichier ;
 - une **file bornée en mémoire** (`JournalEnMemoire`, `LIGNES_RETENUES` lignes), dont le
   navigateur fait sa colonne. C'est un *handler* branché sur le même logger, et non un appel
   ajouté à côté de chaque `JOURNAL.info` : il n'y a qu'un point d'écriture, et la colonne ne peut

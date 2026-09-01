@@ -1,6 +1,6 @@
 .idea/
 __pycache__/
 .pytest_cache/
-application/journal_de_combat.log
+logs/
 .env
 .DS_Store

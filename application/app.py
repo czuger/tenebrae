@@ -21,8 +21,9 @@ Le serveur tient aussi le **tour** (`moteur.phase.Tour`, le module-global `TOUR`
 /phase/suivante, /combat et /combat/portee l'exposent, et /deplacer refuse un mouvement hors de la
 phase de mouvement du camp. La résolution d'un combat est dans `moteur.combat` ; seul le jet de dé
 (`lancer_le_de`) est ici, pour que les tests puissent le fixer. Le journal de la partie s'écrit
-à deux endroits : `journal_de_combat.log` — le second endroit où l'application écrit sur le
-disque —, et une file bornée en mémoire, dont le navigateur fait une colonne sous la fiche. D'où
+à deux endroits : `logs/journal_de_combat.log` à la racine du dépôt — le second endroit où
+l'application écrit sur le disque, un fichier rotatif de mille lignes, gardé en trois archives
+derrière lui —, et une file bornée en mémoire, dont le navigateur fait une colonne sous la fiche. D'où
 la règle que suivent les routes : **journaliser avant de marquer le coup**, l'instantané poussé
 aux flux portant le journal (voir `instantane_partage`).
 
@@ -62,6 +63,7 @@ puis http://127.0.0.1:5000/
 import collections
 import json
 import logging
+import logging.handlers
 import math
 import random
 import secrets
@@ -103,9 +105,16 @@ TERRAINS = ("ville", "fort", "chateau", "tour", "ruines", "village", "ile", "lac
 NUMERO_DU_SCENARIO = 4
 
 # Le journal de la partie : changements de phase, combats déclarés, unités hors de portée,
-# résultats. Il est écrit à deux endroits à la fois — un fichier local, qui garde tout, et une
-# file bornée en mémoire, dont le navigateur fait sa colonne sous la fiche.
-CHEMIN_DU_JOURNAL = Path(__file__).resolve().parent / "journal_de_combat.log"
+# résultats. Il est écrit à deux endroits à la fois — des fichiers, dans `logs/` à la racine du
+# dépôt, et une file bornée en mémoire, dont le navigateur fait sa colonne sous la fiche.
+CHEMIN_DU_JOURNAL = Path(__file__).resolve().parent.parent / "logs" / "journal_de_combat.log"
+
+# Ce que le fichier courant accepte avant qu'on le mette de côté, et le nombre d'archives gardées
+# derrière lui : `journal_de_combat.log` plus `journal_de_combat.log.1` à `.3`, soit au plus
+# 4 000 lignes de partie sur le disque. Au-delà, la plus vieille archive s'efface — un serveur
+# qui tourne des mois ne doit pas remplir le disque d'un journal que personne ne relit.
+LIGNES_PAR_FICHIER = 1000
+JOURNAUX_GARDES = 3
 
 # Ce que la colonne du navigateur montre : les dernières lignes, et pas plus. Le fichier reste
 # l'archive ; la page, elle, n'a que la place de la fin de la partie, et une file bornée la lui
@@ -211,12 +220,51 @@ class JournalEnMemoire(logging.Handler):
         })
 
 
-# Le journal est écrit une ligne par événement, dans le fichier et dans la mémoire. On ne le
-# configure qu'une fois.
+class JournalRotatif(logging.handlers.RotatingFileHandler):
+    """Le journal sur le disque, mis de côté toutes les `lignes_par_fichier` lignes.
+
+    `RotatingFileHandler` compte des octets ; on compte ici des **lignes**, parce que c'est en
+    lignes que ce journal se lit — une ligne par événement de la partie, et la colonne du
+    navigateur en montre les dernières. Un seuil en octets dirait quelque chose du disque et rien
+    de la partie.
+
+    Le compteur repart de ce que le fichier contient déjà, et non de zéro : un serveur relancé
+    dix fois dans la journée ne doit pas écrire dix fois mille lignes dans le même fichier.
+    """
+
+    def __init__(self, chemin, lignes_par_fichier, fichiers_gardes):
+        chemin.parent.mkdir(parents=True, exist_ok=True)
+        self.lignes_par_fichier = lignes_par_fichier
+        self.lignes_ecrites = self._lignes_deja_ecrites(chemin)
+        super().__init__(chemin, backupCount=fichiers_gardes, encoding="utf-8")
+
+    @staticmethod
+    def _lignes_deja_ecrites(chemin):
+        """Ce que le fichier porte déjà, ou zéro s'il n'existe pas encore."""
+        try:
+            with open(chemin, encoding="utf-8") as fichier:
+                return sum(1 for _ in fichier)
+        except OSError:
+            return 0
+
+    def shouldRollover(self, enregistrement):
+        return self.lignes_ecrites >= self.lignes_par_fichier
+
+    def doRollover(self):
+        super().doRollover()
+        self.lignes_ecrites = 0
+
+    def emit(self, enregistrement):
+        super().emit(enregistrement)
+        self.lignes_ecrites += 1
+
+
+# Le journal est écrit une ligne par événement, dans les fichiers de `logs/` et dans la mémoire.
+# On ne le configure qu'une fois.
 JOURNAL = logging.getLogger("tenebrae.journal")
 MEMOIRE_DU_JOURNAL = JournalEnMemoire(LIGNES_RETENUES)
 if not JOURNAL.handlers:
-    _trace = logging.FileHandler(CHEMIN_DU_JOURNAL, encoding="utf-8")
+    _trace = JournalRotatif(CHEMIN_DU_JOURNAL, LIGNES_PAR_FICHIER, JOURNAUX_GARDES)
     _trace.setFormatter(logging.Formatter("%(asctime)s  %(message)s", "%Y-%m-%d %H:%M:%S"))
     JOURNAL.addHandler(_trace)
     JOURNAL.addHandler(MEMOIRE_DU_JOURNAL)

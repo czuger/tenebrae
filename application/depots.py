@@ -2,12 +2,17 @@
 
 Un dépôt échange des **dicts d'état** — le format de `photographier_la_partie()` dans `app.py` :
 `{scenario, placement, camp_actif, type_de_phase, numero_de_tour, attaquants_engages,
-cibles_engagees}` — jamais un Document MongoEngine. C'est ce qui tient Mongo hors des routes :
-`app.py` n'importe ni `modeles` ni `mongoengine`, il appelle `charger`, `sauvegarder` et
+cibles_engagees, places}` — jamais un Document MongoEngine. C'est ce qui tient Mongo hors des
+routes : `app.py` n'importe ni `modeles` ni `mongoengine`, il appelle `charger`, `sauvegarder` et
 `nouvelle_partie`, point.
 
-Deux dépôts : le vrai, sur MongoDB, et le nul, qui ne retient rien — c'est lui que la
-configuration de test branche, et l'application se comporte alors comme avant la persistance.
+Deux dépôts par sujet : le vrai, sur MongoDB, et son homologue sans base, que la configuration de
+test branche. Pour la partie, celui-là ne retient **rien** — l'état de jeu vit déjà dans les
+module-globaux de `app.py`, il n'y a qu'à ne pas le doubler. Pour les joueurs, il retient **en
+mémoire** : un joueur n'a pas d'autre domicile, et un dépôt qui ne garderait rien n'appauvrirait
+pas le service, il l'interdirait — personne ne pourrait ouvrir de session, donc prendre place,
+donc jouer. Les deux tiennent la même promesse de `PERSISTANCE=aucune` : rien ne survit au
+serveur.
 """
 
 from datetime import datetime, timezone
@@ -36,7 +41,8 @@ class DepotDePartieMongo:
                 "type_de_phase": partie.type_de_phase,
                 "numero_de_tour": partie.numero_de_tour,
                 "attaquants_engages": list(partie.attaquants_engages),
-                "cibles_engagees": list(partie.cibles_engagees)}
+                "cibles_engagees": list(partie.cibles_engagees),
+                "places": dict(partie.places)}
 
     def sauvegarder(self, etat):
         """Écrit l'état dans la partie la plus récente — la crée si la base est vide."""
@@ -58,6 +64,10 @@ class DepotDePartieMongo:
         partie.numero_de_tour = etat["numero_de_tour"]
         partie.attaquants_engages = etat["attaquants_engages"]
         partie.cibles_engagees = etat["cibles_engagees"]
+        # Les places sont réécrites comme le reste. C'est pour cela qu'elles voyagent dans le
+        # dict d'état plutôt que dans des méthodes à part : `_remplir` réécrit toute la partie à
+        # chaque coup, et des places tenues à côté seraient effacées à chaque sauvegarde.
+        partie.places = etat.get("places") or {}
         partie.modifiee_le = self._maintenant()
         return partie
 
@@ -79,3 +89,71 @@ class DepotDePartieNul:
 
     def nouvelle_partie(self, etat):
         pass
+
+
+class DepotDeJoueursMongo:
+    """Les comptes Discord connus, dans MongoDB — un document par joueur."""
+
+    def __init__(self):
+        # Même raison qu'au-dessus : construire le dépôt de mémoire ne doit pas demander
+        # mongoengine, que les tests sans base n'ont pas à charger.
+        from modeles import Joueur
+        self._Joueur = Joueur
+
+    def enregistrer(self, identite):
+        """Crée le joueur ou met à jour ce que Discord vient de dire de lui ; rend son dict.
+
+        Lecture puis écriture, plutôt qu'un `upsert` : mongomock rend mal celui de mongoengine,
+        la table ne compte que deux joueurs, et l'index unique sur `discord_id` reste le filet.
+        """
+        joueur = self._Joueur.objects(discord_id=identite["discord_id"]).first()
+        if joueur is None:
+            joueur = self._Joueur(discord_id=identite["discord_id"], cree_le=self._maintenant())
+        joueur.pseudo = identite["pseudo"]
+        joueur.nom_affiche = identite.get("nom_affiche")
+        joueur.avatar = identite.get("avatar")
+        joueur.courriel = identite.get("courriel")
+        joueur.derniere_connexion_le = self._maintenant()
+        joueur.save()
+        return self._en_dict(joueur)
+
+    def par_discord_id(self, discord_id):
+        """Le joueur de cet identifiant, ou `None` s'il n'en est plus connu aucun."""
+        joueur = self._Joueur.objects(discord_id=discord_id).first()
+        return self._en_dict(joueur) if joueur else None
+
+    @staticmethod
+    def _en_dict(joueur):
+        """Ce que les routes reçoivent : ni document, ni dates — personne n'en a l'usage."""
+        return {"discord_id": joueur.discord_id, "pseudo": joueur.pseudo,
+                "nom_affiche": joueur.nom_affiche, "avatar": joueur.avatar,
+                "courriel": joueur.courriel}
+
+    @staticmethod
+    def _maintenant():
+        return datetime.now(timezone.utc)
+
+
+class DepotDeJoueursEnMemoire:
+    """Les joueurs dans un dictionnaire, le temps du processus.
+
+    Ce n'est pas un dépôt *nul*, et la nuance compte : son homologue pour la partie ne retient
+    rien parce que l'état de jeu a déjà un domicile en mémoire, les module-globaux de `app.py`.
+    Un joueur n'en a aucun. Ne rien retenir ici rendrait la connexion impossible, et le jeu avec
+    elle. Il tient donc la promesse de `PERSISTANCE=aucune` sans interdire de jouer : les comptes
+    valent pour ce lancement, et disparaissent avec lui.
+    """
+
+    def __init__(self):
+        self._par_discord_id = {}
+
+    def enregistrer(self, identite):
+        joueur = {"discord_id": identite["discord_id"], "pseudo": identite["pseudo"],
+                  "nom_affiche": identite.get("nom_affiche"),
+                  "avatar": identite.get("avatar"), "courriel": identite.get("courriel")}
+        self._par_discord_id[joueur["discord_id"]] = joueur
+        return dict(joueur)
+
+    def par_discord_id(self, discord_id):
+        joueur = self._par_discord_id.get(discord_id)
+        return dict(joueur) if joueur else None

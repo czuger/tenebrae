@@ -21,14 +21,18 @@ CORRECTION = "colline"
 
 
 @pytest.fixture
-def page_de_correction(page, serveur, corrections, monkeypatch):  # noqa: F811
+def page_de_correction(page, serveur, corrections, monkeypatch, application,
+                       installer_le_joueur):  # noqa: F811
     """Ouvre /admin/map_fix et attend que la carte soit chargée et mise à l'échelle.
 
     Le moteur est présenté comme démarré sans correction, pour partir d'une page cohérente : ni
     correction relevée, ni correction en vigueur.
     """
     monkeypatch.setattr(moteur_hexagone, "CORRECTIONS_APPLIQUEES", {})
+    installer_le_joueur(application)
     page.set_viewport_size({"width": 1400, "height": 900})
+    # La page d'administration est réservée aux comptes déclarés : on s'y connecte d'abord.
+    page.goto(f"{serveur}/connexion")
     page.goto(f"{serveur}/admin/map_fix")
     page.wait_for_function(
         "() => { const c = document.getElementById('carte');"

@@ -18,9 +18,15 @@ nombre de points imprimé sur son carton** — de 1 à 20 selon l'unité, lu dan
 `game_box/pions/pions.json` par `moteur.pion` — et **s'arrête au contact des adversaires**, dont
 les zones de contrôle couvrent les six cases qui les environnent.
 
+La partie se joue **à deux, un joueur par camp**, chacun identifié par son compte Discord : le
+serveur refuse un coup joué par celui dont ce n'est pas le tour, et chaque navigateur voit avancer
+la partie de l'autre sans rien recharger. La carte, elle, reste visible sans compte (voir « Deux
+joueurs, deux camps » et « Se connecter par Discord »).
+
 Une seconde page, `/admin/map_fix`, sert à corriger la transcription de la carte : c'est le seul
 endroit où l'application écrit dans `game_box/`, et seulement dans un fichier à elle. Le moteur
-applique ces corrections à son démarrage — le plateau se joue donc sur la carte corrigée.
+applique ces corrections à son démarrage — le plateau se joue donc sur la carte corrigée. Elle est
+réservée aux comptes déclarés dans `ADMIN_DISCORD_IDS`.
 
 ## Lancer
 
@@ -34,15 +40,27 @@ puis <http://127.0.0.1:5000/> pour le plateau, <http://127.0.0.1:5000/admin/map_
 correction de la carte. Le plateau **reprend la partie là où on l'a laissée** (voir « Persistance
 de la partie ») ; `POST /partie/nouvelle` la recommence.
 
+Il faut un `.env` à la racine du dépôt (voir `.env.example`) : sans `SECRET_KEY`, l'application
+refuse de démarrer, et sans les identifiants Discord personne ne pourra se connecter.
+
 Dépendances : `Flask`, `mongoengine` et `python-dotenv` (plus `pytest`, `pytest-playwright` et
-`mongomock` pour les tests).
+`mongomock` pour les tests). **L'authentification n'en ajoute aucune** : la session tient sur
+`flask.session`, et les deux appels à Discord sur `urllib` de la bibliothèque standard.
 
 ## Persistance de la partie
 
 La partie est enregistrée dans **MongoDB** à chaque coup joué — déplacement, combat, changement de
-phase —, et `GET /` la reprend. Seul l'état de jeu y va : les positions, la phase courante et ce
-que la phase de combat a déjà consommé. La carte, le catalogue des pions et les scénarios restent
-des fichiers de `game_box/` et `scenarios/`, qui sont la source de vérité du dépôt.
+phase —, et `GET /` la reprend. Seul l'état de jeu y va : les positions, la phase courante, ce que
+la phase de combat a déjà consommé, et **qui tient quel camp** — savoir qui joue l'Alliance fait
+partie de la partie, et un redémarrage ne doit pas vider la table. À côté d'elle, une seconde
+collection retient les **joueurs** connus (`joueurs`). La carte, le catalogue des pions et les
+scénarios restent des fichiers de `game_box/` et `scenarios/`, qui sont la source de vérité du
+dépôt.
+
+Les places voyagent dans le dict d'état, avec le reste, et non dans des méthodes de dépôt à part :
+`_remplir()` réécrit toute la partie à chaque coup, et des places tenues à côté seraient effacées
+à chaque sauvegarde. Une partie enregistrée avant les joueurs n'a pas de champ `places` : elle
+reste reprenable, la table est simplement vide.
 
 **Lancer un MongoDB local**, par Docker :
 
@@ -58,19 +76,26 @@ ou par Homebrew (`brew install mongodb-community && brew services start mongodb-
 cp .env.example .env
 ```
 
-`.env` n'est pas versionné : c'est le seul endroit où vivent les informations de connexion, et
-`application/config.py` les y lit une fois au démarrage. Deux variables : `MONGODB_URI` et
-`PERSISTANCE`.
+`.env` n'est pas versionné : c'est le seul endroit où vivent les informations de connexion et les
+secrets, et `application/config.py` les y lit une fois au démarrage. `MONGODB_URI` et
+`PERSISTANCE` pour la base ; `SECRET_KEY`, les trois `DISCORD_*`, `ADMIN_DISCORD_IDS` et
+`COOKIE_SECURISE` pour les joueurs (voir « Se connecter par Discord »).
 
 **Jouer sans MongoDB** : `PERSISTANCE=aucune` dans `.env`. Le serveur branche alors un dépôt qui ne
 retient rien, et l'application se comporte comme avant la persistance — chaque chargement de `/`
 repose la mise en place du scénario. C'est aussi ce que fait la configuration de test, ce qui
 permet à toute la suite de tourner sans base.
 
+Le dépôt de **joueurs**, lui, retient alors **en mémoire** au lieu de ne rien retenir. La nuance
+compte : l'état de jeu a déjà un domicile dans les module-globaux d'`app.py`, un joueur n'en a
+aucun, et un dépôt qui ne garderait rien n'appauvrirait pas le service — il l'interdirait, personne
+ne pouvant plus ouvrir de session, donc prendre place, donc jouer. La promesse de
+`PERSISTANCE=aucune` est tenue de la même façon : rien ne survit au serveur.
+
 | Route | Effet |
 | --- | --- |
 | `GET /` | reprend la dernière partie ; à défaut — base vide, ou sauvegarde d'un autre scénario — repose le scénario et en ouvre une |
-| `POST /partie/nouvelle` | repose le scénario et ouvre une nouvelle partie ; rend `{"pions": […], "phase": {…}}` |
+| `POST /partie/nouvelle` | repose le scénario et ouvre une nouvelle partie, **sans lever la table** ; rend `{"pions": […], "phase": {…}}` |
 
 Les parties précédentes restent en base : `POST /partie/nouvelle` n'efface rien, il ouvre un
 document de plus, et c'est le plus récent que `/` reprend.
@@ -99,6 +124,8 @@ molette, boutons, défilement — dans `static/zoom.js` et `static/zoom.css`.
 | `#pions` | une entrée par unité du scénario : `{q, r, s}` sa case, `{cle, image, nom}` le pion posé, `{mouvement, camp}` ce dont le déplacement se sert, et les valeurs de son carton (voir « Survoler une unité ») |
 | `#grille` | `origine`, `matrice` et `taille_pion` : le calage de la grille sur `map.jpg` |
 | `#phase` | la phase courante : `{camp, type, armee, libelle, numero, indisponibles}` (voir « Phases et combat ») |
+| `#table` | qui regarde et qui tient quel camp : `{connecte, pseudo, avatar, administrateur, camps, armees, places}` (voir « Deux joueurs, deux camps ») |
+| `#version` | le numéro de version de la partie, à quoi le navigateur voit que l'adversaire a joué |
 
 ## Le plateau du serveur
 
@@ -111,7 +138,11 @@ déplacement.
 camp joue, et à quoi. Plateau et tour sont **repris de la sauvegarde** à chaque chargement de `/`,
 ou refaits depuis le scénario s'il n'y en a pas (voir « Persistance de la partie »). Il n'y a
 qu'**une partie courante par processus** : deux onglets ouverts sur `/` se partagent le même
-plateau et le même tour.
+plateau et le même tour — ce qui tombe bien, puisque les deux joueurs jouent la même partie.
+
+À côté d'eux, le module-global `PLACES` (`places.py`) retient qui tient quel camp. Contrairement au
+plateau et au tour, il n'est **pas** refait à chaque chargement de `/` : recommencer une partie ne
+renvoie personne de sa place.
 
 Le JavaScript convertit chaque hexagone en pixels avec la formule relevée dans
 `game_box/carte.md` :
@@ -338,7 +369,115 @@ scan a donné, les corrections viennent à part, et le terrain « d'origine » d
 du scan. Sans quoi, après un redémarrage, « Rétablir » proposerait de rétablir la correction
 elle-même.
 
-Pas de gestion d'administration : la route est ouverte.
+**La route est réservée** aux comptes Discord énumérés dans `ADMIN_DISCORD_IDS` (voir
+`.env.example`). Une liste vide n'admet personne, et le refus le dit : une variable de sécurité
+dont l'absence ouvrirait tout serait un piège. Un visiteur sans compte reçoit 401, un joueur
+ordinaire 403.
+
+## Deux joueurs, deux camps
+
+Une partie réunit **deux comptes Discord, un par camp** : l'un tient les Nains (l'Alliance),
+l'autre les Orques (les Ténèbres). Le serveur refuse un coup joué par celui dont ce n'est pas le
+tour — c'est le décorateur `camp_actif_requis` —, et le navigateur éteint d'avance les boutons
+qu'un refus attendrait.
+
+La table est un registre à part, `places.py`, tenu à côté du plateau et du tour dans le
+module-global `PLACES`. Il ne connaît que des identifiants Discord, et ne défend qu'un invariant :
+**un camp a au plus un occupant**, et une place ne se prend pas à qui l'occupe. La règle qui veut
+qu'un joueur ne tienne qu'un camp est ailleurs, dans la route `POST /partie/place` — cette
+séparation est ce qui permet à la suite de tests d'asseoir un seul joueur des deux côtés pour
+jouer une partie à elle seule.
+
+| Route | Méthode | Ce qu'elle fait | Qui peut |
+| --- | --- | --- | --- |
+| `/partie/place` | POST | s'asseoir au camp du corps `{camp}` | tout compte connecté |
+| `/partie/place/quitter` | POST | rendre sa place ; la partie ne bouge pas | tout compte connecté |
+| `/partie/etat` | GET | où en est la partie — voir plus bas | tout le monde |
+
+Ce qui est **public** : `/`, la carte, les images de pions, `/deplacements`, `/phase`,
+`/combat/portee`, `/combat/cible` et `/partie/etat`. Un visiteur de passage voit donc la partie et
+peut consulter ce qui serait atteignable, comme avant. Ce qui demande une **place au camp actif** :
+`/deplacer`, `/combat`, `/phase/suivante`. `POST /partie/nouvelle` demande seulement d'être assis :
+recommencer n'est pas un coup, et **les places sont conservées** — ce sont les deux mêmes personnes,
+et les vider enfermerait dehors celui-là même qui vient de cliquer.
+
+Les refus rendent **401** quand personne n'est connecté, **403** quand quelqu'un l'est mais ne
+tient pas ce qu'il faut, avec un `message` en français que la page affiche sous la barre d'outils.
+Le reste des échecs garde le silence qu'il avait, leurs refus partant au journal.
+
+Se déconnecter ne rend pas sa place : on revient s'y asseoir.
+
+### Suivre la partie de l'adversaire
+
+Chaque coup joué fait monter d'un cran le module-global `VERSION`. Le navigateur interroge
+`GET /partie/etat?version=N` toutes les trois secondes — et s'arrête quand l'onglet est caché.
+Tant que `N` est la version courante, le serveur ne rend que `{version, change: false}` : ni
+sérialisation du plateau, ni trafic. Dès qu'elle a changé, tout revient d'un coup — `pions`,
+`phase`, `table` — et la page repose la scène. Un aller-retour, jamais deux.
+
+## Se connecter par Discord
+
+Le flux OAuth2 tient en quatre temps, et tout ce qui parle à Discord est dans
+`client_discord.py` :
+
+1. `GET /connexion` tire un `state` (`secrets.token_urlsafe`), le pose en session et redirige vers
+   Discord ;
+2. le joueur autorise, Discord le renvoie sur `GET /connexion/retour` avec un code et le `state` ;
+3. la route **retire** le `state` de la session et le compare par `compare_digest` — un retour
+   rejoué ne trouve donc plus rien à quoi se comparer —, puis échange le code contre un jeton et
+   lit `/users/@me` ;
+4. le joueur est créé ou mis à jour en base, la session est ouverte, et l'on revient au plateau.
+
+`POST /deconnexion` ferme la session. Elle est en POST comme tout ce qui change quelque chose ici :
+un lien ou une image d'un autre site ne doit pas pouvoir déconnecter le joueur.
+
+**Ce que la session porte** : l'identifiant Discord, et le `state` le temps d'un aller-retour.
+Rien d'autre, et surtout pas le jeton d'accès — le cookie de session de Flask est *signé, pas
+chiffré*, et son contenu se lit à qui le tient. Le pseudo et l'avatar se relisent au dépôt à chaque
+requête, ce qui les tient à jour dès qu'ils changent chez Discord.
+
+Le cookie est `HttpOnly`, `SameSite=Lax` et `Secure` derrière HTTPS (`COOKIE_SECURISE=oui`).
+**`Lax` et non `Strict`** : le retour de Discord est une navigation de premier niveau venue d'un
+autre site, et `Strict` retiendrait le cookie — la session paraîtrait vide, le `state` serait
+introuvable, et le flux ne pourrait jamais aboutir.
+
+La portée demandée est `identify` seule. Pas `email` : le jeu n'en ferait rien, et une portée de
+moins est un consentement de moins à demander. Le champ `courriel` du modèle attend, au cas où.
+
+**Aucune dépendance n'a été ajoutée pour tout cela**, et c'est le même parti que pour
+`extensions.py`, qui a réécrit l'interface de Flask-MongoEngine plutôt que d'installer une
+extension morte : `flask.session` suffit à la session, `urllib.request` aux deux appels HTTP.
+
+### La couture qui rend le flux éprouvable
+
+`create_app` accroche un **client d'identité** aux extensions de l'application, exactement comme
+elle y accroche le dépôt : `ClientDiscord` en jeu, `ClientDiscordFactice` sous la configuration de
+test. Le factice ne court-circuite rien — il rend une URL d'autorisation qui pointe vers **notre
+propre route de retour**. Le navigateur la suit, revient avec un code et un état, et le vrai code
+se déroule alors du début à la fin. C'est ce qui permet d'éprouver la connexion dans Chromium sans
+qu'aucun paquet ne parte vers discord.com.
+
+`AUTHENTIFICATION` n'est **pas** lu dans l'environnement, délibérément : une variable de `.env` qui
+débranche l'authentification est une porte ouverte qu'une faute de frappe suffit à laisser béante.
+Seule `ConfigDeTest` pose « factice ».
+
+### Configurer une application Discord
+
+1. Ouvrir le [Developer Portal](https://discord.com/developers/applications) et **New
+   Application** ; lui donner un nom.
+2. Onglet **OAuth2** : relever le **Client ID**, puis **Reset Secret** pour obtenir le **Client
+   Secret** (il ne se réaffiche jamais — le copier tout de suite).
+3. Toujours dans **OAuth2**, section **Redirects**, ajouter l'URI de retour **au caractère près** :
+   `http://127.0.0.1:5000/connexion/retour` en développement. Discord la compare exactement :
+   `localhost` n'y est pas `127.0.0.1`, et un `/` final de trop suffit à faire échouer l'échange.
+4. Reporter les trois valeurs dans `.env` (`DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`,
+   `DISCORD_REDIRECT_URI`), et y ajouter une `SECRET_KEY`.
+5. Pour s'autoriser la correction de la carte : activer le mode développeur dans Discord
+   (Paramètres › Avancés), copier son propre identifiant depuis son profil, et le poser dans
+   `ADMIN_DISCORD_IDS`.
+
+Le portail ne demande **aucune portée à cocher** : elle est réclamée par l'URL d'autorisation, et
+c'est `identify`.
 
 ## La mise en place
 
@@ -445,6 +584,33 @@ un pion puis recharger la page et le retrouver à sa nouvelle case, la phase ret
 mongomock, et sur le vrai MongoDB dès que `MONGODB_URI_TEST` en désigne un qui répond, ce que
 `make test` fait — de sorte que la chaîne complète est éprouvée telle qu'elle tourne en vrai, sans
 avoir à lancer le serveur soi-même.
+
+`tests/test_places.py` éprouve le registre des places seul, sans requête ni base : prendre un
+camp, la place qu'on ne reprend pas à son occupant, l'aller-retour de la sérialisation, et une
+sauvegarde d'avant les joueurs qui laisse simplement la table vide.
+
+`tests/test_connexion.py` déroule le flux OAuth2 **en entier** contre le client factice : l'état
+tiré au sort et vérifié, celui qui ne correspond pas et celui qu'on rejoue, le retour sans code,
+le refus du joueur sur la page de Discord, un Discord muet qui rend 502, le joueur créé puis mis à
+jour, et le jeton d'accès qui n'entre jamais dans la session. Puis ce que le serveur refuse : le
+visiteur anonyme qui voit la carte mais ne déplace rien, le joueur qui ne tient pas le camp actif,
+celui qui n'a pris aucune place, le second camp refusé à qui en tient un, la place qu'on ne reprend
+pas, les deux joueurs qui s'assoient chacun au sien, les places conservées par
+`POST /partie/nouvelle`, et la correction de la carte réservée aux comptes déclarés.
+
+`tests/test_connexion_navigateur.py` fait la même chose à l'écran : le bouton qui propose de se
+connecter puis montre le pseudo, **la barre d'outils qui ne grandit pas d'un pixel** une fois
+l'avatar posé — c'est ce test qui a fait choisir un avatar dimensionné en `em` —, le pseudo à
+rallonge qui ne pousse pas les boutons hors de vue, le dialogue de la table, le grisage hors de son
+tour, le message qu'un coup refusé affiche, et surtout **deux navigateurs ouverts en même temps** :
+l'un passe sa phase ou prend place, l'autre l'apprend sans rien recharger.
+
+**Toute la suite joue connectée.** La fixture `client` du `conftest.py` ouvre une session et assied
+le joueur de test **aux deux camps** — c'est ce qui laisse les tests écrits avant les joueurs
+traverser les deux camps dans une même session, sans en réécrire un seul. Les fixtures de page
+Playwright passent, elles, par `/connexion` avant d'ouvrir le plateau : plutôt que de fabriquer un
+cookie, elles déroulent le vrai flux, que le client factice referme sur notre propre route de
+retour. Pour éprouver un visiteur de passage, prendre `client_anonyme`.
 
 Les tests de navigateur demandent Chromium :
 

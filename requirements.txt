@@ -7,6 +7,10 @@
 Flask
 Werkzeug        # fourni par Flask ; importé directement dans application/tests/conftest.py
 
+# L'authentification Discord n'ajoute rien ici, et c'est voulu : la session tient sur
+# `flask.session` (cookie signé par itsdangerous, que Flask installe déjà) et les deux appels
+# OAuth2 sur `urllib.request` de la bibliothèque standard. Voir application/client_discord.py.
+
 # --- Persistance de la partie (MongoDB) ---
 # Le todo demandait flask-mongoengine : sa dernière version (1.0.0, 2022) ne s'importe pas sous
 # Flask 3 (elle cherche `flask.json.JSONEncoder`, retiré en 2.3). application/extensions.py en

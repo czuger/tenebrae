@@ -13,6 +13,10 @@
   <input type="hidden" id="pions" value="{{ pions }}">
   <input type="hidden" id="grille" value="{{ grille }}">
   <input type="hidden" id="phase" value="{{ phase }}">
+  <!-- Qui regarde, qui tient quel camp — et le numéro de version de la partie, à quoi le
+       navigateur voit que l'adversaire a joué (voir la route « /partie/etat »). -->
+  <input type="hidden" id="table" value="{{ table }}">
+  <input type="hidden" id="version" value="{{ version }}">
 
   <div id="cadre">
     <div id="toile">
@@ -41,7 +45,17 @@
       <button type="button" id="phase-suivante">Phase suivante</button>
       <button type="button" id="attaquer" hidden>Attaquer</button>
       <button type="button" id="annuler-combat" hidden>Annuler</button>
+
+      <!-- Le joueur : un seul bouton, quel que soit l'état. Anonyme, il envoie chez Discord ;
+           connecté, il ouvre le dialogue de la table. Rien d'autre n'entre dans la barre — sa
+           taille de référence est documentée dans carte.css, et un ajout de plus la ferait
+           déborder par la droite. -->
+      <button type="button" id="joueur"></button>
     </div>
+
+    <!-- Ce que le serveur a refusé — jouer hors de son tour, sans place, sans compte. Sous la
+         barre comme la fiche : le panneau grandit vers le bas, la barre ne bouge pas. -->
+    <div id="message" hidden></div>
 
     <!-- La fiche de l'unité survolée, sous la barre plutôt qu'à sa suite : dans la barre, elle
          devait rester minuscule pour ne pas l'allonger. Le JavaScript la remplit avec ce que porte
@@ -57,6 +71,18 @@
       </div>
     </div>
   </div>
+
+  <!-- La table : qui tient quel camp, et de quoi s'y asseoir ou en partir. Tout ce qui ne tient
+       pas dans la barre est ici — c'est le motif du dialogue de correction de la carte. -->
+  <dialog id="table-dialogue">
+    <p id="table-titre"></p>
+    <div id="table-places"></div>
+    <div id="table-pied">
+      <button type="button" id="table-quitter" hidden>Quitter ma place</button>
+      <button type="button" id="table-deconnexion">Se déconnecter</button>
+      <button type="button" id="table-fermer">Fermer</button>
+    </div>
+  </dialog>
 
   <script src="{{ url_for('static', filename='geometrie.js') }}"></script>
   <script src="{{ url_for('static', filename='zoom.js') }}"></script>

@@ -29,7 +29,7 @@ from test_persistance import URI_DE_TEST, ConfigMongoReel, ConfigMongomock, \
 
 
 @pytest.fixture(params=["mongomock", "mongodb"])
-def serveur_persistant(request):
+def serveur_persistant(request, installer_le_joueur):
     """Un serveur branché sur une base, servi sur un port libre le temps du test.
 
     Le paramètre fait tourner chaque test deux fois : sur mongomock, et sur le vrai MongoDB s'il
@@ -44,21 +44,25 @@ def serveur_persistant(request):
         configuration = ConfigMongomock
 
     application = app.create_app(configuration)
-    from modeles import Partie
+    from modeles import Joueur, Partie
     Partie.objects.delete()
+    Joueur.objects.delete()
 
     serveur = make_server("127.0.0.1", 0, application)
     fil = threading.Thread(target=serveur.serve_forever, daemon=True)
     fil.start()
+    installer_le_joueur(application)
     yield f"http://127.0.0.1:{serveur.server_port}"
 
     serveur.shutdown()
     fil.join()
     Partie.objects.delete()
+    Joueur.objects.delete()
     mongoengine.disconnect_all()
     app.PLATEAU.vider()
     app.TOUR.recommencer()
     app.SUIVI.reinitialiser()
+    app.PLACES.vider()
 
 
 @pytest.fixture
@@ -70,7 +74,13 @@ def plateau_persistant(page, serveur_persistant):
 
 
 def ouvrir(page, adresse):
-    """Charge le plateau et attend que tout soit posé — comme au premier chargement."""
+    """Charge le plateau et attend que tout soit posé — comme au premier chargement.
+
+    Le premier chargement passe par la connexion : jouer demande une place, et la session du
+    navigateur se pose en déroulant le flux, que le client Discord factice referme sur nous.
+    """
+    if not page.context.cookies():
+        page.goto(f"{adresse}/connexion")
     page.goto(adresse)
     page.wait_for_function(
         "document.querySelectorAll('img.pion').length === %d" % len(app.SCENARIO))

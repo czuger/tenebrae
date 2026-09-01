@@ -26,6 +26,10 @@ VOISINE = {"q": 2, "r": 26, "s": -28}
 NAIN = "nains-01-5-infanteries"
 ORQUE = "orques-01-15-infanteries"
 
+# Deux identifiants Discord de fantaisie, pour asseoir quelqu'un à chaque camp.
+NAINE = "100000000000000001"
+ORQUESSE = "100000000000000002"
+
 
 class ConfigMongomock(ConfigDeTest):
     """La configuration de test, mais avec la persistance branchée sur un Mongo en mémoire.
@@ -47,19 +51,26 @@ def application_mongo():
     partagés par toute la session, on les remet à zéro de la même façon.
     """
     application = app.create_app(ConfigMongomock)
-    from modeles import Partie
+    from modeles import Joueur, Partie
     Partie.objects.delete()
+    Joueur.objects.delete()
     yield application
     Partie.objects.delete()
+    Joueur.objects.delete()
     mongoengine.disconnect_all()
     app.PLATEAU.vider()
     app.TOUR.recommencer()
     app.SUIVI.reinitialiser()
+    app.PLACES.vider()
 
 
 @pytest.fixture
-def client_mongo(application_mongo):
-    return application_mongo.test_client()
+def client_mongo(application_mongo, installer_le_joueur):
+    """Connecté et assis aux deux camps, comme le `client` du conftest : les routes qui
+    sauvegardent la partie demandent maintenant une place."""
+    client = application_mongo.test_client()
+    installer_le_joueur(application_mongo, client)
+    return client
 
 
 @pytest.fixture
@@ -264,6 +275,57 @@ class TestDepot:
             assert app.le_depot().charger() is None
 
 
+class TestPlacesPersistees:
+    """Qui tient quel camp fait partie de la partie : un redémarrage ne vide pas la table."""
+
+    def test_les_places_sont_ecrites_avec_la_partie(self, client_mongo, parties):
+        # La fixture assied le joueur de test aux deux camps ; on refait la table à deux.
+        app.PLACES.vider().asseoir("alliance", NAINE)
+        client_mongo.get("/")
+        assert dict(parties.objects.first().places) == {"alliance": NAINE}
+
+    def test_les_places_sont_reprises_apres_un_redemarrage(self, client_mongo, parties):
+        app.PLACES.vider().asseoir("alliance", NAINE).asseoir("tenebres", ORQUESSE)
+        client_mongo.get("/")
+
+        # Le serveur redémarre : la table de la mémoire est levée, seule la base la connaît.
+        app.PLACES.vider()
+        client_mongo.get("/")
+
+        assert app.PLACES.occupant("alliance") == NAINE
+        assert app.PLACES.occupant("tenebres") == ORQUESSE
+
+    def test_une_partie_enregistree_sans_places_reste_reprenable(self, client_mongo, parties):
+        """Les parties d'avant les joueurs n'ont pas de champ `places` : la table est vide."""
+        client_mongo.get("/")
+        parties.objects.update(unset__places=1)
+        app.PLACES.vider().asseoir("alliance", NAINE)
+
+        client_mongo.get("/")
+
+        assert app.PLACES.est_libre("alliance")
+
+    def test_les_joueurs_enregistres_se_retrouvent(self, application_mongo):
+        with application_mongo.test_request_context():
+            depot = app.le_depot_de_joueurs()
+            depot.enregistrer({"discord_id": NAINE, "pseudo": "Vorgtd", "avatar": None})
+            assert depot.par_discord_id(NAINE)["pseudo"] == "Vorgtd"
+
+    def test_une_seconde_connexion_met_a_jour_le_pseudo_sans_creer_de_joueur(self,
+                                                                            application_mongo):
+        with application_mongo.test_request_context():
+            from modeles import Joueur
+            depot = app.le_depot_de_joueurs()
+            depot.enregistrer({"discord_id": NAINE, "pseudo": "Vorgtd"})
+            depot.enregistrer({"discord_id": NAINE, "pseudo": "Vorgtd le Grand"})
+            assert Joueur.objects.count() == 1
+            assert depot.par_discord_id(NAINE)["pseudo"] == "Vorgtd le Grand"
+
+    def test_un_joueur_inconnu_ne_se_trouve_pas(self, application_mongo):
+        with application_mongo.test_request_context():
+            assert app.le_depot_de_joueurs().par_discord_id("999") is None
+
+
 # --- Contre un vrai MongoDB ---------------------------------------------------------------------
 #
 # Mongomock imite l'API, pas le stockage : il n'éprouve ni l'encodage BSON des clés du placement —
@@ -296,19 +358,24 @@ class ConfigMongoReel(ConfigDeTest):
 
 
 @pytest.fixture
-def client_mongo_reel():
+def client_mongo_reel(installer_le_joueur):
     """Une application branchée sur un vrai MongoDB, et une base laissée propre en sortant."""
     if not mongodb_est_joignable():
         pytest.skip(f"aucun MongoDB joignable sur {URI_DE_TEST}")
     application = app.create_app(ConfigMongoReel)
-    from modeles import Partie
+    from modeles import Joueur, Partie
     Partie.objects.delete()
-    yield application.test_client()
+    Joueur.objects.delete()
+    client = application.test_client()
+    installer_le_joueur(application, client)
+    yield client
     Partie.objects.delete()
+    Joueur.objects.delete()
     mongoengine.disconnect_all()
     app.PLATEAU.vider()
     app.TOUR.recommencer()
     app.SUIVI.reinitialiser()
+    app.PLACES.vider()
 
 
 class TestContreUnVraiMongo:

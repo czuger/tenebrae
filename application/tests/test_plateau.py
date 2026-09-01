@@ -13,10 +13,17 @@ from moteur.pion import ADVERSAIRES, CATALOGUE
 
 
 @pytest.fixture
-def plateau(page, serveur):
-    """Ouvre la page et attend que la carte et les unités du scénario soient chargées."""
+def plateau(page, serveur, application, installer_le_joueur):
+    """Ouvre la page **connectée** et attend que la carte et les unités du scénario soient chargées.
+
+    Le premier `goto` est l'équivalent navigateur de `session_transaction` : plutôt que de
+    fabriquer un cookie, on déroule le vrai flux de connexion, que le client Discord factice
+    referme sur notre propre route de retour. Le navigateur repart de là vers « / », et la page
+    de jeu est chargée et connectée d'un seul mouvement.
+    """
+    installer_le_joueur(application)
     page.set_viewport_size({"width": 1400, "height": 900})
-    page.goto(serveur)
+    page.goto(f"{serveur}/connexion")
     page.wait_for_function(
         "document.querySelectorAll('img.pion').length === %d" % len(app.SCENARIO)
     )

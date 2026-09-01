@@ -198,7 +198,7 @@ def test_on_ne_sort_pas_du_repertoire_des_pions(client):
     assert client.get("/pions/../../CLAUDE.md").status_code == 404
 
 
-# --- Déplacements ---------------------------------------------------------------------------
+# --- Déplacements --------------------------------------------------------------------------------
 
 PLAINE = {"q": 1, "r": 26, "s": -27}
 VOISINE = {"q": 2, "r": 26, "s": -28}
@@ -273,7 +273,7 @@ def test_le_mouvement_ne_se_demande_pas(client):
     assert reponse["mouvement"] == 2
 
 
-# --- Zones de contrôle ----------------------------------------------------------------------
+# --- Zones de contrôle ---------------------------------------------------------------------------
 
 ELFE = "elfes-01-5-infanteries"        # alliance, 4 points
 ORQUE = "orques-01-15-infanteries"     # ténèbres, 4 points
@@ -389,7 +389,7 @@ def test_une_demande_de_deplacement_incomplete_est_refusee(client):
     assert client.post("/deplacer", data="pas du json").status_code == 400
 
 
-# --- Phases de jeu --------------------------------------------------------------------------
+# --- Phases de jeu -------------------------------------------------------------------------------
 
 NAIN = "nains-01-5-infanteries"        # alliance, force 12
 ARCHER = "yzent-03-8-archers"          # ténèbres, force 2, tir 4, portée 3
@@ -423,7 +423,7 @@ def test_le_mouvement_est_bloque_pour_le_camp_inactif(client):
     assert refuse["autorise"] is False
 
 
-# --- Résolution des combats ----------------------------------------------------------------
+# --- Résolution des combats ----------------------------------------------------------------------
 
 def test_la_portee_de_combat_suit_la_distance(client):
     poser(PLAINE, ARCHER)
@@ -487,7 +487,7 @@ def test_la_cible_doit_etre_adverse(client):
     assert reponse["resolu"] is False
 
 
-# --- Un seul combat par unité et par phase -------------------------------------------------
+# --- Un seul combat par unité et par phase -------------------------------------------------------
 
 # Deux cases de plus au contact : un second orque à portée du nain de PLAINE, et un second nain à
 # portée de l'orque de VOISINE. De quoi éprouver les deux règles séparément.
@@ -621,3 +621,70 @@ def test_les_indisponibles_sont_dits_au_navigateur(phase_de_combat):
     # La phase suivante les libère, et la page le voit au même endroit.
     suivante = phase_de_combat.post("/phase/suivante").json
     assert suivante["indisponibles"] == {"attaquants": [], "cibles": []}
+
+
+# --- Suivre la partie ----------------------------------------------------------------------------
+#
+# La route que le navigateur interroge toutes les trois secondes pour voir jouer l'adversaire.
+# Elle ne rend le plateau que lorsqu'il a changé : c'est tout l'intérêt du numéro de version.
+
+
+def test_l_etat_rend_la_partie_a_qui_ne_connait_aucune_version(client):
+    client.get("/")
+    reponse = client.get("/partie/etat").json
+    assert reponse["change"] is True
+    assert len(reponse["pions"]) == len(app.SCENARIO)
+    assert reponse["phase"]["camp"] == app.TOUR.camp_actif
+
+
+def test_l_etat_ne_rend_que_le_numero_tant_que_rien_ne_bouge(client):
+    client.get("/")
+    version = client.get("/partie/etat").json["version"]
+    reponse = client.get("/partie/etat", query_string={"version": version}).json
+    assert reponse == {"version": version, "change": False}
+
+
+def test_un_coup_joue_fait_monter_la_version(client):
+    client.get("/")
+    version = client.get("/partie/etat").json["version"]
+    client.post("/phase/suivante")
+    assert client.get("/partie/etat").json["version"] > version
+
+
+def test_l_etat_dit_la_phase_atteinte_par_l_adversaire(client):
+    """Le cas d'usage : l'autre a passé sa phase, et la page l'apprend sans rien recharger."""
+    client.get("/")
+    version = client.get("/partie/etat").json["version"]
+    client.post("/phase/suivante")
+
+    reponse = client.get("/partie/etat", query_string={"version": version}).json
+
+    assert reponse["change"] is True
+    assert reponse["phase"]["libelle"] == app.TOUR.libelle
+
+
+def test_un_deplacement_se_voit_dans_l_etat(client, carte_deserte):
+    client.get("/")
+    depart = Hex.depuis_cle(next(iter(app.SCENARIO.placement)))
+    arrivee = app.PLATEAU.deplacements(depart)[0]
+    version = client.get("/partie/etat").json["version"]
+    client.post("/deplacer", json={"depart": depart.en_dict(), "arrivee": arrivee.en_dict(),
+                                   "pion": app.PLATEAU.pion_sur(depart).cle})
+
+    cases = {(pion["q"], pion["r"], pion["s"])
+             for pion in client.get("/partie/etat",
+                                    query_string={"version": version}).json["pions"]}
+
+    assert (arrivee.q, arrivee.r, arrivee.s) in cases
+    assert (depart.q, depart.r, depart.s) not in cases
+
+
+def test_l_etat_est_public(client_anonyme):
+    """Un visiteur de passage suit la partie comme il voit la carte."""
+    assert client_anonyme.get("/partie/etat").status_code == 200
+
+
+def test_l_etat_dit_qui_tient_quel_camp(client):
+    client.get("/")
+    table = client.get("/partie/etat").json["table"]
+    assert table["places"] == {camp: "Joueuse d'essai" for camp in app.SCENARIO.camps}

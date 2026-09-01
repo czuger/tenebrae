@@ -28,11 +28,19 @@ de combat en cours a déjà consommé : une unité n'attaque qu'une fois, une un
 qu'une fois. Il se vide à chaque changement de phase, et /combat/portee comme /combat/cible le
 consultent pour que le navigateur ne surligne pas une unité qui a déjà combattu.
 
+La partie se joue **à deux, un joueur par camp**, identifiés par Discord (voir `client_discord.py`
+pour le flux OAuth2, `places.py` pour la table). La carte reste publique — un visiteur de passage
+la voit et consulte les déplacements possibles —, mais tout ce qui change l'état demande d'être
+connecté et d'occuper le camp dont c'est la phase : c'est ce que posent les décorateurs
+`connexion_requise`, `place_requise` et `camp_actif_requis`. Le module-global `PLACES` retient qui
+tient quoi, et `VERSION` monte à chaque coup joué : c'est à lui que le navigateur de l'adversaire
+voit, par /partie/etat, qu'il a quelque chose à reprendre.
+
 La route /admin/map_fix est à part : elle sert à corriger à l'œil les erreurs de la transcription
 de la carte, et c'est le seul endroit où l'application écrit dans `game_box/` — dans un fichier à
 elle, `map_fix.json`, jamais dans `carte.json` ni `carte_details.json`. Elle travaille toujours sur
 la carte transcrite, quand le reste de l'application joue sur la carte corrigée que le moteur en
-tire au démarrage.
+tire au démarrage. Elle est réservée aux comptes de `ADMIN_DISCORD_IDS`.
 
 Lancement (depuis ce répertoire) :
 
@@ -44,15 +52,18 @@ puis http://127.0.0.1:5000/
 import json
 import logging
 import random
+import secrets
 import sys
+from functools import wraps
 from pathlib import Path
 
-from flask import Blueprint, Flask, abort, current_app, render_template, request, \
-    send_from_directory
+from flask import Blueprint, Flask, abort, current_app, g, redirect, render_template, \
+    request, send_from_directory, session, url_for
 
 # Le dépôt n'est pas un paquet installé : on l'ajoute à sys.path pour atteindre `moteur`.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from client_discord import ErreurDiscord  # noqa: E402
 from config import Config  # noqa: E402
 from moteur import combat  # noqa: E402
 from moteur import hexagone as moteur_hexagone  # noqa: E402
@@ -61,6 +72,7 @@ from moteur.phase import COMBAT, Tour  # noqa: E402
 from moteur.pion import CATALOGUE  # noqa: E402
 from moteur.plateau import Plateau  # noqa: E402
 from moteur.scenario import scenario  # noqa: E402
+from places import Places  # noqa: E402
 
 BOITE = Path(__file__).resolve().parent.parent / "game_box"
 PIONS = BOITE / "pions"
@@ -192,6 +204,25 @@ TOUR = Tour(SCENARIO.camps, {armee["camp"]: armee["armee"] for armee in SCENARIO
 # suivant. Le mouvement ne le consulte pas — le vider trop souvent ne coûte rien.
 SUIVI = combat.SuiviDeCombat()
 
+# Qui tient quel camp (voir `places.py`). Comme le plateau et le tour, il n'y a qu'une table par
+# processus : les deux joueurs jouent la même partie, chacun de son navigateur. Contrairement au
+# plateau, elle **ne se refait pas** à chaque chargement de « / » ni à chaque nouvelle partie :
+# recommencer ne renvoie personne de la table.
+PLACES = Places()
+
+# Le numéro de version de la partie : il monte d'un cran à chaque coup joué. C'est à cela que le
+# navigateur de l'adversaire voit qu'il a quelque chose à reprendre, sans que le serveur ait à lui
+# renvoyer tout le plateau trois fois par minute (voir `/partie/etat`). Un simple entier suffit :
+# il n'y a qu'un processus, et deux navigateurs qui lisent la même partie.
+VERSION = 0
+
+
+def marquer_un_coup():
+    """Note qu'un coup a été joué. Le prochain sondage des navigateurs le verra."""
+    global VERSION
+    VERSION += 1
+    return VERSION
+
 
 def poser_la_mise_en_place():
     """Refait le plateau du serveur d'après le scénario, et rend ses unités pour l'affichage.
@@ -200,10 +231,13 @@ def poser_la_mise_en_place():
     les valeurs du carton — est repris au catalogue, comme pour n'importe quel pion servi par
     l'application. L'entrée du catalogue part entière : ce qu'on lui ajoutera suivra tout seul.
     Seul `chemin` est renommé, en `image`, parce que c'est ce que le navigateur met dans `src`.
+
+    La table n'y est pas touchée : recommencer une partie ne renvoie personne de sa place.
     """
     PLATEAU.vider()
     TOUR.recommencer()
     SUIVI.reinitialiser()
+    marquer_un_coup()
     poses = []
     for case, cle in SCENARIO.placement.items():
         hexagone = Hex.depuis_cle(case)
@@ -248,6 +282,11 @@ def le_depot():
     return current_app.extensions["depot_de_partie"]
 
 
+def le_depot_de_joueurs():
+    """Le dépôt de joueurs de l'application courante."""
+    return current_app.extensions["depot_de_joueurs"]
+
+
 def photographier_la_partie():
     """Tout l'état de jeu du serveur, sous la forme que le dépôt sait écrire.
 
@@ -259,18 +298,29 @@ def photographier_la_partie():
             "placement": PLATEAU.en_dict(),
             "camp_actif": TOUR.camp_actif,
             "type_de_phase": TOUR.type_de_phase,
-            "numero_de_tour": TOUR.numero} | SUIVI.en_dict()
+            "numero_de_tour": TOUR.numero} | SUIVI.en_dict() | PLACES.en_dict()
 
 
 def restaurer_la_partie(etat):
-    """Repose le plateau, le tour et le registre des combats tels qu'une sauvegarde les tenait."""
+    """Repose le plateau, le tour, le registre des combats et la table tels qu'une sauvegarde les
+    tenait.
+
+    `.get` sur les places : une partie enregistrée avant les joueurs n'en a pas, et elle doit
+    rester reprenable — la table est alors simplement vide, et chacun vient s'y asseoir.
+    """
     PLATEAU.restaurer(etat["placement"])
     TOUR.restaurer(etat["camp_actif"], etat["type_de_phase"], etat["numero_de_tour"])
     SUIVI.restaurer(etat["attaquants_engages"], etat["cibles_engagees"])
+    PLACES.restaurer(etat.get("places"))
 
 
 def sauvegarder_la_partie():
-    """Enregistre la partie après un coup joué — un déplacement, un combat, un changement de phase."""
+    """Enregistre la partie après un coup joué — un déplacement, un combat, un changement de phase.
+
+    C'est aussi le point de passage obligé de tout ce qui bouge : la version monte ici, et le
+    navigateur de l'adversaire l'apprend à son prochain sondage.
+    """
+    marquer_un_coup()
     le_depot().sauvegarder(photographier_la_partie())
 
 
@@ -287,6 +337,215 @@ def les_unites_posees():
         poses.append({"q": hexagone.q, "r": hexagone.r, "s": hexagone.s,
                       "image": pion.pop("chemin")} | pion)
     return poses
+
+
+# --- Les joueurs -------------------------------------------------------------------------------
+#
+# Deux joueurs, un par camp, identifiés par Discord. Le serveur ne les distingue que par leur
+# identifiant Discord — celui-là même qui voyage dans la session, dans les places et dans le dict
+# d'état : il n'y a qu'une notion d'identité dans tout le projet.
+#
+# Ce que la session porte : `joueur`, l'identifiant, et le temps d'un aller-retour `etat_oauth`.
+# **Rien d'autre, et surtout pas le jeton d'accès** — le cookie de session de Flask est signé, pas
+# chiffré, et son contenu se lit à qui le tient. Le pseudo et l'avatar se relisent au dépôt à
+# chaque requête, ce qui a l'avantage de refléter un changement de pseudo dès la suivante.
+
+
+def le_client_discord():
+    """Le client d'identité de l'application courante — le vrai, ou le factice des tests."""
+    return current_app.extensions["discord"]
+
+
+def le_joueur_courant():
+    """Le joueur de la session, ou `None`.
+
+    Retenu sur `g` : plusieurs décorateurs le demandent dans une même requête, et ce serait autant
+    d'allers-retours en base. Un identifiant qui ne correspond plus à personne — base vidée, dépôt
+    de mémoire d'un serveur relancé — rend `None` sans faire d'histoire : le visiteur redevient
+    anonyme.
+    """
+    if "joueur" not in g:
+        identifiant = session.get("joueur")
+        g.joueur = le_depot_de_joueurs().par_discord_id(identifiant) if identifiant else None
+    return g.joueur
+
+
+def est_administrateur(joueur):
+    """Dit si ce joueur peut corriger la carte — voir `ADMINISTRATEURS` dans `config.py`."""
+    return joueur is not None and joueur["discord_id"] in current_app.config["ADMINISTRATEURS"]
+
+
+def la_table():
+    """Qui regarde, qui tient quoi — sous la forme que le navigateur reçoit.
+
+    Les identifiants Discord n'en sont pas : le navigateur n'a besoin que d'un pseudo et d'un
+    avatar pour dire qui tient l'Alliance, et servir un identifiant à tout visiteur serait donner
+    une donnée personnelle pour rien.
+    """
+    joueur = le_joueur_courant()
+    occupants = {camp: le_depot_de_joueurs().par_discord_id(PLACES.occupant(camp))
+                 for camp in SCENARIO.camps}
+    return {
+        "connecte": joueur is not None,
+        "pseudo": joueur["pseudo"] if joueur else None,
+        "avatar": joueur["avatar"] if joueur else None,
+        "administrateur": est_administrateur(joueur),
+        # Une liste, et non un camp : d'ordinaire zéro ou un, mais la suite de tests assied un
+        # même joueur des deux côtés pour jouer la partie à elle seule.
+        "camps": PLACES.camps_de(joueur["discord_id"]) if joueur else [],
+        "armees": {armee["camp"]: armee["armee"] for armee in SCENARIO.armees},
+        "places": {camp: (occupant["pseudo"] if occupant else None)
+                   for camp, occupant in occupants.items()},
+    }
+
+
+def connexion_requise(vue):
+    """Refuse la route à qui n'a pas ouvert de session — 401, « je ne sais pas qui vous êtes »."""
+    @wraps(vue)
+    def enveloppe(*args, **kwargs):
+        if le_joueur_courant() is None:
+            return {"autorise": False, "message": "Connectez-vous pour jouer."}, 401
+        return vue(*args, **kwargs)
+    return enveloppe
+
+
+def place_requise(vue):
+    """Refuse la route à qui ne tient aucun camp — 403, « vous n'êtes pas à la table »."""
+    @wraps(vue)
+    @connexion_requise
+    def enveloppe(*args, **kwargs):
+        if not PLACES.camps_de(le_joueur_courant()["discord_id"]):
+            return {"autorise": False, "message": "Prenez place à un camp pour jouer."}, 403
+        return vue(*args, **kwargs)
+    return enveloppe
+
+
+def camp_actif_requis(vue):
+    """Refuse la route à qui ne tient pas le camp dont c'est la phase — 403, « pas votre tour ».
+
+    Le décorateur ne regarde que la **place**. Le type de phase et le camp du pion visé restent
+    vérifiés dans les routes, depuis le tour et le plateau : un mouvement hors de la phase de
+    mouvement continue de rendre 200 et `autorise: false`, un combat hors phase 200 et
+    `resolu: false`. C'est cette frontière qui laisse intactes les vérifications d'avant.
+    """
+    @wraps(vue)
+    @connexion_requise
+    def enveloppe(*args, **kwargs):
+        if not PLACES.tient(le_joueur_courant()["discord_id"], TOUR.camp_actif):
+            return {"autorise": False,
+                    "message": f"C'est au camp {TOUR.armee_active} de jouer."}, 403
+        return vue(*args, **kwargs)
+    return enveloppe
+
+
+def administrateur_requis(vue):
+    """Réserve la route aux comptes déclarés dans `ADMIN_DISCORD_IDS`.
+
+    Une liste vide n'admet personne : une variable de sécurité dont l'absence ouvrirait tout
+    serait un piège, et le refus dit comment s'y déclarer.
+    """
+    @wraps(vue)
+    @connexion_requise
+    def enveloppe(*args, **kwargs):
+        if not est_administrateur(le_joueur_courant()):
+            return {"autorise": False,
+                    "message": "Corriger la carte demande un compte déclaré dans "
+                               "ADMIN_DISCORD_IDS."}, 403
+        return vue(*args, **kwargs)
+    return enveloppe
+
+
+@jeu.route("/connexion")
+def connexion():
+    """Part chez Discord, avec un état à usage unique contre le CSRF."""
+    etat = secrets.token_urlsafe(32)
+    session["etat_oauth"] = etat
+    return redirect(le_client_discord().url_d_autorisation(etat))
+
+
+@jeu.route("/connexion/retour")
+def retour_de_connexion():
+    """Le retour de Discord : on vérifie l'état, on échange le code, on ouvre la session.
+
+    L'état est **retiré** de la session avant toute chose : un retour rejoué ne trouvera plus rien
+    à quoi se comparer. La comparaison passe par `compare_digest` — c'est un secret, il ne se
+    compare pas caractère à caractère.
+    """
+    if request.args.get("error"):  # le joueur a refusé sur la page de Discord
+        return redirect(url_for("jeu.plateau"))
+
+    attendu = session.pop("etat_oauth", None)
+    recu = request.args.get("state")
+    if not attendu or not recu or not secrets.compare_digest(attendu, recu):
+        abort(400, "état d'authentification absent ou inattendu")
+    code = request.args.get("code")
+    if not code:
+        abort(400, "code d'autorisation absent")
+
+    try:
+        jeton = le_client_discord().echanger_le_code(code)
+        identite = le_client_discord().identite(jeton)
+    except ErreurDiscord as souci:
+        JOURNAL.info("Connexion refusée : %s", souci)
+        abort(502, "Discord n'a pas répondu")
+
+    joueur = le_depot_de_joueurs().enregistrer(identite)
+    # On repart d'une session neuve : rien de ce qu'un anonyme y aurait laissé ne survit à
+    # l'ouverture d'un compte.
+    session.clear()
+    session["joueur"] = joueur["discord_id"]
+    session.permanent = True
+    JOURNAL.info("Connexion : %s", joueur["pseudo"])
+    return redirect(url_for("jeu.plateau"))
+
+
+@jeu.route("/deconnexion", methods=["POST"])
+def deconnexion():
+    """Ferme la session. La place tenue n'est pas rendue : on revient s'y asseoir.
+
+    En POST, comme tout ce qui change quelque chose ici : un lien ou une image d'un autre site ne
+    doit pas pouvoir déconnecter le joueur.
+    """
+    session.clear()
+    return {"connecte": False}
+
+
+@jeu.route("/partie/place", methods=["POST"])
+@connexion_requise
+def prendre_place():
+    """S'asseoir à un camp libre — corps `{"camp": "alliance"}`.
+
+    Deux règles, et elles ne vivent pas au même endroit : un camp occupé ne se reprend pas, et
+    c'est le registre qui la tient ; un joueur ne tient qu'un camp, et c'est ici et nulle part
+    ailleurs — un joueur assis des deux côtés jouerait seul contre lui-même.
+    """
+    camp = (request.get_json(silent=True) or {}).get("camp")
+    if camp not in SCENARIO.camps:
+        abort(400, f"camp inconnu ; attendu l'un de {', '.join(SCENARIO.camps)}")
+
+    joueur = le_joueur_courant()["discord_id"]
+    if PLACES.tient(joueur, camp):
+        return {"assis": True, "camp": camp} | la_table()
+    if PLACES.camps_de(joueur):
+        return {"assis": False, "message": "Vous tenez déjà un camp."} | la_table(), 409
+    if not PLACES.est_libre(camp):
+        return {"assis": False, "message": "Ce camp est déjà tenu."} | la_table(), 409
+
+    PLACES.asseoir(camp, joueur)
+    sauvegarder_la_partie()
+    JOURNAL.info("Place prise : %s par %s", camp, le_joueur_courant()["pseudo"])
+    return {"assis": True, "camp": camp} | la_table()
+
+
+@jeu.route("/partie/place/quitter", methods=["POST"])
+@connexion_requise
+def quitter_la_place():
+    """Rend sa place : le camp redevient libre, la partie reste où elle en est."""
+    joueur = le_joueur_courant()["discord_id"]
+    for camp in PLACES.camps_de(joueur):
+        PLACES.liberer(camp)
+    sauvegarder_la_partie()
+    return {"assis": False} | la_table()
 
 
 @jeu.route("/")
@@ -311,10 +570,13 @@ def plateau():
         grille=json.dumps({"origine": GRILLE_ORIGINE, "matrice": GRILLE_MATRICE,
                            "taille_pion": PION_TAILLE}),
         phase=json.dumps(la_phase_courante(), ensure_ascii=False),
+        table=json.dumps(la_table(), ensure_ascii=False),
+        version=VERSION,
     )
 
 
 @jeu.route("/partie/nouvelle", methods=["POST"])
+@place_requise
 def nouvelle_partie():
     """Recommence : la mise en place du scénario, et une partie neuve en base.
 
@@ -325,6 +587,24 @@ def nouvelle_partie():
     le_depot().nouvelle_partie(photographier_la_partie())
     JOURNAL.info("Nouvelle partie : scénario %s", NUMERO_DU_SCENARIO)
     return {"pions": poses, "phase": la_phase_courante()}
+
+
+@jeu.route("/partie/etat")
+def etat_de_la_partie():
+    """Où en est la partie — la route que le navigateur interroge pour suivre l'adversaire.
+
+    Avec `?version=N`, elle ne rend que le numéro tant que rien n'a bougé : c'est le cas le plus
+    fréquent, et il ne coûte alors ni sérialisation du plateau ni trafic. Dès que la version a
+    changé, tout revient d'un coup — les pions, la phase, la table — et le navigateur repose la
+    scène. Un aller-retour, jamais deux.
+
+    Elle est publique : un visiteur de passage suit la partie comme il voit la carte.
+    """
+    connue = request.args.get("version", type=int)
+    if connue == VERSION:
+        return {"version": VERSION, "change": False}
+    return {"version": VERSION, "change": True, "pions": les_unites_posees(),
+            "phase": la_phase_courante(), "table": la_table()}
 
 
 @jeu.route("/deplacements")
@@ -345,6 +625,7 @@ def deplacements():
 
 
 @jeu.route("/deplacer", methods=["POST"])
+@camp_actif_requis
 def deplacer():
     """Déplace une unité de `depart` vers `arrivee`, si la règle le permet.
 
@@ -386,6 +667,7 @@ def phase_courante():
 
 
 @jeu.route("/phase/suivante", methods=["POST"])
+@camp_actif_requis
 def phase_suivante():
     """Passe à la phase suivante ; la magie est franchie d'elle-même.
 
@@ -449,6 +731,7 @@ def verifier_la_cible():
 
 
 @jeu.route("/combat", methods=["POST"])
+@camp_actif_requis
 def combattre():
     """Résout un combat : une cible adverse, un ou plusieurs attaquants du camp actif.
 
@@ -519,6 +802,7 @@ def ecrire_les_corrections(corrections):
 
 
 @jeu.route("/admin/map_fix")
+@administrateur_requis
 def corriger_la_carte():
     """La carte, le terrain de chaque hexagone au survol, et un clic pour le corriger.
 
@@ -537,6 +821,7 @@ def corriger_la_carte():
 
 
 @jeu.route("/admin/map_fix", methods=["POST"])
+@administrateur_requis
 def corriger_un_hexagone():
     """Note la correction d'un hexagone — corps `{q, r, s, terrain}`.
 
@@ -610,16 +895,35 @@ def create_app(config=None):
     """
     application = Flask(__name__)
     application.config.from_object(config or Config)
-    print(application.config)
+
+    # Échec franc au démarrage plutôt qu'une erreur de Flask au premier `session[...]`, c'est-à-dire
+    # au premier clic sur « se connecter ».
+    if not application.config.get("SECRET_KEY"):
+        raise RuntimeError(
+            "SECRET_KEY manquante : sans elle, aucune session ne peut être signée. En poser une "
+            "dans .env — python3 -c \"import secrets; print(secrets.token_hex(32))\"")
+
     if application.config["PERSISTANCE"] == "mongo":
-        from depots import DepotDePartieMongo
+        from depots import DepotDeJoueursMongo, DepotDePartieMongo
         from extensions import db
         db.init_app(application)  # avant les routes, et une seule fois : l'instance est partagée
-        depot = DepotDePartieMongo()
+        depot, joueurs = DepotDePartieMongo(), DepotDeJoueursMongo()
     else:
-        from depots import DepotDePartieNul
-        depot = DepotDePartieNul()
+        from depots import DepotDeJoueursEnMemoire, DepotDePartieNul
+        depot, joueurs = DepotDePartieNul(), DepotDeJoueursEnMemoire()
     application.extensions["depot_de_partie"] = depot
+    application.extensions["depot_de_joueurs"] = joueurs
+
+    if application.config["AUTHENTIFICATION"] == "discord":
+        from client_discord import ClientDiscord
+        application.extensions["discord"] = ClientDiscord(
+            application.config["DISCORD_CLIENT_ID"],
+            application.config["DISCORD_CLIENT_SECRET"],
+            application.config["DISCORD_REDIRECT_URI"])
+    else:
+        from client_discord import ClientDiscordFactice
+        application.extensions["discord"] = ClientDiscordFactice()
+
     application.register_blueprint(jeu)
     return application
 

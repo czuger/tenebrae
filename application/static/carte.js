@@ -44,8 +44,16 @@ const phaseLibelle = document.getElementById("phase-libelle");
 const boutonAttaquer = document.getElementById("attaquer");
 const boutonAnnuler = document.getElementById("annuler-combat");
 const boutonLocaliser = document.getElementById("localiser");
+const boutonPhaseSuivante = document.getElementById("phase-suivante");
 
-const pions = JSON.parse(document.getElementById("pions").value);
+const boutonJoueur = document.getElementById("joueur");
+const zoneDeMessage = document.getElementById("message");
+const dialogueDeLaTable = document.getElementById("table-dialogue");
+const tableTitre = document.getElementById("table-titre");
+const tablePlaces = document.getElementById("table-places");
+const boutonQuitter = document.getElementById("table-quitter");
+
+let pions = JSON.parse(document.getElementById("pions").value);
 const grille = JSON.parse(document.getElementById("grille").value);
 const { centre: centreDeLHexagone, hexagoneDuPixel } = calage(grille);
 
@@ -60,6 +68,15 @@ let vue = null; // le zoom, monté une fois la carte chargée
 // indisponibles }. Le type ne vaut jamais « magie » — le serveur la saute. `indisponibles` dit les
 // cases des unités qui ont déjà donné cette phase-ci : { attaquants: [...], cibles: [...] }.
 let phase = JSON.parse(document.getElementById("phase").value);
+
+// Qui regarde et qui tient quel camp, tel que le serveur le donne : { connecte, pseudo, avatar,
+// administrateur, camps, armees, places }. `camps` dit les camps que **ce** navigateur tient —
+// d'ordinaire un seul. `places` donne le pseudo de chaque occupant, jamais son identifiant.
+let table = JSON.parse(document.getElementById("table").value);
+
+// Le numéro de version de la partie. Il monte à chaque coup joué, du nôtre comme de celui d'en
+// face : c'est à lui qu'on voit qu'il y a quelque chose à reprendre (voir `suivreLaPartie`).
+let version = Number(document.getElementById("version").value);
 
 // La sélection de la phase de combat : une cible adverse, et un ensemble d'attaquants alliés.
 let cible = null;
@@ -196,9 +213,9 @@ async function montrerLesDeplacements(image) {
   selection = image;
   image.classList.add("selectionne");
 
-  const reponse = await fetch(`/deplacements?q=${image.dataset.q}&r=${image.dataset.r}`
+  const reponse = await envoyer(`/deplacements?q=${image.dataset.q}&r=${image.dataset.r}`
     + `&s=${image.dataset.s}&pion=${encodeURIComponent(image.pion.cle)}`);
-  if (!reponse.ok) return;
+  if (!reponse) return;
   const { hexagones } = await reponse.json();
   // La sélection a pu changer pendant l'attente de la réponse.
   if (selection !== image) return;
@@ -207,7 +224,7 @@ async function montrerLesDeplacements(image) {
 }
 
 async function deplacer(image, hexagone) {
-  const reponse = await fetch("/deplacer", {
+  const reponse = await envoyer("/deplacer", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -216,7 +233,7 @@ async function deplacer(image, hexagone) {
       pion: image.pion.cle,
     }),
   });
-  if (!reponse.ok) return;
+  if (!reponse) return;
   const { autorise, arrivee } = await reponse.json();
   if (!autorise) return;
 
@@ -294,8 +311,8 @@ async function auClicDeCombat(hexagone) {
   if (!cible) {
     if (pion.pion.camp === phase.camp) return; // il faut d'abord une cible adverse
     const c = pion.dataset;
-    const reponse = await fetch(`/combat/cible?cq=${c.q}&cr=${c.r}&cs=${c.s}`);
-    if (!reponse.ok) return;
+    const reponse = await envoyer(`/combat/cible?cq=${c.q}&cr=${c.r}&cs=${c.s}`);
+    if (!reponse) return;
     const { disponible } = await reponse.json();
     // Déjà attaquée cette phase-ci : le refus est parti au journal du serveur, et rien ne rougit.
     if (!disponible || cible) return;
@@ -316,9 +333,9 @@ async function auClicDeCombat(hexagone) {
 
   const c = cible.dataset;
   const a = pion.dataset;
-  const reponse = await fetch(`/combat/portee?cq=${c.q}&cr=${c.r}&cs=${c.s}`
+  const reponse = await envoyer(`/combat/portee?cq=${c.q}&cr=${c.r}&cs=${c.s}`
     + `&aq=${a.q}&ar=${a.r}&as=${a.s}`);
-  if (!reponse.ok) return;
+  if (!reponse) return;
   const { a_portee, disponible } = await reponse.json();
   if (!a_portee || !disponible) return; // le refus est parti au journal du serveur
 
@@ -339,7 +356,7 @@ function marquerLesIndisponibles(indisponibles) {
 
 async function attaquer() {
   if (!cible || attaquants.size === 0) return;
-  const reponse = await fetch("/combat", {
+  const reponse = await envoyer("/combat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -347,7 +364,7 @@ async function attaquer() {
       attaquants: [...attaquants].map(hexagoneDuPion),
     }),
   });
-  if (!reponse.ok) return;
+  if (!reponse) return;
   const resultat = await reponse.json();
   if (resultat.resolu) {
     for (const elimine of resultat.elimines) retirerLePion(elimine);
@@ -375,12 +392,185 @@ function rafraichirLaPhase(nouvelle) {
   // Une nouvelle phase de combat repart avec toutes ses unités : le serveur envoie des listes
   // vides, et le grisage tombe de lui-même.
   marquerLesIndisponibles(phase.indisponibles);
+  majBoutonsDuJoueur();
 }
 
 async function phaseSuivante() {
-  const reponse = await fetch("/phase/suivante", { method: "POST" });
-  if (!reponse.ok) return;
+  const reponse = await envoyer("/phase/suivante", { method: "POST" });
+  if (!reponse) return;
   rafraichirLaPhase(await reponse.json());
+}
+
+// --- Parler au serveur ---
+//
+// Le serveur refuse maintenant un coup joué hors de son tour, par un visiteur sans compte ou par
+// quelqu'un qui n'a pas pris place. Un refus muet — ce que faisait `if (!reponse.ok) return;` —
+// laisserait croire à une panne : on montre ces deux-là, et ceux-là seulement. Les autres échecs
+// gardent le silence qu'ils avaient, leurs refus partant au journal du serveur.
+
+const DELAI_DU_MESSAGE = 4000; // millisecondes
+
+async function envoyer(url, options) {
+  const reponse = await fetch(url, options);
+  if (reponse.status === 401 || reponse.status === 403) {
+    const { message } = await reponse.json().catch(() => ({}));
+    signaler(message ?? "Ce n'est pas à vous de jouer.");
+    return null;
+  }
+  return reponse.ok ? reponse : null;
+}
+
+function signaler(texte) {
+  zoneDeMessage.textContent = texte;
+  zoneDeMessage.hidden = false;
+  clearTimeout(signaler.minuterie);
+  signaler.minuterie = setTimeout(() => { zoneDeMessage.hidden = true; }, DELAI_DU_MESSAGE);
+}
+
+// --- Le joueur et sa place ---
+
+function cEstMonTour() {
+  return table.camps.includes(phase.camp);
+}
+
+// Un bouton qu'on ne peut pas presser s'éteint plutôt que de rendre un refus. `#outils
+// button:disabled` est déjà stylé par zoom.css : l'atténuation vient sans une ligne de plus.
+function majBoutonsDuJoueur() {
+  boutonPhaseSuivante.disabled = !cEstMonTour();
+  boutonAttaquer.disabled = !cEstMonTour();
+}
+
+function majBoutonDuCompte() {
+  boutonJoueur.textContent = "";
+  if (!table.connecte) {
+    boutonJoueur.textContent = "Se connecter";
+    boutonJoueur.title = "S'identifier par Discord pour jouer";
+    return;
+  }
+  if (table.avatar) {
+    const avatar = document.createElement("img");
+    avatar.src = table.avatar;
+    avatar.alt = "";
+    boutonJoueur.appendChild(avatar);
+  }
+  const pseudo = document.createElement("span");
+  pseudo.className = "pseudo";
+  pseudo.textContent = table.pseudo;
+  boutonJoueur.appendChild(pseudo);
+  const camps = table.camps.map((camp) => table.armees[camp]).join(", ");
+  boutonJoueur.title = camps ? `Vous tenez : ${camps}` : "Vous ne tenez aucun camp";
+}
+
+// Une ligne par camp : l'armée, son occupant, et de quoi s'y asseoir s'il est libre.
+function construireLesPlaces() {
+  tablePlaces.textContent = "";
+  for (const [camp, armee] of Object.entries(table.armees)) {
+    const ligne = document.createElement("div");
+    ligne.className = table.camps.includes(camp) ? "camp mien" : "camp";
+    ligne.dataset.camp = camp;
+
+    const nom = document.createElement("span");
+    nom.textContent = armee;
+    ligne.appendChild(nom);
+
+    const occupant = table.places[camp];
+    if (occupant) {
+      const tenu = document.createElement("span");
+      tenu.className = "occupant";
+      tenu.textContent = table.camps.includes(camp) ? `${occupant} (vous)` : occupant;
+      ligne.appendChild(tenu);
+    } else if (table.camps.length > 0) {
+      // On tient déjà un camp : la place reste libre, mais elle n'est pas pour nous.
+      const libre = document.createElement("span");
+      libre.className = "libre";
+      libre.textContent = "libre";
+      ligne.appendChild(libre);
+    } else {
+      const bouton = document.createElement("button");
+      bouton.type = "button";
+      bouton.textContent = "Prendre ce camp";
+      bouton.addEventListener("click", () => prendrePlace(camp));
+      ligne.appendChild(bouton);
+    }
+    tablePlaces.appendChild(ligne);
+  }
+  boutonQuitter.hidden = table.camps.length === 0;
+}
+
+function ouvrirLaTable() {
+  tableTitre.textContent = table.camps.length
+    ? `Vous jouez ${table.camps.map((camp) => table.armees[camp]).join(", ")}`
+    : "Prenez place à un camp pour jouer";
+  construireLesPlaces();
+  dialogueDeLaTable.showModal();
+}
+
+function majLaTable(nouvelle) {
+  table = nouvelle;
+  majBoutonDuCompte();
+  majBoutonsDuJoueur();
+  if (dialogueDeLaTable.open) ouvrirLaTable();
+}
+
+async function prendrePlace(camp) {
+  const reponse = await envoyer("/partie/place", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ camp }),
+  });
+  if (!reponse) return;
+  const resultat = await reponse.json();
+  if (!resultat.assis) signaler(resultat.message);
+  // Assis, on n'a plus rien à faire dans ce dialogue : il se referme sur la partie. Le laisser
+  // ouvert masquerait la carte, et son fond modal avalerait le clic suivant.
+  else dialogueDeLaTable.close();
+  majLaTable(resultat);
+}
+
+async function quitterLaPlace() {
+  const reponse = await envoyer("/partie/place/quitter", { method: "POST" });
+  if (!reponse) return;
+  majLaTable(await reponse.json());
+}
+
+async function seDeconnecter() {
+  await fetch("/deconnexion", { method: "POST" });
+  location.reload();
+}
+
+// --- Suivre la partie de l'adversaire ---
+//
+// Deux joueurs, deux navigateurs : sans cela, chacun resterait devant un plateau périmé jusqu'à
+// ce qu'il pense à recharger. On demande donc au serveur, régulièrement, s'il s'est passé quelque
+// chose — en lui donnant le numéro de version qu'on connaît. Tant que rien n'a bougé, il ne rend
+// que ce numéro ; dès qu'il a changé, tout revient d'un coup et la scène se repose.
+
+const PERIODE_DU_SUIVI = 3000; // millisecondes
+
+async function suivreLaPartie() {
+  // Un onglet caché ne regarde rien : inutile de tenir le serveur éveillé pour lui.
+  if (document.hidden) return;
+  const reponse = await fetch(`/partie/etat?version=${version}`).catch(() => null);
+  if (!reponse || !reponse.ok) return; // le serveur redémarre : on retentera dans trois secondes
+  const etat = await reponse.json();
+  version = etat.version;
+  if (!etat.change) return;
+
+  // On ne défait pas ce que le joueur est en train de faire de son côté : une sélection ou un
+  // combat en cours de composition sont abandonnés, ils portaient sur une position dépassée.
+  reposerLesPions(etat.pions);
+  rafraichirLaPhase(etat.phase);
+  majLaTable(etat.table);
+}
+
+function reposerLesPions(nouveaux) {
+  effacerLesFantomes();
+  nettoyerLeCombat();
+  for (const image of pionsPoses) image.remove();
+  pionsPoses.length = 0;
+  oublierLePion(); // le repère visait une image qui vient d'être retirée du plateau
+  pions = nouveaux;
+  poserLesPions();
 }
 
 function demarrer() {
@@ -391,6 +581,18 @@ function demarrer() {
   boutonAttaquer.addEventListener("click", attaquer);
   boutonAnnuler.addEventListener("click", nettoyerLeCombat);
   boutonLocaliser.addEventListener("click", localiser);
+  boutonJoueur.addEventListener("click", () => {
+    if (table.connecte) ouvrirLaTable();
+    else location.href = "/connexion";
+  });
+  boutonQuitter.addEventListener("click", quitterLaPlace);
+  document.getElementById("table-deconnexion").addEventListener("click", seDeconnecter);
+  document.getElementById("table-fermer").addEventListener("click", () => {
+    dialogueDeLaTable.close();
+  });
+  majBoutonDuCompte();
+  majBoutonsDuJoueur();
+  setInterval(suivreLaPartie, PERIODE_DU_SUIVI);
   // La carte fait 6173 × 5102 px : elle s'ouvre réduite à la fenêtre, et la molette ou les
   // boutons « + », « − » et « ajuster » la rapprochent — jusqu'à la taille du scan, où un pion
   // se lit vraiment.

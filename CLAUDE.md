@@ -23,15 +23,48 @@ Cinq répertoires, avec des statuts très différents :
 | --- | --- |
 | `base_material/` | **Sources brutes. Porte un `CLAUDE.md` qui dit « DO NOT USE THE CONTENT OF THIS DIRECTORY ».** Le PDF des règles, l'article de blog archivé, les 144 photos. Ne pas y puiser pour un travail courant : tout ce qui en a été tiré vit déjà dans `game_box/`. On n'y retourne que pour vérifier ou compléter une transcription, et alors on met à jour le dérivé. |
 | `game_box/` | **Le matériel de jeu. Porte un `CLAUDE.md` qui dit « THIS DIRECTORY CONTAINS THE SOURCE OF TRUTH ».** Règles transcrites, carte et sa grille d'hexagones, script d'extraction, et `pions/` (inventaire des 127 pions + `pions.json`). C'est là que doit lire et écrire le code du jeu. |
-| `moteur/` | **Les règles, en Python.** Deux constantes lues au démarrage — la carte (la transcription recouverte par les corrections de `map_fix.json`) et le catalogue des pions (`pions.json`) — puis six modules : `hexagone.py` (`Hex` : voisinage, coûts de terrain, déplacements, zones de contrôle), `pion.py` (`Pion` : valeurs du carton, camp), `plateau.py` (`Plateau` : qui occupe quelle case), `scenario.py` (`Scenario` : une mise en place lue dans `scenarios/`), `phase.py` (`Tour` : mouvement → magie → combat, en boucle) et `combat.py` (Tableau I du fascicule, et `SuiviDeCombat`). Rien de web ici, et la bibliothèque standard suffit. Voir `moteur/README.md`. |
+| `moteur/` | **Les règles, en Python.** Deux constantes lues au démarrage — la carte (la transcription recouverte par les corrections de `map_fix.json`) et le catalogue des pions (`pions.json`) — puis six modules : `hexagone.py` (`Hex` : voisinage, coûts de terrain, déplacements, zones de contrôle), `pion.py` (`Pion` : valeurs du carton, camp), `plateau.py` (`Plateau` : qui occupe quelle case), `scenario.py` (`Scenario` : une mise en place lue dans `scenarios/`), `phase.py` (`Tour` : mouvement → magie → combat, en boucle) et `combat.py` (Tableau I du fascicule, et `SuiviDeCombat`). À côté, **les entités du jeu** : `models/` (`Partie`, `Joueur`, `Places` — un fichier par modèle) et `depots/` (leur accès en base, un module par sujet). Rien de web ici — ni Flask, ni session, ni requête ; la bibliothèque standard suffit aux règles, mongoengine ne servant qu'aux deux documents et à leurs dépôts. Voir `moteur/README.md`. |
 | `scenarios/` | **Les mises en place, fixées une fois pour toutes**, un fichier JSON par scénario du fascicule. Le fascicule dit « l'armée naine se masse au sud du volcan de Toth » ; le passage de la phrase aux hexagones a été fait à la main, et ce répertoire en garde le résultat. Seul le n° 4 est fixé à ce jour. Voir `scenarios/README.md`. |
-| `application/` | **Le serveur.** Application Flask (factory `create_app`) qui affiche la carte, la mise en place d'un scénario (le n° 4), et sert les déplacements et les combats calculés par `moteur/`. Elle lit `game_box/` et `scenarios/`. Elle écrit à deux endroits : `game_box/map_fix.json`, par la route d'admin `/admin/map_fix`, et **MongoDB** — la partie en cours (positions, phase, registre des combats, et qui tient quel camp), sauvegardée à chaque coup et reprise au chargement de `/`, plus les **joueurs** connus. La base n'est jamais touchée depuis une route : tout passe par un dépôt (`depots.py`, `modeles.py`), et les référentiels restent en fichiers. La partie se joue **à deux, un joueur par camp**, identifiés par **Discord OAuth2** : la carte reste publique, les coups demandent d'être connecté et d'occuper le camp actif, et `/admin/map_fix` est réservée aux comptes de `ADMIN_DISCORD_IDS`. L'authentification n'a coûté **aucune dépendance** (`flask.session` et `urllib`). Voir `application/README.md`. |
+| `application/` | **Le serveur.** Application Flask (factory `create_app`) qui affiche la carte, la mise en place d'un scénario (le n° 4), et sert les déplacements et les combats calculés par `moteur/`. Elle lit `game_box/` et `scenarios/`. Elle écrit à deux endroits : `game_box/map_fix.json`, par la route d'admin `/admin/map_fix`, et **MongoDB** — la partie en cours (positions, phase, registre des combats, et qui tient quel camp), sauvegardée à chaque coup et reprise au chargement de `/`, plus les **joueurs** connus. La base n'est jamais touchée depuis une route : tout passe par un dépôt (`moteur/depots/`), et les référentiels restent en fichiers. Elle ne modélise qu'une chose, la **connexion** (`models/connexion.py`) : le lien entre une session Flask et le joueur du moteur, désigné par son identifiant Discord. La partie se joue **à deux, un joueur par camp**, identifiés par **Discord OAuth2** : la carte reste publique, les coups demandent d'être connecté et d'occuper le camp actif, et `/admin/map_fix` est réservée aux comptes de `ADMIN_DISCORD_IDS`. L'authentification n'a coûté **aucune dépendance** (`flask.session` et `urllib`). Voir `application/README.md`. |
 
 `todo.txt` (racine) porte les consignes de travail de l'utilisateur.
 
 Les secrets — connexion MongoDB, application Discord, `SECRET_KEY` — vivent dans `.env` à la
 racine, **non versionné** : voir `.env.example`, que `application/config.py` lit une fois au
 démarrage. Sans `SECRET_KEY`, l'application refuse de démarrer plutôt que d'en tirer une au hasard.
+
+## Architecture
+
+Quatre règles, et elles ne se négocient pas au cas par cas.
+
+**La logique de jeu réside intégralement dans le moteur, jamais dans l'application.** La partie et
+le joueur *en tant qu'entités de jeu* sont dans `moteur/models/`, avec la table des places ; leur
+accès en base est dans `moteur/depots/`. Le moteur n'importe **rien** de l'application : pas de
+Flask, pas de `session`, pas de `request`, aucune notion d'utilisateur web. Une partie se joue
+depuis un interpréteur, sans serveur. La dépendance ne va que dans un sens — l'application importe
+le moteur.
+
+**L'application ne gère que la connexion et la session**, par une entité dédiée,
+`application/models/connexion.py`, qui **référence le joueur du moteur par son identifiant**
+(`discord_id`, une chaîne) et ne double aucune de ses données : ni pseudo, ni avatar, ni date. Le
+joueur est relu au dépôt à chaque demande. Le reste de l'application est de l'orchestration web —
+routes, décorateurs d'autorisation, sérialisation vers les gabarits — et rien d'autre.
+
+**Un fichier par modèle, tous les modèles dans un répertoire `models/`.** Un fichier qui
+regrouperait deux classes de modèle est à éclater. Le `__init__.py` de ces répertoires documente
+et ne réexporte rien : `Places` n'a besoin que de la bibliothèque standard, et réexporter les
+documents à côté ferait payer mongoengine à qui ne veut qu'un registre de places — comme à
+l'application montée sans persistance, qui se construit aujourd'hui sans lui. On importe donc
+toujours le module précis : `from moteur.models.places import Places`.
+
+**Pas d'imports relatifs, jamais.** Aucun `from .module import ...` ni `from ..paquet import ...` :
+toujours le chemin absolu (`from moteur.depots.joueur import DepotDeJoueursMongo`,
+`from models.connexion import Connexion`). Aucun paquet n'est installé — c'est le `conftest.py` de
+la racine, et un `sys.path.insert` en tête d'`app.py`, qui mettent la racine et `application/` sur
+le chemin —, et un import relatif y casserait selon d'où l'on lance.
+
+Un renommage de collection mongoengine, lui, se demande : les schémas existants (`parties`,
+`joueurs`) restent compatibles tant que personne n'a de raison explicite d'en changer.
 
 ## Versionnement
 
@@ -124,7 +157,8 @@ cd game_box && python3 extraction_carte.py
 
 Dépendances (`requirements.txt`) : Pillow, numpy, scipy pour ce script, Flask, mongoengine et
 python-dotenv pour l'application, pytest, pytest-playwright et mongomock pour les tests ; le
-moteur n'utilise que la bibliothèque standard. Elles sont installées dans le virtualenv pyenv
+moteur n'utilise la bibliothèque standard que pour ses règles — ses deux documents et leurs
+dépôts demandent mongoengine, et rien d'autre. Elles sont installées dans le virtualenv pyenv
 `tenebrae` que `.python-version` (racine, non versionné) sélectionne automatiquement ; `python3`
 suffit.
 Le script d'extraction tourne une dizaine de minutes et prend environ 2 Go de mémoire.

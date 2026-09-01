@@ -51,7 +51,8 @@ def application_mongo():
     partagés par toute la session, on les remet à zéro de la même façon.
     """
     application = app.create_app(ConfigMongomock)
-    from modeles import Joueur, Partie
+    from moteur.models.joueur import Joueur
+    from moteur.models.partie import Partie
     Partie.objects.delete()
     Joueur.objects.delete()
     yield application
@@ -76,7 +77,7 @@ def client_mongo(application_mongo, installer_le_joueur):
 @pytest.fixture
 def parties():
     """Le modèle, importé une fois la connexion ouverte."""
-    from modeles import Partie
+    from moteur.models.partie import Partie
     return Partie
 
 
@@ -314,7 +315,7 @@ class TestPlacesPersistees:
     def test_une_seconde_connexion_met_a_jour_le_pseudo_sans_creer_de_joueur(self,
                                                                             application_mongo):
         with application_mongo.test_request_context():
-            from modeles import Joueur
+            from moteur.models.joueur import Joueur
             depot = app.le_depot_de_joueurs()
             depot.enregistrer({"discord_id": NAINE, "pseudo": "Vorgtd"})
             depot.enregistrer({"discord_id": NAINE, "pseudo": "Vorgtd le Grand"})
@@ -363,7 +364,8 @@ def client_mongo_reel(installer_le_joueur):
     if not mongodb_est_joignable():
         pytest.skip(f"aucun MongoDB joignable sur {URI_DE_TEST}")
     application = app.create_app(ConfigMongoReel)
-    from modeles import Joueur, Partie
+    from moteur.models.joueur import Joueur
+    from moteur.models.partie import Partie
     Partie.objects.delete()
     Joueur.objects.delete()
     client = application.test_client()
@@ -382,7 +384,7 @@ class TestContreUnVraiMongo:
     def test_les_cases_passent_telles_quelles_en_base(self, client_mongo_reel):
         """Les clés du placement sont des clés de document Mongo : elles doivent y être admises."""
         client_mongo_reel.get("/")
-        from modeles import Partie
+        from moteur.models.partie import Partie
         placement = dict(Partie.objects.first().placement)
         assert placement == app.SCENARIO.placement
         assert all("," in case for case in placement)
@@ -408,7 +410,7 @@ class TestContreUnVraiMongo:
 
     def test_les_dates_reviennent_lisibles(self, client_mongo_reel):
         client_mongo_reel.get("/")
-        from modeles import Partie
+        from moteur.models.partie import Partie
         partie = Partie.objects.first()
         assert partie.creee_le is not None
         assert partie.modifiee_le >= partie.creee_le

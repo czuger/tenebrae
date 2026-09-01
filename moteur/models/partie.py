@@ -1,7 +1,8 @@
-"""Les documents MongoDB de l'application : une partie en cours, et les joueurs qui la tiennent.
+"""La partie sauvegardée : le seul état de jeu qui change en jouant, et qui doit survivre.
 
-Ce qui va en base est le seul état qui change en jouant — les positions, la phase, ce que la phase
-de combat a déjà consommé, qui est assis à quel camp —, plus les comptes Discord admis à la table. Les référentiels n'y sont pas : la carte, le catalogue des pions et les
+Ce qui va en base est ce que le plateau, le tour, le registre des combats et la table des places
+tiennent en mémoire — les positions, la phase, ce que la phase de combat a déjà consommé, qui est
+assis à quel camp. Les référentiels n'y sont pas : la carte, le catalogue des pions et les
 scénarios vivent en fichiers dans `game_box/` et `scenarios/`, qui sont la source de vérité du
 dépôt (voir le `CLAUDE.md` racine). Les y recopier ferait deux vérités pour une.
 
@@ -10,8 +11,8 @@ valant pour toutes les unités qu'il représente (`orques-01-15-infanteries` est
 dans le scénario n° 4). Le document suit cette règle — il n'invente pas d'identifiant d'unité.
 """
 
-from mongoengine import (DateTimeField, Document, EmailField, IntField, ListField,
-                         MapField, StringField)
+from mongoengine import (DateTimeField, Document, IntField, ListField, MapField,
+                         StringField)
 
 from moteur.phase import COMBAT, MOUVEMENT
 
@@ -44,7 +45,7 @@ class Partie(Document):
     # Qui tient quel camp : « alliance » ou « tenebres » → identifiant Discord. Un camp libre n'a
     # pas de clé. C'est un identifiant et non une `ReferenceField` vers `Joueur` parce que les
     # dépôts n'échangent que des dicts d'état : une référence obligerait à faire sortir un
-    # document de `depots.py`, ou à promener un DBRef. La partie reste ainsi lisible seule.
+    # document de `moteur/depots/`, ou à promener un DBRef. La partie reste ainsi lisible seule.
     #
     # Le champ n'est pas requis : les parties enregistrées avant les joueurs n'en ont pas, et
     # elles doivent rester reprenables — la table est alors simplement vide.
@@ -64,38 +65,3 @@ class Partie(Document):
     def __repr__(self):
         return (f"Partie(scénario {self.scenario}, tour {self.numero_de_tour}, "
                 f"{len(self.placement)} pions posés)")
-
-
-class Joueur(Document):
-    """Un compte Discord connu du jeu : de quoi dire qui tient un camp, et l'afficher.
-
-    Le document ne sait pas à quoi ce joueur joue — c'est la partie qui retient qui l'occupe, par
-    `places`. Un joueur reste en base quand il quitte sa place : il revient s'y asseoir, et son
-    pseudo est déjà connu.
-
-    `discord_id` est une **chaîne**, jamais un entier : Discord distribue des identifiants de
-    64 bits que JavaScript ne sait pas représenter sans les arrondir, et sa propre documentation
-    les traite en chaînes. C'est cet identifiant, et lui seul, qui circule — dans la session, dans
-    les places, dans le dict d'état — pour qu'il n'y ait qu'une notion d'identité dans le projet.
-
-    `avatar` porte l'URL toute faite plutôt que le hash rendu par Discord : la connaissance du
-    CDN reste dans `client_discord.py`, et le reste du code n'a qu'à la poser dans un `src`.
-    """
-
-    discord_id = StringField(required=True, unique=True)
-    pseudo = StringField(required=True)
-    # Le « global_name » de Discord, absent des comptes qui n'en ont pas choisi.
-    nom_affiche = StringField()
-    avatar = StringField()
-    # Prévu, mais vide : le jeu ne demande que la portée « identify », qui ne donne pas l'adresse.
-    # Le champ attend le jour où quelque chose en aurait l'usage — voir `client_discord.py`.
-    courriel = EmailField()
-
-    cree_le = DateTimeField(required=True)
-    derniere_connexion_le = DateTimeField(required=True)
-
-    meta = {"collection": "joueurs",
-            "indexes": [{"fields": ["discord_id"], "unique": True}]}
-
-    def __repr__(self):
-        return f"Joueur({self.pseudo!r}, discord {self.discord_id})"

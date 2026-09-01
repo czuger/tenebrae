@@ -100,17 +100,54 @@ ne pouvant plus ouvrir de session, donc prendre place, donc jouer. La promesse d
 Les parties précédentes restent en base : `POST /partie/nouvelle` n'efface rien, il ouvre un
 document de plus, et c'est le plus récent que `/` reprend.
 
-**Les routes ne connaissent pas MongoDB.** Elles passent par un *dépôt* (`depots.py`) que la
+**Les routes ne connaissent pas MongoDB.** Elles passent par un *dépôt* (`moteur/depots/`) que la
 factory `create_app` accroche à l'application, et n'échangent avec lui que des dicts d'état ; le
-document et les requêtes sont dans `depots.py` et `modeles.py`, nulle part ailleurs. La
-sérialisation, elle, est dans le moteur (`Plateau.en_dict`/`restaurer`, `Tour.restaurer`,
-`SuiviDeCombat.en_dict`/`restaurer`) et ne dépend d'aucune base.
+document et les requêtes sont dans `moteur/depots/partie.py` et `moteur/models/partie.py`, nulle
+part ailleurs. La sérialisation, elle, est dans le moteur (`Plateau.en_dict`/`restaurer`,
+`Tour.restaurer`, `SuiviDeCombat.en_dict`/`restaurer`) et ne dépend d'aucune base.
+
+**La partie n'est pas un modèle de l'application** : c'est du jeu, et le jeu est dans le moteur.
+L'application n'en garde que l'orchestration — quand charger, quand sauvegarder, et ce qu'on en
+montre au navigateur. Voir « Les modèles » plus bas, et la section « Architecture » du `CLAUDE.md`
+de la racine.
 
 Un mot sur l'extension : le todo demandait Flask-MongoEngine, dont la dernière version (1.0.0,
 2022) importe `flask.json.JSONEncoder`, retiré de Flask depuis la 2.3 — elle ne s'importe pas sous
 le Flask 3 de ce dépôt. `application/extensions.py` en reprend l'interface (`db = MongoEngine()`,
 `db.init_app(app)`, `MONGODB_SETTINGS` dans la config) au-dessus de `mongoengine` seul. Si
 l'extension redevient installable, ce fichier est le seul à changer.
+
+## Les modèles
+
+L'application ne modélise **qu'une seule chose** : la connexion. Tout le reste est du jeu, et vit
+dans `moteur/models/` — un fichier par modèle, de part et d'autre.
+
+| Classe | Module | Collection Mongo | Fichier |
+| --- | --- | --- | --- |
+| `Connexion` | application | — (le cookie signé de Flask) | `models/connexion.py` |
+| `Partie` | moteur | `parties` | `moteur/models/partie.py` |
+| `Joueur` | moteur | `joueurs` | `moteur/models/joueur.py` |
+| `Places` | moteur | — (champ `places` de `Partie`) | `moteur/models/places.py` |
+
+`Connexion` est le lien entre une session Flask et le joueur du moteur. Elle ne double rien de ce
+que `Joueur` sait : elle ne retient qu'un **identifiant Discord**, celui que la session porte, et
+va relire le joueur au dépôt chaque fois qu'on le lui demande — c'est ce qui fait qu'un changement
+de pseudo se voit dès la requête suivante. Elle n'est pas persistée : le cookie signé de Flask
+*est* son stockage, et il vit chez le joueur.
+
+```python
+connexion = la_connexion()          # Connexion(session, le_depot_de_joueurs())
+connexion.poser_un_etat_oauth()     # avant de partir chez Discord
+connexion.reprendre_l_etat_oauth()  # au retour : l'état est retiré de la session
+connexion.ouvrir(identite)          # enregistre le joueur du moteur, ouvre la session
+connexion.joueur()                  # le dict du joueur, relu au dépôt — ou None
+connexion.fermer()                  # déconnexion
+```
+
+Les routes ne touchent donc plus à `session` : elles demandent `la_connexion()`, et le savoir de
+ce que la session porte — quelles clés, dans quel ordre, avec quelle précaution — tient en un seul
+fichier. La dépendance ne va que dans un sens : `models/connexion.py` connaît le moteur, le moteur
+ne connaît rien de Flask.
 
 ## Comment ça marche
 
@@ -140,9 +177,9 @@ ou refaits depuis le scénario s'il n'y en a pas (voir « Persistance de la part
 qu'**une partie courante par processus** : deux onglets ouverts sur `/` se partagent le même
 plateau et le même tour — ce qui tombe bien, puisque les deux joueurs jouent la même partie.
 
-À côté d'eux, le module-global `PLACES` (`places.py`) retient qui tient quel camp. Contrairement au
-plateau et au tour, il n'est **pas** refait à chaque chargement de `/` : recommencer une partie ne
-renvoie personne de sa place.
+À côté d'eux, le module-global `PLACES` (`moteur/models/places.py`) retient qui tient quel camp.
+Contrairement au plateau et au tour, il n'est **pas** refait à chaque chargement de `/` :
+recommencer une partie ne renvoie personne de sa place.
 
 Le JavaScript convertit chaque hexagone en pixels avec la formule relevée dans
 `game_box/carte.md` :
@@ -381,8 +418,9 @@ l'autre les Orques (les Ténèbres). Le serveur refuse un coup joué par celui d
 tour — c'est le décorateur `camp_actif_requis` —, et le navigateur éteint d'avance les boutons
 qu'un refus attendrait.
 
-La table est un registre à part, `places.py`, tenu à côté du plateau et du tour dans le
-module-global `PLACES`. Il ne connaît que des identifiants Discord, et ne défend qu'un invariant :
+La table est un registre à part, `moteur/models/places.py` — c'est du jeu, pas du web —, tenu à
+côté du plateau et du tour dans le module-global `PLACES`. Il ne connaît que des identifiants
+Discord, et ne défend qu'un invariant :
 **un camp a au plus un occupant**, et une place ne se prend pas à qui l'occupe. La règle qui veut
 qu'un joueur ne tienne qu'un camp est ailleurs, dans la route `POST /partie/place` — cette
 séparation est ce qui permet à la suite de tests d'asseoir un seul joueur des deux côtés pour
@@ -420,21 +458,23 @@ sérialisation du plateau, ni trafic. Dès qu'elle a changé, tout revient d'un 
 Le flux OAuth2 tient en quatre temps, et tout ce qui parle à Discord est dans
 `client_discord.py` :
 
-1. `GET /connexion` tire un `state` (`secrets.token_urlsafe`), le pose en session et redirige vers
-   Discord ;
+1. `GET /connexion` tire un `state` (`Connexion.poser_un_etat_oauth`), le pose en session et
+   redirige vers Discord ;
 2. le joueur autorise, Discord le renvoie sur `GET /connexion/retour` avec un code et le `state` ;
-3. la route **retire** le `state` de la session et le compare par `compare_digest` — un retour
-   rejoué ne trouve donc plus rien à quoi se comparer —, puis échange le code contre un jeton et
-   lit `/users/@me` ;
-4. le joueur est créé ou mis à jour en base, la session est ouverte, et l'on revient au plateau.
+3. la route **retire** le `state` de la session (`Connexion.reprendre_l_etat_oauth`) et le compare
+   par `compare_digest` — un retour rejoué ne trouve donc plus rien à quoi se comparer —, puis
+   échange le code contre un jeton et lit `/users/@me` ;
+4. `Connexion.ouvrir` crée ou met à jour le joueur en base et ouvre la session, et l'on revient au
+   plateau.
 
 `POST /deconnexion` ferme la session. Elle est en POST comme tout ce qui change quelque chose ici :
 un lien ou une image d'un autre site ne doit pas pouvoir déconnecter le joueur.
 
-**Ce que la session porte** : l'identifiant Discord, et le `state` le temps d'un aller-retour.
-Rien d'autre, et surtout pas le jeton d'accès — le cookie de session de Flask est *signé, pas
-chiffré*, et son contenu se lit à qui le tient. Le pseudo et l'avatar se relisent au dépôt à chaque
-requête, ce qui les tient à jour dès qu'ils changent chez Discord.
+**Ce que la session porte** — et c'est `models/connexion.py` qui en décide, seul : l'identifiant
+Discord, et le `state` le temps d'un aller-retour. Rien d'autre, et surtout pas le jeton d'accès —
+le cookie de session de Flask est *signé, pas chiffré*, et son contenu se lit à qui le tient. Le
+pseudo et l'avatar se relisent au dépôt à chaque requête, ce qui les tient à jour dès qu'ils
+changent chez Discord.
 
 Le cookie est `HttpOnly`, `SameSite=Lax` et `Secure` derrière HTTPS (`COOKIE_SECURISE=oui`).
 **`Lax` et non `Strict`** : le retour de Discord est une navigation de premier niveau venue d'un
@@ -442,7 +482,8 @@ autre site, et `Strict` retiendrait le cookie — la session paraîtrait vide, l
 introuvable, et le flux ne pourrait jamais aboutir.
 
 La portée demandée est `identify` seule. Pas `email` : le jeu n'en ferait rien, et une portée de
-moins est un consentement de moins à demander. Le champ `courriel` du modèle attend, au cas où.
+moins est un consentement de moins à demander. Le champ `courriel` de `moteur.models.joueur`
+attend, au cas où.
 
 **Aucune dépendance n'a été ajoutée pour tout cela**, et c'est le même parti que pour
 `extensions.py`, qui a réécrit l'interface de Flask-MongoEngine plutôt que d'installer une
@@ -585,9 +626,12 @@ mongomock, et sur le vrai MongoDB dès que `MONGODB_URI_TEST` en désigne un qui
 `make test` fait — de sorte que la chaîne complète est éprouvée telle qu'elle tourne en vrai, sans
 avoir à lancer le serveur soi-même.
 
-`tests/test_places.py` éprouve le registre des places seul, sans requête ni base : prendre un
-camp, la place qu'on ne reprend pas à son occupant, l'aller-retour de la sérialisation, et une
-sauvegarde d'avant les joueurs qui laisse simplement la table vide.
+`moteur/tests/test_places.py` éprouve le registre des places seul, sans requête ni base : prendre
+un camp, la place qu'on ne reprend pas à son occupant, l'aller-retour de la sérialisation, et une
+sauvegarde d'avant les joueurs qui laisse simplement la table vide. Il a suivi son sujet dans le
+moteur ; `tests/test_connexion_modele.py` lui répond de ce côté-ci, et éprouve `Connexion` seule :
+ce que la session porte et ce qu'elle ne porte pas, le joueur relu au dépôt à chaque demande, un
+identifiant inconnu qui redevient anonyme, et l'état de l'OAuth2 retiré dès qu'on le reprend.
 
 `tests/test_connexion.py` déroule le flux OAuth2 **en entier** contre le client factice : l'état
 tiré au sort et vérifié, celui qui ne correspond pas et celui qu'on rejoue, le retour sans code,

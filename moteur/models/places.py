@@ -1,14 +1,15 @@
 """Qui tient quel camp à la table : le registre des places.
 
-Le fascicule fait jouer deux joueurs, un par camp. Le moteur, lui, ne connaît que des camps —
+Le fascicule fait jouer deux joueurs, un par camp. Le reste du moteur ne connaît que des camps —
 `moteur.pion` range chaque faction sous « alliance » ou « ténèbres », `moteur.phase` fait tourner
-les phases de l'un à l'autre — et il n'a jamais eu à savoir *qui* les jouait. Ce fichier tient ce
-lien-là, et c'est pourquoi il est ici et non dans `moteur/` : une partie de plateau se joue très
-bien sans compte Discord, et le moteur doit pouvoir continuer à l'ignorer.
+les phases de l'un à l'autre — et n'a jamais eu à savoir *qui* les jouait. Ce fichier tient ce
+lien-là : c'est du jeu, et non du web, et il est donc ici plutôt que dans l'application, qui ne
+s'occupe que d'ouvrir la session par laquelle un joueur se présente.
 
 Un joueur est désigné par son identifiant Discord, une chaîne. Le registre n'en sait rien d'autre :
 ni pseudo, ni avatar — cela vit dans le dépôt de joueurs, et le registre resterait juste si Discord
-disparaissait demain.
+disparaissait demain. Rien ici n'importe de Flask, et rien n'y suppose une requête : une partie de
+plateau se joue très bien sans compte Discord, et le moteur continue de pouvoir l'ignorer.
 
     places = Places()
     places.asseoir("alliance", "100000000000000001")

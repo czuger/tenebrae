@@ -11,10 +11,57 @@ servir ce que ce paquet décide. Un déplacement n'est jamais jugé légal par l
 | `scenario.py` | les mises en place fixées dans `scenarios/`, et le `Plateau` qu'elles donnent |
 | `phase.py` | la machine à états d'un tour : quel camp joue, et à quoi (`Tour`) |
 | `combat.py` | la résolution d'un combat d'après le Tableau I du fascicule |
+| `models/` | les entités du jeu, un fichier par modèle : `Partie`, `Joueur`, `Places` |
+| `depots/` | leur accès en base, un module par sujet : `partie.py`, `joueur.py` |
 
 Les deux premiers sont des constantes — la carte et les cartons sont imprimés depuis 1986. Le
 troisième est le seul objet mutable du moteur : les positions, elles, changent. Le quatrième dit
 d'où elles partent.
+
+## Les entités du jeu — `models/` et `depots/`
+
+Tout ce que le jeu **retient** est ici, et non dans l'application : une partie sauvegardée, un
+joueur, la table qui dit qui tient quel camp. C'est une règle d'architecture du dépôt, posée dans
+le `CLAUDE.md` de la racine — la logique de jeu réside intégralement dans le moteur, l'application
+ne gère que la connexion.
+
+| Classe | Fichier | Collection Mongo | Ce qu'elle tient |
+| --- | --- | --- | --- |
+| `Partie` | `models/partie.py` | `parties` | placement, phase, tour, combats déjà livrés, places |
+| `Joueur` | `models/joueur.py` | `joueurs` | un compte Discord connu du jeu : identifiant, pseudo, avatar |
+| `Places` | `models/places.py` | — | camp → identifiant Discord ; sauvegardée dans le champ `places` de `Partie` |
+
+**Un fichier par modèle**, et le `__init__.py` ne réexporte rien : `Places` n'a besoin que de la
+bibliothèque standard, quand les deux documents demandent mongoengine. On importe donc le module
+précis, en absolu — `from moteur.models.places import Places` —, jamais un import relatif.
+
+Le moteur ne connaît **pas** le joueur *connecté*. Il n'y a ici ni session, ni cookie, ni requête,
+ni le moindre import de Flask : le lien entre un visiteur et son `Joueur` est tenu par
+l'application, dans `application/models/connexion.py`, qui désigne le joueur par son `discord_id`.
+La dépendance ne va que dans ce sens.
+
+```python
+from moteur.models.places import Places
+
+table = Places()
+table.asseoir("alliance", "100000000000000001")
+table.tient("100000000000000001", "alliance")   # True
+table.est_libre("tenebres")                     # True
+table.en_dict()                                 # {'places': {'alliance': '1000...01'}}
+```
+
+Rien ne parle à MongoDB directement : tout passe par un **dépôt**, qui n'échange que des dicts
+d'état — jamais un document.
+
+| Dépôt | Fichier | Rôle |
+| --- | --- | --- |
+| `DepotDePartieMongo` | `depots/partie.py` | la partie la plus récente fait foi ; les précédentes restent en base |
+| `DepotDePartieNul` | `depots/partie.py` | ne retient rien : l'état de jeu vit déjà dans les module-globaux du serveur |
+| `DepotDeJoueursMongo` | `depots/joueur.py` | un document par compte Discord connu |
+| `DepotDeJoueursEnMemoire` | `depots/joueur.py` | les comptes du lancement en cours ; ne rien retenir interdirait de jouer |
+
+C'est `create_app` qui choisit la paire, d'après `PERSISTANCE` — et les routes ne savent rien de
+ce choix.
 
 ## La classe `Hex`
 

@@ -6,7 +6,7 @@ identifiants de joueurs et des noms de camps.
 
 import pytest
 
-from places import Places
+from moteur.models.places import Places
 
 ALLIANCE, TENEBRES = "alliance", "tenebres"
 

@@ -47,11 +47,13 @@ La source de vérité du dépôt. Le code lit ici, et nulle part ailleurs.
 | `extraction_carte.py` | régénère les trois fichiers de carte depuis `map.jpg` (une dizaine de minutes) |
 | `pions/` | 127 photos de pions classées par faction, `pions.json` (les valeurs des cartons) et leur index |
 
-### `moteur/` — les règles
+### `moteur/` — les règles et les entités du jeu
 
-Du Python sans rien de web, qui n'utilise que la bibliothèque standard. La carte et le catalogue
-des pions sont lus **une fois, à l'import** : le plateau est imprimé, il ne change pas en cours de
-partie.
+Du Python sans rien de web : **aucun import de Flask, aucune notion de session ni de requête**.
+Les règles n'ont besoin que de la bibliothèque standard ; seules les deux entités persistées
+(`models/partie.py`, `models/joueur.py`) et leurs dépôts demandent mongoengine. La carte et le
+catalogue des pions sont lus **une fois, à l'import** : le plateau est imprimé, il ne change pas
+en cours de partie.
 
 | Module | Contenu |
 | --- | --- |
@@ -61,6 +63,8 @@ partie.
 | `scenario.py` | `Scenario` — une mise en place lue dans `scenarios/`, et le plateau qu'elle donne |
 | `phase.py` | `Tour` — mouvement → magie → combat, pour chaque joueur, en boucle |
 | `combat.py` | le Tableau I du fascicule, et le registre d'un combat par unité et par phase |
+| `models/` | les entités du jeu, **un fichier par modèle** : `partie.py`, `joueur.py`, `places.py` |
+| `depots/` | l'accès en base à ces entités : `partie.py`, `joueur.py` — MongoDB, et l'homologue sans base |
 
 `moteur/README.md` détaille chaque classe, les coûts de terrain, les zones de contrôle, et la
 liste des règles du fascicule qui ne sont pas encore jouées.
@@ -84,7 +88,36 @@ au serveur où il peut aller, et le serveur répond d'après `moteur/`.
 - `/admin/map_fix` sert à corriger la transcription de la carte, réservée aux comptes déclarés
   dans `ADMIN_DISCORD_IDS`. C'est le seul endroit où l'application écrit dans `game_box/`.
 
+Elle ne modélise **que la connexion** (`models/connexion.py`) : le lien entre une session Flask et
+le joueur du moteur, désigné par son identifiant Discord. La partie, le joueur et la table des
+places sont du jeu, et vivent dans `moteur/models/`.
+
 `application/README.md` détaille les routes, l'affichage, les phases, le combat et la connexion.
+
+## Les modèles
+
+Tout ce que le jeu retient est dans le moteur ; l'application ne garde que la connexion. Un
+fichier par modèle, dans un répertoire `models/` (voir `CLAUDE.md`, « Architecture »).
+
+| Classe | Module | Collection Mongo | Fichier |
+| --- | --- | --- | --- |
+| `Partie` | moteur | `parties` | `moteur/models/partie.py` |
+| `Joueur` | moteur | `joueurs` | `moteur/models/joueur.py` |
+| `Places` | moteur | — (voyage dans le champ `places` de `Partie`) | `moteur/models/places.py` |
+| `Connexion` | application | — (le cookie de session signé de Flask) | `application/models/connexion.py` |
+
+`Places` et `Connexion` ne sont pas des documents mongoengine, et n'ont donc pas de collection :
+la table des places est sauvegardée **avec la partie**, dans son champ `places` (camp →
+identifiant Discord), et la connexion n'a d'autre stockage que le cookie signé de Flask, qui vit
+chez le joueur.
+
+`Connexion` désigne le `Joueur` du moteur par son `discord_id`, jamais par une référence Mongo :
+c'est le seul lien entre les deux mondes, et il ne va que dans ce sens — le moteur n'importe rien
+de l'application.
+
+Leur accès en base passe par un dépôt, jamais par une route : `moteur/depots/partie.py` et
+`moteur/depots/joueur.py`, chacun en deux versions — MongoDB, et son homologue sans base que la
+configuration de test branche.
 
 ## Installer
 
@@ -119,6 +152,8 @@ marche.
 | `make mongo-arret` | retire le conteneur de test |
 
 Les tests vivent dans `moteur/tests/` et `application/tests/`, et se lancent depuis la racine.
+Un test suit son sujet : `moteur/tests/test_places.py` éprouve le registre des places,
+`application/tests/test_connexion_modele.py` le modèle de connexion.
 
 ## Où lire ensuite
 

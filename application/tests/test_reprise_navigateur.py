@@ -44,7 +44,8 @@ def serveur_persistant(request, installer_le_joueur):
         configuration = ConfigMongomock
 
     application = app.create_app(configuration)
-    from modeles import Joueur, Partie
+    from moteur.models.joueur import Joueur
+    from moteur.models.partie import Partie
     Partie.objects.delete()
     Joueur.objects.delete()
 

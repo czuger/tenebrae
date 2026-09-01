@@ -7,7 +7,7 @@ carte.
 
 La partie est **sauvegardée dans MongoDB** : chaque coup joué l'enregistre, et « / » la reprend là
 où on l'a laissée. Les routes ne voient pas la base — elles passent par le dépôt que `create_app`
-accroche à l'application (`depots.py`), et lui parlent en dicts d'état. `POST /partie/nouvelle`
+accroche à l'application (`moteur/depots/`), et lui parlent en dicts d'état. `POST /partie/nouvelle`
 repart de la mise en place. Sans persistance (`PERSISTANCE=aucune`, et la configuration de test),
 le dépôt ne retient rien : chaque chargement de « / » repose alors les mêmes pions aux mêmes
 cases, comme avant.
@@ -29,7 +29,8 @@ qu'une fois. Il se vide à chaque changement de phase, et /combat/portee comme /
 consultent pour que le navigateur ne surligne pas une unité qui a déjà combattu.
 
 La partie se joue **à deux, un joueur par camp**, identifiés par Discord (voir `client_discord.py`
-pour le flux OAuth2, `places.py` pour la table). La carte reste publique — un visiteur de passage
+pour le flux OAuth2, `moteur/models/places.py` pour la table, `models/connexion.py` pour le lien
+entre la session et le joueur du moteur). La carte reste publique — un visiteur de passage
 la voit et consulte les déplacements possibles —, mais tout ce qui change l'état demande d'être
 connecté et d'occuper le camp dont c'est la phase : c'est ce que posent les décorateurs
 `connexion_requise`, `place_requise` et `camp_actif_requis`. Le module-global `PLACES` retient qui
@@ -65,14 +66,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from client_discord import ErreurDiscord  # noqa: E402
 from config import Config  # noqa: E402
+from models.connexion import Connexion  # noqa: E402
 from moteur import combat  # noqa: E402
 from moteur import hexagone as moteur_hexagone  # noqa: E402
 from moteur.hexagone import CARTE_TRANSCRITE, Hex  # noqa: E402
 from moteur.phase import COMBAT, Tour  # noqa: E402
 from moteur.pion import CATALOGUE  # noqa: E402
 from moteur.plateau import Plateau  # noqa: E402
+from moteur.models.places import Places  # noqa: E402
 from moteur.scenario import scenario  # noqa: E402
-from places import Places  # noqa: E402
 
 BOITE = Path(__file__).resolve().parent.parent / "game_box"
 PIONS = BOITE / "pions"
@@ -204,10 +206,10 @@ TOUR = Tour(SCENARIO.camps, {armee["camp"]: armee["armee"] for armee in SCENARIO
 # suivant. Le mouvement ne le consulte pas — le vider trop souvent ne coûte rien.
 SUIVI = combat.SuiviDeCombat()
 
-# Qui tient quel camp (voir `places.py`). Comme le plateau et le tour, il n'y a qu'une table par
-# processus : les deux joueurs jouent la même partie, chacun de son navigateur. Contrairement au
-# plateau, elle **ne se refait pas** à chaque chargement de « / » ni à chaque nouvelle partie :
-# recommencer ne renvoie personne de la table.
+# Qui tient quel camp (voir `moteur/models/places.py`). Comme le plateau et le tour, il n'y a
+# qu'une table par processus : les deux joueurs jouent la même partie, chacun de son navigateur.
+# Contrairement au plateau, elle **ne se refait pas** à chaque chargement de « / » ni à chaque
+# nouvelle partie : recommencer ne renvoie personne de la table.
 PLACES = Places()
 
 # Le numéro de version de la partie : il monte d'un cran à chaque coup joué. C'est à cela que le
@@ -272,7 +274,7 @@ def la_phase_courante():
 # --- La partie sauvegardée ---
 #
 # Les routes ne connaissent pas MongoDB : elles passent par le dépôt que la factory a accroché à
-# l'application (voir `depots.py`), et n'échangent avec lui que des dicts d'état. Sous la
+# l'application (voir `moteur/depots/`), et n'échangent avec lui que des dicts d'état. Sous la
 # configuration de test — et sous `PERSISTANCE=aucune` — ce dépôt ne retient rien, et tout se
 # passe comme avant : chaque chargement de « / » repart de la mise en place.
 
@@ -345,15 +347,25 @@ def les_unites_posees():
 # identifiant Discord — celui-là même qui voyage dans la session, dans les places et dans le dict
 # d'état : il n'y a qu'une notion d'identité dans tout le projet.
 #
-# Ce que la session porte : `joueur`, l'identifiant, et le temps d'un aller-retour `etat_oauth`.
-# **Rien d'autre, et surtout pas le jeton d'accès** — le cookie de session de Flask est signé, pas
-# chiffré, et son contenu se lit à qui le tient. Le pseudo et l'avatar se relisent au dépôt à
-# chaque requête, ce qui a l'avantage de refléter un changement de pseudo dès la suivante.
+# Ce que la session porte, et la façon de l'ouvrir, sont dans un seul endroit : `Connexion`
+# (`models/connexion.py`), le seul modèle que l'application se garde. Les routes ne touchent plus
+# à `session` elles-mêmes — elles demandent `la_connexion()`, qui désigne le joueur du **moteur**
+# par son identifiant Discord et va le relire au dépôt. Le pseudo et l'avatar ne sont donc jamais
+# recopiés dans la session : un changement de pseudo se voit dès la requête suivante.
 
 
 def le_client_discord():
     """Le client d'identité de l'application courante — le vrai, ou le factice des tests."""
     return current_app.extensions["discord"]
+
+
+def la_connexion():
+    """La connexion de la requête courante : la session, et le dépôt où relire le joueur.
+
+    Un objet de passage, sans état propre : le construire ne coûte rien, et il n'y a donc pas à
+    le retenir.
+    """
+    return Connexion(session, le_depot_de_joueurs())
 
 
 def le_joueur_courant():
@@ -365,8 +377,7 @@ def le_joueur_courant():
     anonyme.
     """
     if "joueur" not in g:
-        identifiant = session.get("joueur")
-        g.joueur = le_depot_de_joueurs().par_discord_id(identifiant) if identifiant else None
+        g.joueur = la_connexion().joueur()
     return g.joueur
 
 
@@ -458,8 +469,7 @@ def administrateur_requis(vue):
 @jeu.route("/connexion")
 def connexion():
     """Part chez Discord, avec un état à usage unique contre le CSRF."""
-    etat = secrets.token_urlsafe(32)
-    session["etat_oauth"] = etat
+    etat = la_connexion().poser_un_etat_oauth()
     return redirect(le_client_discord().url_d_autorisation(etat))
 
 
@@ -467,14 +477,15 @@ def connexion():
 def retour_de_connexion():
     """Le retour de Discord : on vérifie l'état, on échange le code, on ouvre la session.
 
-    L'état est **retiré** de la session avant toute chose : un retour rejoué ne trouvera plus rien
-    à quoi se comparer. La comparaison passe par `compare_digest` — c'est un secret, il ne se
-    compare pas caractère à caractère.
+    L'état est **retiré** de la session avant toute chose — c'est `Connexion.reprendre_l_etat_oauth`
+    qui s'en charge : un retour rejoué ne trouvera plus rien à quoi se comparer. La comparaison
+    passe par `compare_digest` — c'est un secret, il ne se compare pas caractère à caractère.
     """
     if request.args.get("error"):  # le joueur a refusé sur la page de Discord
         return redirect(url_for("jeu.plateau"))
 
-    attendu = session.pop("etat_oauth", None)
+    connexion = la_connexion()
+    attendu = connexion.reprendre_l_etat_oauth()
     recu = request.args.get("state")
     if not attendu or not recu or not secrets.compare_digest(attendu, recu):
         abort(400, "état d'authentification absent ou inattendu")
@@ -489,12 +500,7 @@ def retour_de_connexion():
         JOURNAL.info("Connexion refusée : %s", souci)
         abort(502, "Discord n'a pas répondu")
 
-    joueur = le_depot_de_joueurs().enregistrer(identite)
-    # On repart d'une session neuve : rien de ce qu'un anonyme y aurait laissé ne survit à
-    # l'ouverture d'un compte.
-    session.clear()
-    session["joueur"] = joueur["discord_id"]
-    session.permanent = True
+    joueur = connexion.ouvrir(identite)
     JOURNAL.info("Connexion : %s", joueur["pseudo"])
     return redirect(url_for("jeu.plateau"))
 
@@ -506,7 +512,7 @@ def deconnexion():
     En POST, comme tout ce qui change quelque chose ici : un lien ou une image d'un autre site ne
     doit pas pouvoir déconnecter le joueur.
     """
-    session.clear()
+    la_connexion().fermer()
     return {"connecte": False}
 
 
@@ -888,7 +894,7 @@ def create_app(config=None):
     """Construit l'application : la configuration, la persistance, puis les routes.
 
     Tout Flask naît ici — le module n'a plus d'app globale, seulement le blueprint `jeu` et
-    l'état de jeu. La persistance est branchée sous forme de dépôt (voir `depots.py`), accroché
+    l'état de jeu. La persistance est branchée sous forme de dépôt (voir `moteur/depots/`), accroché
     aux extensions de l'app : les routes le retrouvent par `le_depot()` et ne savent rien de
     MongoDB. Les imports de la branche Mongo sont faits ici, et pas en tête de fichier, pour
     qu'une app sans persistance — celle des tests — se construise sans mongoengine.
@@ -904,12 +910,14 @@ def create_app(config=None):
             "dans .env — python3 -c \"import secrets; print(secrets.token_hex(32))\"")
 
     if application.config["PERSISTANCE"] == "mongo":
-        from depots import DepotDeJoueursMongo, DepotDePartieMongo
         from extensions import db
+        from moteur.depots.joueur import DepotDeJoueursMongo
+        from moteur.depots.partie import DepotDePartieMongo
         db.init_app(application)  # avant les routes, et une seule fois : l'instance est partagée
         depot, joueurs = DepotDePartieMongo(), DepotDeJoueursMongo()
     else:
-        from depots import DepotDeJoueursEnMemoire, DepotDePartieNul
+        from moteur.depots.joueur import DepotDeJoueursEnMemoire
+        from moteur.depots.partie import DepotDePartieNul
         depot, joueurs = DepotDePartieNul(), DepotDeJoueursEnMemoire()
     application.extensions["depot_de_partie"] = depot
     application.extensions["depot_de_joueurs"] = joueurs

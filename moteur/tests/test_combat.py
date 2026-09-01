@@ -148,6 +148,75 @@ class TestLivrerCombat:
         assert resultat.elimines == []
 
 
+class TestDetailDuRapport:
+    """Le calcul gardé pièce par pièce : c'est de quoi le raconter, pas de quoi le refaire.
+
+    Le rapport ne se lit pas sur le plateau — le terrain du défenseur joue deux fois entre les
+    cartons et la colonne du Tableau I —, et le détail est ce qui permet de le montrer.
+    """
+
+    @pytest.fixture
+    def duo(self):
+        a = plaine_bien_entouree()
+        c, *_ = couronne_de(a)
+        return a, c
+
+    def test_le_detail_garde_les_forces_une_a_une(self, duo):
+        """Le groupe d'attaquants ne se résume pas à son total : chaque carton a sa force."""
+        cible, attaquant = duo
+        _, second, *_ = couronne_de(cible)  # une seconde case au contact de la cible
+        plateau = Plateau([(cible, pion(ARCHER)), (attaquant, pion(NAIN)), (second, pion(ELFE))])
+        detail = combat.livrer_combat(plateau, cible, [attaquant, second], jet=1).detail
+        assert detail.forces == [12, 7]
+        assert detail.force_attaquante == 19
+
+    def test_le_detail_garde_le_terrain_et_son_multiplicateur(self):
+        ruines = hexagone_de_terrain("ruines")
+        _, attaquant, *_ = couronne_de(ruines)
+        plateau = Plateau([(ruines, pion(ORQUE)), (attaquant, pion(NAIN))])
+        detail = combat.livrer_combat(plateau, ruines, [attaquant], jet=1).detail
+        assert detail.terrain == "ruines"
+        assert (detail.force_de_la_cible, detail.multiplicateur, detail.force_defensive) \
+            == (8, 2, 16)
+
+    def test_le_detail_garde_le_jet_et_le_bonus_du_terrain(self):
+        """Le dé du résultat est déjà modifié : sans le détail, le jet brut serait perdu."""
+        colline = hexagone_de_terrain("colline")
+        _, attaquant, *_ = couronne_de(colline)
+        plateau = Plateau([(colline, pion(ORQUE)), (attaquant, pion(NAIN))])
+        detail = combat.livrer_combat(plateau, colline, [attaquant], jet=3).detail
+        assert (detail.jet, detail.bonus_au_de, detail.de) == (3, 2, 5)
+
+    def test_le_de_reste_dans_le_tableau(self):
+        """Le Tableau I n'a que six lignes : un jet de 6 en colline y est ramené."""
+        colline = hexagone_de_terrain("colline")
+        _, attaquant, *_ = couronne_de(colline)
+        plateau = Plateau([(colline, pion(ORQUE)), (attaquant, pion(NAIN))])
+        detail = combat.livrer_combat(plateau, colline, [attaquant], jet=6).detail
+        assert (detail.jet + detail.bonus_au_de, detail.de) == (8, 6)
+
+    def test_le_detail_redonne_le_rapport_et_l_issue_du_resultat(self, duo):
+        """Deux façons de lire le même combat : elles ne peuvent pas diverger."""
+        cible, attaquant = duo
+        plateau = Plateau([(cible, pion(ARCHER)), (attaquant, pion(NAIN))])
+        resultat = combat.livrer_combat(plateau, cible, [attaquant], jet=1)
+        assert resultat.detail.rapport == resultat.rapport == (6, 1)
+        assert resultat.detail.de == resultat.de == 1
+        assert resultat.detail.issue == resultat.resultat == DE
+
+    def test_un_combat_non_resolu_n_a_rien_a_detailler(self, duo):
+        cible, attaquant = duo
+        plateau = Plateau([(attaquant, pion(NAIN))])
+        assert combat.livrer_combat(plateau, cible, [attaquant], jet=6).detail is None
+
+    def test_resoudre_lit_le_meme_calcul(self, duo):
+        """`resoudre` et `livrer_combat` passent par `detailler` : une seule lecture du terrain."""
+        cible, attaquant = duo
+        plateau = Plateau([(cible, pion(ARCHER)), (attaquant, pion(NAIN))])
+        issue = combat.resoudre([12], pion(ARCHER), cible, jet=1)
+        assert issue == combat.livrer_combat(plateau, cible, [attaquant], jet=1).resultat
+
+
 class TestSuiviDeCombat:
     """Une unité ne livre qu'un combat par phase, et n'est prise pour cible qu'une fois.
 

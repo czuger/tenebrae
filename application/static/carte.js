@@ -44,6 +44,9 @@ const ficheSymbole = document.getElementById("fiche-symbole");
 const ficheValeurs = document.getElementById("fiche-valeurs");
 const ficheRemarques = document.getElementById("fiche-remarques");
 
+const journal = document.getElementById("journal");
+const journalLignes = document.getElementById("journal-lignes");
+
 const phaseLibelle = document.getElementById("phase-libelle");
 const boutonAttaquer = document.getElementById("attaquer");
 const boutonAnnuler = document.getElementById("annuler-combat");
@@ -81,6 +84,11 @@ let phase = JSON.parse(document.getElementById("phase").value);
 // administrateur, camps, armees, places }. `camps` dit les camps que **ce** navigateur tient —
 // d'ordinaire un seul. `places` donne le pseudo de chaque occupant, jamais son identifiant.
 let table = JSON.parse(document.getElementById("table").value);
+
+// Le journal de la partie, tel que le serveur le tient : une liste de { heure, texte }, de la
+// plus ancienne ligne à la plus récente. Il arrive avec les pions et la phase, du gabarit à
+// l'ouverture puis du flux à chaque coup joué — le sien comme celui d'en face.
+let lignesDuJournal = JSON.parse(document.getElementById("journal-initial").value);
 
 // Le numéro de version de la partie. Il monte à chaque coup joué, du nôtre comme de celui d'en
 // face. Il ouvre le flux — le serveur sait ainsi si l'on a du retard à rattraper — et sert
@@ -405,6 +413,31 @@ function rafraichirLaPhase(nouvelle) {
   majBoutonsDuJoueur();
 }
 
+// La colonne du journal, refaite en entier : elle ne compte que quelques dizaines de lignes, et
+// le serveur en est seul maître — comparer pour n'ajouter que les nouvelles coûterait plus de
+// code que de tout réécrire.
+//
+// L'ordre est renversé au passage : le serveur donne de la plus ancienne à la plus récente, la
+// colonne montre la dernière en haut. Elle est ainsi sous la fiche, là où l'œil revient, et rien
+// n'a besoin de faire défiler quoi que ce soit à la place du joueur.
+function rafraichirLeJournal(lignes) {
+  lignesDuJournal = lignes;
+  journalLignes.textContent = "";
+  for (let i = lignes.length - 1; i >= 0; i -= 1) {
+    const ligne = document.createElement("li");
+    const heure = document.createElement("time");
+    heure.textContent = lignes[i].heure;
+    const texte = document.createElement("span");
+    texte.className = "texte";
+    texte.textContent = lignes[i].texte;
+    ligne.append(heure, texte);
+    journalLignes.appendChild(ligne);
+  }
+  // Rien à raconter, rien à encadrer : la colonne ne paraît qu'une fois la partie commencée.
+  journal.hidden = lignes.length === 0;
+}
+
+
 async function phaseSuivante() {
   const reponse = await envoyer("/phase/suivante", { method: "POST" });
   if (!reponse) return;
@@ -600,6 +633,7 @@ function reprendreLaPartie(etat) {
   // combat en cours de composition sont abandonnés, ils portaient sur une position dépassée.
   reposerLesPions(etat.pions);
   rafraichirLaPhase(etat.phase);
+  rafraichirLeJournal(etat.journal);
   majLaTable(etat.table);
 }
 
@@ -695,6 +729,7 @@ function demarrer() {
   poserLesPions();
   phaseLibelle.textContent = phase.libelle;
   marquerLesIndisponibles(phase.indisponibles);
+  rafraichirLeJournal(lignesDuJournal);
   document.getElementById("phase-suivante").addEventListener("click", phaseSuivante);
   boutonAttaquer.addEventListener("click", attaquer);
   boutonAnnuler.addEventListener("click", nettoyerLeCombat);

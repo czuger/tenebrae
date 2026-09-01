@@ -84,32 +84,108 @@ def a_portee(hex_attaquant, pion_attaquant, hex_cible):
     return hex_attaquant.distance(hex_cible) <= portee_de_combat(pion_attaquant)
 
 
+class DetailDuRapport:
+    """Le calcul qui mène au rapport de force, pièce par pièce : de quoi le raconter.
+
+    Le rapport ne se lit pas sur le plateau. Entre la force inscrite sur les cartons et la
+    colonne du Tableau I, il y a le **terrain du défenseur**, qui multiplie sa force et ajoute au
+    dé de l'attaquant — deux effets d'une même case, et rien ne les montre une fois le combat
+    résolu. Cet objet les retient tous.
+
+    Il ne fabrique aucune phrase : il rend des nombres et un nom de terrain, et c'est
+    l'application qui les met en français (voir `detailler_le_rapport` dans `application/app.py`).
+    Le moteur, lui, n'a pas à savoir qu'un journal existe.
+    """
+
+    __slots__ = ("forces", "force_de_la_cible", "terrain", "multiplicateur", "bonus_au_de", "jet")
+
+    def __init__(self, forces, force_de_la_cible, terrain, multiplicateur, bonus_au_de, jet):
+        self.forces = list(forces)
+        self.force_de_la_cible = force_de_la_cible
+        self.terrain = terrain
+        self.multiplicateur = multiplicateur
+        self.bonus_au_de = bonus_au_de
+        self.jet = jet
+
+    @property
+    def force_attaquante(self):
+        """Ce que le groupe d'attaquants totalise. Le terrain ne joue pas de ce côté-ci."""
+        return sum(self.forces)
+
+    @property
+    def force_defensive(self):
+        """La force du défenseur, son terrain compté."""
+        return self.force_de_la_cible * self.multiplicateur
+
+    @property
+    def de(self):
+        """Le dé tel que le tableau le lit : le jet, le terrain ajouté, ramené entre 1 et 6."""
+        return min(6, max(1, self.jet + self.bonus_au_de))
+
+    @property
+    def colonne(self):
+        """L'indice de la colonne du Tableau I où le combat se lit."""
+        return colonne_du_rapport(self.force_attaquante, self.force_defensive)
+
+    @property
+    def rapport(self):
+        """Le rapport de force tel que le fascicule l'écrit : un couple, attaquant au numérateur."""
+        return COLONNES[self.colonne]
+
+    @property
+    def issue(self):
+        """Ce que le Tableau I dit de ce rapport et de ce dé."""
+        return TABLEAU_I[self.de][self.colonne]
+
+    def __repr__(self):
+        return (f"DetailDuRapport({self.force_attaquante} contre {self.force_defensive} "
+                f"en {self.terrain}, dé {self.de})")
+
+
+def detailler(forces_attaquantes, pion_defenseur, hexagone_defenseur, jet):
+    """Le calcul du rapport de force, avant qu'on n'en lise l'issue.
+
+    C'est le seul endroit où le terrain du défenseur est consulté : les deux entrées du combat —
+    `resoudre` et `livrer_combat` — passent par ici, et ne peuvent donc pas en dire deux choses
+    différentes.
+    """
+    return DetailDuRapport(
+        forces=forces_attaquantes,
+        force_de_la_cible=pion_defenseur.force,
+        terrain=hexagone_defenseur.terrain,
+        multiplicateur=multiplicateur_de_defense(hexagone_defenseur, pion_defenseur),
+        bonus_au_de=bonus_de_terrain(hexagone_defenseur),
+        jet=jet,
+    )
+
+
 def resoudre(forces_attaquantes, pion_defenseur, hexagone_defenseur, jet):
     """L'issue d'un combat : une des chaînes `AE`, `DE`, `EX`, `AR`, `DR`.
 
     `jet` est le résultat du dé (1 à 6), passé en argument pour que le hasard reste au bord du
     moteur. Il est modifié par le terrain puis ramené dans l'intervalle du tableau.
     """
-    de = min(6, max(1, jet + bonus_de_terrain(hexagone_defenseur)))
-    force_defensive = pion_defenseur.force * multiplicateur_de_defense(hexagone_defenseur,
-                                                                       pion_defenseur)
-    return TABLEAU_I[de][colonne_du_rapport(sum(forces_attaquantes), force_defensive)]
+    return detailler(forces_attaquantes, pion_defenseur, hexagone_defenseur, jet).issue
 
 
 class ResultatDeCombat:
     """Ce qu'un combat a donné : son issue, les cases vidées, le rapport de force et le dé joué.
 
     `resultat` vaut `None` quand le combat n'a pas pu être résolu (cible absente, force illisible) ;
-    `elimines` est alors vide.
+    `elimines` est alors vide, et `detail` aussi — il n'y a pas eu de calcul à détailler.
+
+    `rapport` et `de` sont ceux de `detail` : ils restent des attributs à eux, la moitié du projet
+    les lisant déjà ainsi.
     """
 
-    __slots__ = ("resultat", "elimines", "rapport", "de")
+    __slots__ = ("resultat", "elimines", "rapport", "de", "detail")
 
-    def __init__(self, resultat, elimines, rapport, de):
+    def __init__(self, resultat, elimines, rapport, de, detail=None):
         self.resultat = resultat
         self.elimines = list(elimines)
         self.rapport = rapport
         self.de = de
+        self.detail = detail
 
     def __repr__(self):
         return f"ResultatDeCombat({self.resultat!r}, {len(self.elimines)} éliminés)"
@@ -129,10 +205,8 @@ def livrer_combat(plateau, hexagone_cible, hexagones_attaquants, jet):
     if pion_cible is None or pion_cible.force is None or not forces:
         return ResultatDeCombat(None, [], None, None)
 
-    de = min(6, max(1, jet + bonus_de_terrain(hexagone_cible)))
-    force_defensive = pion_cible.force * multiplicateur_de_defense(hexagone_cible, pion_cible)
-    colonne = colonne_du_rapport(sum(forces), force_defensive)
-    resultat = TABLEAU_I[de][colonne]
+    detail = detailler(forces, pion_cible, hexagone_cible, jet)
+    resultat = detail.issue
 
     elimines = []
     if resultat in (AE, EX):
@@ -142,7 +216,7 @@ def livrer_combat(plateau, hexagone_cible, hexagones_attaquants, jet):
     for hexagone in elimines:
         plateau.retirer(hexagone)
 
-    return ResultatDeCombat(resultat, elimines, COLONNES[colonne], de)
+    return ResultatDeCombat(resultat, elimines, detail.rapport, detail.de, detail)
 
 
 class SuiviDeCombat:

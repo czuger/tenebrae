@@ -191,6 +191,59 @@ body {
   color: #6b5a44;
 }
 
+/* ── Le journal de la partie ──────────────────────────────────────────────────────────────────
+   Une colonne sous la fiche, à la même enseigne qu'elle et que la barre : même encadré, même
+   fond, même taille de police. Le panneau grandit vers le bas ; la barre, elle, ne bouge pas —
+   et la fiche s'ouvrant au-dessus, la colonne descend d'autant le temps d'un survol.
+
+   Les lignes sont données de la plus ancienne à la plus récente, et rendues dans l'autre sens :
+   la dernière est en haut, sous la fiche, là où l'œil est déjà. On voit donc ce qui vient de se
+   passer sans rien faire ; l'ascenseur est pour l'histoire ancienne. */
+#journal {
+  box-sizing: border-box;
+  width: 22rem;
+  max-width: 100%;
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid #6b5a44;
+  border-radius: 3px;
+  background: rgba(27, 23, 19, 0.92);
+  color: #f6e7c1;
+  font-size: 0.85rem;
+}
+
+#journal[hidden] {
+  display: none;
+}
+
+#journal-lignes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+/* L'heure d'abord, en retrait de ton, puis la ligne elle-même — qui passe à la ligne sans
+   revenir sous l'heure, pour que la colonne des heures reste une colonne. */
+#journal-lignes li {
+  display: flex;
+  gap: 0.5rem;
+}
+
+#journal-lignes time {
+  flex: none;
+  color: #9c8c6f;
+  font-variant-numeric: tabular-nums;
+}
+
+/* La dernière ligne — celle du haut — est la seule qu'on lise vraiment d'un coup d'œil. */
+#journal-lignes li:first-child .texte {
+  color: #ffffff;
+}
+
 /* ── Le joueur ────────────────────────────────────────────────────────────────────────────────
    Un seul bouton ajouté à la barre, et rien d'autre : la taille de référence documentée plus haut
    interdit de l'allonger, et `overflow: hidden` rognerait par la droite ce qu'on y entasserait.

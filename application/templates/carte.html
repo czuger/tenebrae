@@ -17,6 +17,9 @@
        navigateur voit que l'adversaire a joué (voir la route « /partie/etat »). -->
   <input type="hidden" id="table" value="{{ table }}">
   <input type="hidden" id="version" value="{{ version }}">
+  <!-- Le journal de la partie tel qu'il est à l'ouverture de la page ; la suite arrive par le
+       flux, avec les pions et la phase. -->
+  <input type="hidden" id="journal-initial" value="{{ journal }}">
 
   <div id="cadre">
     <div id="toile">
@@ -69,6 +72,14 @@
         <dl id="fiche-valeurs"></dl>
         <span id="fiche-remarques"></span>
       </div>
+    </div>
+
+    <!-- Le journal de la partie, en colonne sous la fiche : changements de phase, combats
+         déclarés et résolus, coups de l'IA. C'est le même compte rendu que
+         `journal_de_combat.log`, dont le serveur garde les dernières lignes en mémoire pour les
+         pousser avec la partie. Vide, la colonne ne paraît pas. -->
+    <div id="journal" hidden>
+      <ol id="journal-lignes"></ol>
     </div>
   </div>
 

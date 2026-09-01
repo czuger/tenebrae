@@ -167,6 +167,7 @@ molette, boutons, défilement — dans `static/zoom.js` et `static/zoom.css`.
 | `#phase` | la phase courante : `{camp, type, armee, libelle, numero, indisponibles}` (voir « Phases et combat ») |
 | `#table` | qui regarde et qui tient quel camp : `{connecte, pseudo, avatar, administrateur, camps, armees, places}` (voir « Deux joueurs, deux camps ») |
 | `#version` | le numéro de version de la partie, à quoi le navigateur voit que l'adversaire a joué |
+| `#journal-initial` | le journal de la partie à l'ouverture : `[{heure, texte}, …]`, de la plus ancienne ligne à la plus récente (voir « La colonne du journal ») |
 
 ## Le plateau du serveur
 
@@ -315,10 +316,58 @@ les **cases** de ce registre qui portent encore un pion, pour que la page grise 
 (`.pion.indisponible`). Le registre désigne les unités par leur case et non par leur carton : voir
 `moteur/README.md` § « Un seul combat par unité et par phase » pour ce que cela suppose.
 
-**Le journal est un simple fichier local**, `application/journal_de_combat.log` (une ligne par
-événement : changement de phase, unité hors de portée, résultat de combat en français). C'est le
-deuxième endroit où l'application écrit sur le disque, après `/admin/map_fix` ; le fichier est
-ignoré par git.
+**Le journal est écrit à deux endroits à la fois** — une ligne par événement : changement de
+phase, place prise, unité hors de portée, résultat de combat en français, coups de l'IA.
+
+Un combat en écrit **deux** : le calcul du rapport, puis son issue.
+
+```
+Rapport 2-1 : attaque 12 + 8 = 20 contre défense 8 × 3 = 24 (montagne) — dé 4
+Combat résolu : Défenseur Éliminé
+```
+
+Le calcul d'abord, l'issue ensuite — la colonne du navigateur se lisant à l'envers du fichier,
+c'est ce qui met l'issue en tête et son détail juste dessous. La phrase est composée par
+`detailler_le_rapport`, à partir des nombres que `combat.DetailDuRapport` a retenus (voir
+`moteur/README.md` § « Le détail du calcul ») : le moteur ne fabrique pas de phrase, et
+l'application ne recalcule rien. Le **terrain du défenseur est toujours nommé**, y compris quand
+il ne multiplie rien — c'est ce qu'on est venu chercher ; les trois termes, eux, ne s'écrivent en
+détail que lorsqu'il y a un détail à écrire (un attaquant seul, un terrain neutre et un dé que
+rien n'augmente s'écrivent d'un seul nombre).
+
+- `application/journal_de_combat.log`, **le fichier**, qui garde tout. C'est le deuxième endroit
+  où l'application écrit sur le disque, après `/admin/map_fix` ; il est ignoré par git ;
+- une **file bornée en mémoire** (`JournalEnMemoire`, `LIGNES_RETENUES` lignes), dont le
+  navigateur fait sa colonne. C'est un *handler* branché sur le même logger, et non un appel
+  ajouté à côté de chaque `JOURNAL.info` : il n'y a qu'un point d'écriture, et la colonne ne peut
+  pas dire autre chose que le fichier.
+
+Les lignes retenues partent avec la partie : `instantane_partage` les porte, donc le flux SSE et
+`GET /partie/etat` aussi, et `GET /` les donne d'entrée dans `#journal-initial`. D'où la règle que
+suivent les routes : **journaliser avant de marquer le coup**. `marquer_un_coup` photographie la
+partie, journal compris ; une route qui journaliserait après avoir sauvegardé pousserait aux
+navigateurs un compte rendu en retard d'un coup. `application/tests/test_journal.py` le vérifie
+route par route.
+
+## La colonne du journal
+
+Le journal se lit **en colonne sous la fiche**, dans le même panneau (`#panneau`) et à la même
+enseigne que la barre et la fiche : même encadré, même fond, même taille de police. Rien ne se
+déplace — le panneau grandit vers le bas, la barre ne bouge pas.
+
+Elle se lit **à l'envers du fichier** : le serveur donne ses lignes de la plus ancienne à la plus
+récente, la colonne montre la dernière en haut, là où l'œil revient. On voit donc ce qui vient de
+se passer sans rien faire, et rien ne fait défiler quoi que ce soit à la place du joueur ;
+l'ascenseur (`max-height: 40vh`) est pour l'histoire ancienne. Vide, la colonne ne paraît pas.
+
+Elle arrive **par le flux**, et par lui seul : `rafraichirLeJournal` n'est appelée qu'au démarrage
+et depuis `reprendreLaPartie`. Un coup joué est publié à tous les abonnés, y compris à l'onglet
+qui vient de le jouer — sa propre ligne lui revient donc par le même chemin que celles de l'autre
+joueur, et aucune réponse de route n'a à la porter.
+
+Ce que la colonne **ne dit pas** : un déplacement joué à la main. Le serveur ne journalise pas
+`POST /deplacer` — il ne l'a jamais fait —, quand il journalise ceux de l'IA. Le combat, lui, est
+raconté des deux côtés.
 
 ## Survoler une unité
 
@@ -509,9 +558,9 @@ relire à son réveil, il les lirait depuis le fil qui sert *son* flux, pendant 
 peut-être en train de déplacer un pion. On ne lui laisse donc rien à relire : la photo est prise
 une fois, dans le fil qui vient d'écrire, et c'est elle qui voyage.
 
-**Ce qui se compose par destinataire.** Presque tout est partagé — les pions, la phase —, mais
-pas la **table** : elle dit à chacun s'il est connecté, sous quel pseudo, et quels camps il
-tient. C'est la seule part du message que le flux compose au moment d'écrire, pour un joueur
+**Ce qui se compose par destinataire.** Presque tout est partagé — les pions, la phase, le
+journal —, mais pas la **table** : elle dit à chacun s'il est connecté, sous quel pseudo, et
+quels camps il tient. C'est la seule part du message que le flux compose au moment d'écrire, pour un joueur
 qu'il relit au dépôt à chaque fois (jamais mis en cache : quitter sa place se voit au message
 suivant).
 

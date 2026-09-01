@@ -20,8 +20,11 @@ il a en main, jamais de combien de points il dispose — ce nombre est repris au
 Le serveur tient aussi le **tour** (`moteur.phase.Tour`, le module-global `TOUR`) : les routes
 /phase/suivante, /combat et /combat/portee l'exposent, et /deplacer refuse un mouvement hors de la
 phase de mouvement du camp. La résolution d'un combat est dans `moteur.combat` ; seul le jet de dé
-(`lancer_le_de`) est ici, pour que les tests puissent le fixer. Le journal de la partie est un
-fichier local, `journal_de_combat.log` — le second endroit où l'application écrit sur le disque.
+(`lancer_le_de`) est ici, pour que les tests puissent le fixer. Le journal de la partie s'écrit
+à deux endroits : `journal_de_combat.log` — le second endroit où l'application écrit sur le
+disque —, et une file bornée en mémoire, dont le navigateur fait une colonne sous la fiche. D'où
+la règle que suivent les routes : **journaliser avant de marquer le coup**, l'instantané poussé
+aux flux portant le journal (voir `instantane_partage`).
 
 À côté du tour, le module-global `SUIVI` (`moteur.combat.SuiviDeCombat`) retient ce que la phase
 de combat en cours a déjà consommé : une unité n'attaque qu'une fois, une unité n'est attaquée
@@ -56,11 +59,13 @@ Lancement (depuis ce répertoire) :
 puis http://127.0.0.1:5000/
 """
 
+import collections
 import json
 import logging
 import random
 import secrets
 import sys
+import time
 from functools import wraps
 from pathlib import Path
 
@@ -97,8 +102,14 @@ TERRAINS = ("ville", "fort", "chateau", "tour", "ruines", "village", "ile", "lac
 NUMERO_DU_SCENARIO = 4
 
 # Le journal de la partie : changements de phase, combats déclarés, unités hors de portée,
-# résultats. C'est un simple fichier local — l'interface n'en montre que la phase courante.
+# résultats. Il est écrit à deux endroits à la fois — un fichier local, qui garde tout, et une
+# file bornée en mémoire, dont le navigateur fait sa colonne sous la fiche.
 CHEMIN_DU_JOURNAL = Path(__file__).resolve().parent / "journal_de_combat.log"
+
+# Ce que la colonne du navigateur montre : les dernières lignes, et pas plus. Le fichier reste
+# l'archive ; la page, elle, n'a que la place de la fin de la partie, et une file bornée la lui
+# sert sans jamais grossir.
+LIGNES_RETENUES = 60
 
 # Ce que le fascicule appelle « le résultat du jet de dé », de 1 à 6. Isolé dans une fonction pour
 # que les tests puissent le fixer sans toucher au hasard du moteur.
@@ -112,6 +123,44 @@ MESSAGES_DE_COMBAT = {
     "AE": "Combat résolu : Attaquant Éliminé",
     "EX": "Combat résolu : Échange — toutes les unités impliquées sont éliminées",
 }
+
+
+def detailler_le_rapport(resultat):
+    """Le calcul du rapport de force en une phrase, pour la ligne que le journal lui consacre.
+
+    Ce que le rapport seul ne dit pas, et qui décide pourtant du combat : ce que le groupe
+    d'attaquants totalise, ce que le défenseur oppose **une fois son terrain compté**, et le dé
+    tel que ce même terrain l'a modifié. Un 12 contre un 8 donne un rapport 1-1 en plaine et
+    1-2 en montagne, et rien ne le montrait.
+
+        Rapport 2-1 : attaque 12 + 8 = 20 contre défense 8 × 3 = 24 (montagne) — dé 4
+
+    Les trois termes ne s'écrivent en détail que lorsqu'il y a un détail à écrire : un attaquant
+    seul, un terrain qui ne multiplie rien, un dé que rien n'augmente s'écrivent d'un seul nombre.
+    Le terrain, lui, est **toujours** nommé — c'est ce qu'on est venu chercher, y compris quand il
+    ne fait rien.
+
+    Le moteur ne fabrique pas cette phrase : il rend les nombres (`combat.DetailDuRapport`), et
+    c'est ici qu'ils se mettent en français, comme les issues de `MESSAGES_DE_COMBAT`.
+    """
+    detail = resultat.detail
+    attaque = " + ".join(str(force) for force in detail.forces)
+    if len(detail.forces) > 1:
+        attaque += f" = {detail.force_attaquante}"
+    defense = str(detail.force_de_la_cible)
+    if detail.multiplicateur != 1:
+        defense += f" × {detail.multiplicateur} = {detail.force_defensive}"
+    de = str(detail.jet)
+    if detail.bonus_au_de:
+        de += f" + {detail.bonus_au_de} = {detail.jet + detail.bonus_au_de}"
+        # Le Tableau I n'a que six lignes : au-delà, le dé y est ramené, et le dire évite une
+        # addition qui paraîtrait fausse.
+        if detail.jet + detail.bonus_au_de != detail.de:
+            de += f", ramené à {detail.de}"
+    rapport = "-".join(map(str, detail.rapport))
+    return (f"Rapport {rapport} : attaque {attaque} contre défense {defense} "
+            f"({detail.terrain}) — dé {de}")
+
 
 # Les deux refus qu'oppose le registre de la phase de combat. Ils partent au journal, et le
 # navigateur s'en sert pour ne pas surligner une unité qui a déjà donné.
@@ -137,13 +186,46 @@ PION_TAILLE = 104
 # ci-dessous : une seule partie courante par processus, que les tests lisent par `app.PLATEAU`.
 jeu = Blueprint("jeu", __name__)
 
-# Le journal est un fichier local, écrit une ligne par événement. On ne le configure qu'une fois.
+
+class JournalEnMemoire(logging.Handler):
+    """Les dernières lignes du journal, retenues pour que le navigateur puisse les montrer.
+
+    C'est un *handler*, et non un appel ajouté à côté de chaque `JOURNAL.info` : le journal garde
+    ainsi un seul point d'écriture, et la colonne du navigateur ne peut pas dire autre chose que
+    le fichier. La file est bornée — un serveur qui tourne longtemps ne doit pas enfler d'une
+    ligne par clic refusé.
+
+    `deque.append` est atomique : le fil qui joue un coup écrit ici pendant qu'un fil de flux
+    recopie la file, et il n'y a rien de plus à verrouiller.
+    """
+
+    def __init__(self, capacite):
+        super().__init__()
+        self.lignes = collections.deque(maxlen=capacite)
+
+    def emit(self, enregistrement):
+        self.lignes.append({
+            "heure": time.strftime("%H:%M:%S", time.localtime(enregistrement.created)),
+            "texte": enregistrement.getMessage(),
+        })
+
+
+# Le journal est écrit une ligne par événement, dans le fichier et dans la mémoire. On ne le
+# configure qu'une fois.
 JOURNAL = logging.getLogger("tenebrae.journal")
+MEMOIRE_DU_JOURNAL = JournalEnMemoire(LIGNES_RETENUES)
 if not JOURNAL.handlers:
     _trace = logging.FileHandler(CHEMIN_DU_JOURNAL, encoding="utf-8")
     _trace.setFormatter(logging.Formatter("%(asctime)s  %(message)s", "%Y-%m-%d %H:%M:%S"))
     JOURNAL.addHandler(_trace)
+    JOURNAL.addHandler(MEMOIRE_DU_JOURNAL)
     JOURNAL.setLevel(logging.INFO)
+
+
+def les_lignes_du_journal():
+    """Le journal tel que la page le montre : les dernières lignes, de la plus ancienne à la
+    plus récente. Une copie — la file continue de tourner pendant que le message voyage."""
+    return list(MEMOIRE_DU_JOURNAL.lignes)
 
 
 def est_un_pion(chemin):
@@ -256,8 +338,14 @@ def instantane_partage():
     Tout n'est pas partagé : `la_table` dit à chacun s'il est connecté, sous quel pseudo et quels
     camps il tient — c'est la seule part du message qui se compose par destinataire, et le flux
     l'ajoute au moment d'écrire (voir `/flux`).
+
+    Le journal en est, et pour la même raison que les pions : les deux joueurs regardent la même
+    partie, ils en lisent le même compte rendu. Il est photographié ici, avec le reste — d'où la
+    règle que suivent les routes ci-dessous : **journaliser avant de marquer le coup**, sans quoi
+    la ligne qu'on vient d'écrire ne partirait qu'au coup suivant.
     """
-    return {"version": VERSION, "pions": les_unites_posees(), "phase": la_phase_courante()}
+    return {"version": VERSION, "pions": les_unites_posees(), "phase": la_phase_courante(),
+            "journal": les_lignes_du_journal()}
 
 
 def poser_la_mise_en_place():
@@ -379,15 +467,16 @@ def faire_jouer_l_ia():
     if PLACES.occupant(TOUR.camp_actif) != ia.JOUEUR_IA:
         return
     deplacements, combats = ia.jouer_le_tour(PLATEAU, TOUR, SUIVI, lancer_le_de)
-    sauvegarder_la_partie()
     for depart, arrivee in deplacements:
         JOURNAL.info("IA : déplacement %s → %s", depart.cle, arrivee.cle)
     for cible, attaquants, resultat in combats:
         message = MESSAGES_DE_COMBAT.get(resultat.resultat, "Combat résolu : sans effet")
-        JOURNAL.info("IA : %s attaquant(s) sur %s — %s (dé %s, rapport %s)",
-                     len(attaquants), cible.cle, message, resultat.de,
-                     "-".join(map(str, resultat.rapport)) if resultat.rapport else "?")
+        if resultat.detail is not None:
+            JOURNAL.info("IA : %s", detailler_le_rapport(resultat))
+        JOURNAL.info("IA : %s attaquant(s) sur %s — %s",
+                     len(attaquants), cible.cle, message)
     JOURNAL.info("IA : tour joué — %s (tour %s)", TOUR.libelle, TOUR.numero)
+    sauvegarder_la_partie()
 
 
 def les_unites_posees():
@@ -626,8 +715,8 @@ def prendre_place():
         return {"assis": False, "message": "Ce camp est déjà tenu."} | la_table(), 409
 
     PLACES.asseoir(camp, joueur)
-    sauvegarder_la_partie()
     JOURNAL.info("Place prise : %s par %s", camp, le_joueur_courant()["pseudo"])
+    sauvegarder_la_partie()
     return {"assis": True, "camp": camp} | la_table()
 
 
@@ -665,6 +754,7 @@ def plateau():
                            "taille_pion": PION_TAILLE}),
         phase=json.dumps(la_phase_courante(), ensure_ascii=False),
         table=json.dumps(la_table(), ensure_ascii=False),
+        journal=json.dumps(les_lignes_du_journal(), ensure_ascii=False),
         version=VERSION,
     )
 
@@ -692,7 +782,9 @@ def nouvelle_partie():
             if PLACES.occupant(camp) not in (None, ia.JOUEUR_IA):
                 return {"message": "Ce camp est déjà tenu."} | la_table(), 409
 
-    poser_la_mise_en_place()
+    # La table est mise, puis la ligne écrite, et la mise en place seulement ensuite : c'est elle
+    # qui marque le coup et pousse la partie aux flux ouverts (voir `instantane_partage`), et
+    # elle doit la pousser avec l'IA déjà assise et la ligne déjà au journal.
     if contre_ia:
         for camp in camps_adverses:
             PLACES.asseoir(camp, ia.JOUEUR_IA)
@@ -700,6 +792,7 @@ def nouvelle_partie():
                      NUMERO_DU_SCENARIO, ", ".join(camps_adverses))
     else:
         JOURNAL.info("Nouvelle partie : scénario %s", NUMERO_DU_SCENARIO)
+    poser_la_mise_en_place()
     le_depot().nouvelle_partie(photographier_la_partie())
     faire_jouer_l_ia()
     return {"pions": les_unites_posees(), "phase": la_phase_courante()} | la_table()
@@ -728,7 +821,8 @@ def etat_de_la_partie():
     if connue == VERSION:
         return {"version": VERSION, "change": False}
     return {"version": VERSION, "change": True, "pions": les_unites_posees(),
-            "phase": la_phase_courante(), "table": la_table()}
+            "phase": la_phase_courante(), "table": la_table(),
+            "journal": les_lignes_du_journal()}
 
 
 # --- Le flux : la partie poussée à ceux qui la regardent ---------------------------------------
@@ -925,8 +1019,8 @@ def phase_suivante():
     """
     TOUR.suivante()
     SUIVI.reinitialiser()
-    sauvegarder_la_partie()
     JOURNAL.info("Phase : %s (tour %s)", TOUR.libelle, TOUR.numero)
+    sauvegarder_la_partie()
     faire_jouer_l_ia()
     return la_phase_courante()
 
@@ -1024,10 +1118,13 @@ def combattre():
     jet = lancer_le_de()
     resultat = combat.livrer_combat(PLATEAU, cible, valides, jet)
     SUIVI.enregistrer([hexagone.cle for hexagone in valides], cible.cle)
-    sauvegarder_la_partie()
     message = MESSAGES_DE_COMBAT.get(resultat.resultat, "Combat résolu : sans effet")
-    JOURNAL.info("%s — dé %s, rapport %s", message, resultat.de,
-                 "-".join(map(str, resultat.rapport)) if resultat.rapport else "?")
+    # Le calcul d'abord, l'issue ensuite : la colonne du navigateur se lit à l'envers du fichier,
+    # et l'issue s'y retrouve donc en tête, son détail juste dessous.
+    if resultat.detail is not None:
+        JOURNAL.info(detailler_le_rapport(resultat))
+    JOURNAL.info(message)
+    sauvegarder_la_partie()
     return {
         "resolu": True,
         "resultat": resultat.resultat,

@@ -318,6 +318,7 @@ a_portee(hex_attaquant, pion_attaquant, hex_cible)   # distance ≤ 1, ou ≤ po
 resoudre([12, 4], pion_defenseur, hex_defenseur, jet=3)   # → « DE », « AE », « EX », « AR », « DR »
 resultat = livrer_combat(plateau, hex_cible, [hex_attaquant], jet=3)
 resultat.resultat, resultat.elimines, resultat.rapport, resultat.de
+resultat.detail          # le calcul pièce par pièce, ou None si rien n'a pu être résolu
 ```
 
 Le **Tableau I** du fascicule (`§ Combats`) est transcrit tel quel dans `TABLEAU_I` : le rapport
@@ -333,6 +334,35 @@ lac ; × 3 en montagne, fort, château ; × 2 en bois pour les seuls Elfes), et 
 
 Le hasard reste au bord du moteur : `jet` est **passé en argument**, jamais tiré ici. C'est
 l'application qui lance le dé (`app.lancer_le_de`), ce qui permet aux tests de le fixer.
+
+### Le détail du calcul
+
+Le rapport ne se lit pas sur le plateau : entre la force inscrite sur les cartons et la colonne du
+Tableau I, le terrain du défenseur joue **deux fois**, et rien ne le montre une fois le combat
+résolu — un 12 contre un 8 donne 1-1 en plaine et 1-2 en montagne. `DetailDuRapport` retient donc
+tout ce qui est entré dans le calcul :
+
+```python
+detail = resultat.detail
+detail.forces              # [12, 8] — la force de chaque attaquant, pas seulement leur somme
+detail.force_attaquante    # 20
+detail.force_de_la_cible   # 8, telle qu'elle est sur le carton
+detail.terrain             # « montagne », le terrain du défenseur
+detail.multiplicateur      # 3
+detail.force_defensive     # 24
+detail.jet                 # 4, le dé tel qu'il est tombé
+detail.bonus_au_de         # 0 (2 en bois ou colline)
+detail.de                  # 4, le dé tel que le tableau le lit — ajouté, puis ramené entre 1 et 6
+detail.rapport, detail.colonne, detail.issue
+```
+
+`detailler(...)` le construit, et c'est **le seul endroit du module où le terrain du défenseur est
+consulté** : `resoudre` et `livrer_combat` y passent tous deux, et ne peuvent donc pas en dire
+deux choses différentes. `resultat.rapport` et `resultat.de` sont ceux du détail.
+
+Le moteur ne fabrique **aucune phrase** : il rend des nombres et un nom de terrain. La mise en
+français est à l'application (`detailler_le_rapport` dans `application/app.py`), qui en fait la
+ligne de journal `Rapport 2-1 : attaque 12 + 8 = 20 contre défense 8 × 3 = 24 (montagne) — dé 4`.
 
 **Trois issues seulement changent le plateau**, et `livrer_combat` les applique en retirant les
 pions : `AE` (attaquant éliminé), `DE` (défenseur éliminé), `EX` (les deux). `AR` et `DR` — les

@@ -6,13 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Travail d'archivage et de transcription autour d'*Ave Tenebrae*, wargame fantastique de François
 Marcela-Froideval (Jeux Descartes, 2ᵉ éd. 1986) : convertir des sources brutes (PDF scanné, page de
-blog archivée, photos) en documents Markdown et en données exploitables. **L'objectif à terme est
-d'en faire un jeu** ; du code va s'ajouter.
+blog archivée, photos) en documents Markdown et en données exploitables, **puis en faire un jeu**.
+Le jeu existe : un moteur de règles en Python, un serveur Flask, une partie à deux joueurs
+sauvegardée dans MongoDB.
 
-**Le contenu est en français** — règles, README, noms de fichiers. Toute production nouvelle
-(documentation, noms de répertoires, slugs de fichiers) doit rester en français, avec des slugs sans
-accents ni apostrophes (`morts-vivants-01-20-unites-de-squelettes.jpg`). Seuls les messages de
-commit sont en anglais.
+**Le contenu est en français** — règles, README, noms de fichiers, code (noms de classes, de
+méthodes et de variables). Toute production nouvelle (documentation, noms de répertoires, slugs de
+fichiers) doit rester en français, avec des slugs sans accents ni apostrophes
+(`morts-vivants-01-20-unites-de-squelettes.jpg`). Seuls les messages de commit sont en anglais.
 
 ## Structure
 
@@ -21,47 +22,63 @@ Cinq répertoires, avec des statuts très différents :
 | Répertoire | Rôle |
 | --- | --- |
 | `base_material/` | **Sources brutes. Porte un `CLAUDE.md` qui dit « DO NOT USE THE CONTENT OF THIS DIRECTORY ».** Le PDF des règles, l'article de blog archivé, les 144 photos. Ne pas y puiser pour un travail courant : tout ce qui en a été tiré vit déjà dans `game_box/`. On n'y retourne que pour vérifier ou compléter une transcription, et alors on met à jour le dérivé. |
-| `game_box/` | **Le matériel de jeu. Porte un `CLAUDE.md` qui dit « THIS DIRECTORY CONTAINS THE SOURCE OF TRUTH ».** Règles transcrites, carte et sa grille d'hexagones, script d'extraction, et `pions/` (inventaire des 127 pions). C'est là que doit lire et écrire le code du jeu. |
-| `moteur/` | **Les règles, en Python.** Deux constantes lues au démarrage — la carte (la transcription recouverte par les corrections de `map_fix.json`) et le catalogue des pions (`pions.json`) — et quatre classes : `Hex` (voisinage, coûts de terrain, déplacements), `Pion` (valeurs du carton, camp), `Plateau` (qui occupe quelle case : c'est de là que sortent les zones de contrôle) et `Scenario` (une mise en place lue dans `scenarios/`). Rien de web ici. Voir `moteur/README.md`. |
-| `scenarios/` | **Les mises en place, fixées une fois pour toutes**, un fichier JSON par scénario du fascicule. Le fascicule dit « l'armée naine se masse au sud du volcan de Toth » ; le passage de la phrase aux hexagones a été fait à la main, et ce répertoire en garde le résultat. Voir `scenarios/README.md`. |
-| `application/` | **Le serveur.** Application Flask (factory `create_app`) qui affiche la carte, la mise en place d'un scénario (le n° 4), et sert les déplacements calculés par `moteur/`. Elle lit `game_box/` et `scenarios/`. Elle écrit à deux endroits : `game_box/map_fix.json`, par la route d'admin `/admin/map_fix`, et **MongoDB** — la partie en cours (positions, phase, registre des combats, et qui tient quel camp), sauvegardée à chaque coup et reprise au chargement de `/`, plus les **joueurs** connus. La base n'est jamais touchée depuis une route : tout passe par un dépôt (`depots.py`, `modeles.py`), et les référentiels restent en fichiers. La partie se joue **à deux, un joueur par camp**, identifiés par **Discord OAuth2** : la carte reste publique, les coups demandent d'être connecté et d'occuper le camp actif, et `/admin/map_fix` est réservée aux comptes de `ADMIN_DISCORD_IDS`. L'authentification n'a coûté **aucune dépendance** (`flask.session` et `urllib`). Voir `application/README.md`. |
+| `game_box/` | **Le matériel de jeu. Porte un `CLAUDE.md` qui dit « THIS DIRECTORY CONTAINS THE SOURCE OF TRUTH ».** Règles transcrites, carte et sa grille d'hexagones, script d'extraction, et `pions/` (inventaire des 127 pions + `pions.json`). C'est là que doit lire et écrire le code du jeu. |
+| `moteur/` | **Les règles, en Python.** Deux constantes lues au démarrage — la carte (la transcription recouverte par les corrections de `map_fix.json`) et le catalogue des pions (`pions.json`) — puis six modules : `hexagone.py` (`Hex` : voisinage, coûts de terrain, déplacements, zones de contrôle), `pion.py` (`Pion` : valeurs du carton, camp), `plateau.py` (`Plateau` : qui occupe quelle case), `scenario.py` (`Scenario` : une mise en place lue dans `scenarios/`), `phase.py` (`Tour` : mouvement → magie → combat, en boucle) et `combat.py` (Tableau I du fascicule, et `SuiviDeCombat`). Rien de web ici, et la bibliothèque standard suffit. Voir `moteur/README.md`. |
+| `scenarios/` | **Les mises en place, fixées une fois pour toutes**, un fichier JSON par scénario du fascicule. Le fascicule dit « l'armée naine se masse au sud du volcan de Toth » ; le passage de la phrase aux hexagones a été fait à la main, et ce répertoire en garde le résultat. Seul le n° 4 est fixé à ce jour. Voir `scenarios/README.md`. |
+| `application/` | **Le serveur.** Application Flask (factory `create_app`) qui affiche la carte, la mise en place d'un scénario (le n° 4), et sert les déplacements et les combats calculés par `moteur/`. Elle lit `game_box/` et `scenarios/`. Elle écrit à deux endroits : `game_box/map_fix.json`, par la route d'admin `/admin/map_fix`, et **MongoDB** — la partie en cours (positions, phase, registre des combats, et qui tient quel camp), sauvegardée à chaque coup et reprise au chargement de `/`, plus les **joueurs** connus. La base n'est jamais touchée depuis une route : tout passe par un dépôt (`depots.py`, `modeles.py`), et les référentiels restent en fichiers. La partie se joue **à deux, un joueur par camp**, identifiés par **Discord OAuth2** : la carte reste publique, les coups demandent d'être connecté et d'occuper le camp actif, et `/admin/map_fix` est réservée aux comptes de `ADMIN_DISCORD_IDS`. L'authentification n'a coûté **aucune dépendance** (`flask.session` et `urllib`). Voir `application/README.md`. |
 
-`todo.txt` (racine) porte les consignes de travail de l'utilisateur ; il n'est pas versionné.
+`todo.txt` (racine) porte les consignes de travail de l'utilisateur.
 
 Les secrets — connexion MongoDB, application Discord, `SECRET_KEY` — vivent dans `.env` à la
-racine, non versionné : voir `.env.example`, que `application/config.py` lit une fois au démarrage.
-Sans `SECRET_KEY`, l'application refuse de démarrer plutôt que d'en tirer une au hasard.
+racine, **non versionné** : voir `.env.example`, que `application/config.py` lit une fois au
+démarrage. Sans `SECRET_KEY`, l'application refuse de démarrer plutôt que d'en tirer une au hasard.
 
-## Sources et dérivés
+## Versionnement
 
-**Les sources brutes sont exclues de git, seuls les dérivés sont versionnés.** C'est délibéré :
-elles sont volumineuses (28 Mo) et non redistribuables. Un nouveau clone n'aura donc pas
-`base_material/` ; retoucher une transcription demande les fichiers locaux.
+**Tout est versionné, sources brutes comprises.** C'était l'inverse au début du projet — les
+28 Mo de `base_material/` étaient exclus — et la documentation en portait un long avertissement :
+il n'a plus lieu d'être. Le dépôt pèse une quarantaine de mégaoctets et l'assume ; un nouveau
+clone arrive complet, transcriptions **et** sources, et retoucher une transcription ne demande
+rien d'autre.
 
-| Chemin | Rôle | Versionné ? |
+Ce qui reste hors de git est court, et tient en deux fichiers :
+
+| Fichier | Ce qu'il exclut | Pourquoi |
 | --- | --- | --- |
-| `base_material/ave_tenebrae_regles.pdf` | Fascicule de règles scanné, 16 pages | non |
-| `base_material/vintageboard-1-ave-tenebrae.html` | Article de blog archivé (« Vintageboard 1 », R-One Chaff, irlboardgames.blogspot.com) ; contient le découpage des planches de pions | non |
-| `base_material/images/` | 144 photos de la boîte, de la carte et des planches de pions | non |
-| `todo.txt` | Consignes de travail de l'utilisateur | non |
-| `game_box/ave_tenebrae_regles.md` | Transcription des règles | **oui** |
-| `game_box/map.jpg` | Carte du jeu (10 Mo) | **oui** |
-| `game_box/carte.json` | 2280 hexagones, `"q,r,s"` → terrain | **oui** |
-| `game_box/carte_details.json` | `"q,r,s"` → tous les éléments de l'hexagone | **oui** |
-| `game_box/carte_controle.jpg` | Carte teintée par terrain, pour vérification à l'œil | **oui** |
-| `game_box/carte.md` | Documentation de la transcription de la carte | **oui** |
-| `game_box/map_fix.json` | Corrections de terrain relevées à l'œil sur `/admin/map_fix`, appliquées par le moteur | **oui** |
-| `game_box/extraction_carte.py` | Régénère les trois fichiers ci-dessus depuis `map.jpg` | **oui** |
-| `game_box/pions/` | Inventaire des pions + copies renommées | **oui** |
-| `scenarios/*.json` | Mises en place fixées, une par scénario | **oui** |
+| `.gitignore` | `.env` | les secrets : connexion MongoDB, identifiants Discord, `SECRET_KEY` |
+| | `application/journal_de_combat.log` | une trace d'exécution, propre à une machine |
+| | `.idea/`, `__pycache__/`, `.pytest_cache/` | outillage local et caches |
+| `.git/info/exclude` | `/.python-version` | le virtualenv pyenv est un choix local |
 
-L'exclusion est locale, dans `.git/info/exclude` (pas dans `.gitignore`, qui ne contient que
-`.idea/`). Ne pas « corriger » cela en ajoutant les sources à git.
+`.git/info/exclude` garde aussi trois motifs **périmés** — `/images/`,
+`/ave_tenebrae_regles.pdf`, `/vintageboard-1-ave-tenebrae.html` — qui visaient la racine avant le
+déplacement des sources dans `base_material/`. Ils ne correspondent plus à rien et ne protègent
+plus rien : les fichiers qu'ils nommaient sont aujourd'hui suivis. Sans effet, donc, mais
+trompeurs à la lecture.
 
-⚠️ **Les motifs d'exclusion sont périmés depuis le déplacement dans `base_material/`.** Ils visent
-encore `/images/`, `/ave_tenebrae_regles.pdf`, `/vintageboard-1-ave-tenebrae.html` à la racine.
-Résultat : `git add -A` mettrait en index les 146 fichiers de `base_material/` (28 Mo). Vérifier
-`git status` avant tout `add` large, et ne jamais faire `git add -A` / `git add .` à l'aveugle ici.
+Un seul point de vigilance subsiste : **`.DS_Store` n'est ignoré nulle part**, et la skill
+`/commit` ajoute tous les fichiers. Vérifier `git status` avant de commiter.
+
+## Les dérivés et leurs sources
+
+Le rapport entre les deux n'a pas changé, même si tout est désormais versionné : on lit et on
+écrit dans les dérivés, et on ne remonte à la source que pour vérifier.
+
+| Chemin | Rôle |
+| --- | --- |
+| `base_material/ave_tenebrae_regles.pdf` | Fascicule de règles scanné, 16 pages |
+| `base_material/vintageboard-1-ave-tenebrae.html` | Article de blog archivé (« Vintageboard 1 », R-One Chaff, irlboardgames.blogspot.com) ; contient le découpage des planches de pions |
+| `base_material/images/` | 144 photos de la boîte, de la carte et des planches de pions |
+| `game_box/ave_tenebrae_regles.md` | Transcription des règles |
+| `game_box/map.jpg` | Carte du jeu (10 Mo) |
+| `game_box/carte.json` | 2280 hexagones, `"q,r,s"` → terrain |
+| `game_box/carte_details.json` | `"q,r,s"` → tous les éléments de l'hexagone |
+| `game_box/carte_controle.jpg` | Carte teintée par terrain, pour vérification à l'œil |
+| `game_box/carte.md` | Documentation de la transcription de la carte |
+| `game_box/map_fix.json` | Corrections de terrain relevées à l'œil sur `/admin/map_fix`, appliquées par le moteur |
+| `game_box/extraction_carte.py` | Régénère `carte.json`, `carte_details.json` et `carte_controle.jpg` depuis `map.jpg` |
+| `game_box/pions/` | Inventaire des 127 pions (copies renommées) + `pions.json`, les valeurs des cartons |
+| `scenarios/*.json` | Mises en place fixées, une par scénario |
 
 ## Outillage
 
@@ -80,8 +97,9 @@ une préférence :
   Une nouvelle fonctionnalité arrive donc avec ses tests ; une vérification qu'on a eu envie de
   faire une fois vaut d'être gardée.
 - **Le navigateur, c'est Playwright** (`application/tests/test_plateau.py`,
-  `test_map_fix_navigateur.py`, `test_reprise_navigateur.py`) : c'est là qu'on ouvre une page,
-  qu'on clique un pion, qu'on recharge. Pas dans un vrai navigateur ouvert à la main.
+  `test_map_fix_navigateur.py`, `test_connexion_navigateur.py`, `test_reprise_navigateur.py`) :
+  c'est là qu'on ouvre une page, qu'on clique un pion, qu'on recharge. Pas dans un vrai navigateur
+  ouvert à la main.
 
 | Commande | Ce qu'elle fait |
 | --- | --- |
@@ -109,7 +127,7 @@ python-dotenv pour l'application, pytest, pytest-playwright et mongomock pour le
 moteur n'utilise que la bibliothèque standard. Elles sont installées dans le virtualenv pyenv
 `tenebrae` que `.python-version` (racine, non versionné) sélectionne automatiquement ; `python3`
 suffit.
-Le script tourne une dizaine de minutes et prend environ 2 Go de mémoire.
+Le script d'extraction tourne une dizaine de minutes et prend environ 2 Go de mémoire.
 
 ## `game_box/carte.json` — grille d'hexagones
 
@@ -166,7 +184,8 @@ fichier lui-même) :
 
 127 photos de pions, copiées depuis `base_material/images/` (les originaux y restent **intacts** ;
 ce répertoire ne contient que des copies renommées) et classées en 21 répertoires numérotés par
-faction ou utilité, d'après le découpage donné par l'article de blog.
+faction ou utilité, d'après le découpage donné par l'article de blog. `pions.json` s'y ajoute :
+les valeurs relevées à l'œil sur les cartons, que `moteur.pion` lit au démarrage.
 
 - Nommage : `NN-faction/faction-NN-<description-slugifiee>.jpg`, la numérotation reflétant l'ordre
   de présentation dans la source.
@@ -178,8 +197,8 @@ faction ou utilité, d'après le découpage donné par l'article de blog.
   les interprétations d'initiales (`K` = kobolds ?) gardent leur point d'interrogation, et la
   section « Réserves sur l'inventaire » en fin de README documente les lacunes connues (photo
   manquante des cavaleries lourdes du Chaos, initiales des non-humains non expliquées par les
-  règles). Ne pas trancher ces points sans source ; les ajouter à cette section si de nouveaux
-  doutes apparaissent.
+  règles, cinq mouvements illisibles). Ne pas trancher ces points sans source ; les ajouter à cette
+  section si de nouveaux doutes apparaissent.
 - La section finale liste les 17 images volontairement non reprises (couvertures, vues de carte,
   habillage du blog).
 
@@ -193,5 +212,5 @@ une fois ne vaut pas pour la suivante.
 
 Messages courts en anglais, une phrase — le contenu est en français, les messages de commit ne le
 sont pas. La skill `/commit` du projet produit un message d'une phrase, ajoute tous les fichiers et
-commit : attention, « tous les fichiers » inclut aujourd'hui `base_material/` (voir l'avertissement
-plus haut).
+commit : « tous les fichiers » veut bien dire tous, `.DS_Store` compris s'il traîne. Un coup d'œil
+à `git status` avant.

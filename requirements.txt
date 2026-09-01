@@ -7,9 +7,17 @@
 Flask
 Werkzeug        # fourni par Flask ; importé directement dans application/tests/conftest.py
 
+# --- Persistance de la partie (MongoDB) ---
+# Le todo demandait flask-mongoengine : sa dernière version (1.0.0, 2022) ne s'importe pas sous
+# Flask 3 (elle cherche `flask.json.JSONEncoder`, retiré en 2.3). application/extensions.py en
+# reprend l'interface au-dessus de mongoengine seul.
+mongoengine
+python-dotenv   # lit le `.env` où vivent les informations de connexion
+
 # --- Tests ---
 pytest
 pytest-playwright   # fixture `page` des tests de navigateur ; puis : python3 -m playwright install chromium
+mongomock           # MongoDB en mémoire : les tests de persistance ne demandent aucun serveur
 
 # --- Régénération de la carte (game_box/extraction_carte.py, jamais relancé en pratique) ---
 Pillow

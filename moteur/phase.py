@@ -63,6 +63,19 @@ class Tour:
         self.numero = 1
         return self
 
+    def restaurer(self, camp, type_de_phase, numero):
+        """Ramène le tour à cette phase-là, telle qu'une sauvegarde l'a retenue.
+
+        Le couple `(camp, type)` suffit à retrouver la position dans la séquence — c'est ce que
+        `en_dict` livre. La magie est refusée : `suivante()` la franchit toujours, elle n'est
+        jamais courante, et une sauvegarde qui la cite ne vient pas d'ici.
+        """
+        if type_de_phase == MAGIE:
+            raise ValueError("la phase de magie n'est jamais courante")
+        self._i = self._sequence.index((camp, type_de_phase))
+        self.numero = numero
+        return self
+
     def suivante(self):
         """Passe à la phase suivante, en franchissant la magie et en comptant les tours."""
         sequence = self._sequence

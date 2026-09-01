@@ -1,0 +1,35 @@
+# Guidelines — Intégration MongoDB (Flask-MongoEngine)
+
+## Contexte
+Jeu à hexagones existant en Flask + JS. Ajouter une persistance MongoDB via **Flask-MongoEngine**.
+
+## Stack
+- `flask-mongoengine` (embarque mongoengine)
+- `python-dotenv`
+
+## Credentials
+- Toutes les infos de connexion Mongo dans `.env` (non commité).
+- Fournir un `.env.example` documenté.
+- Charger via `python-dotenv` une seule fois, au démarrage de l'app.
+- Aucun credential en dur dans le code.
+
+## Connexion DB
+- Une seule instance `MongoEngine()` partagée dans tout le projet.
+- Initialisée via `init_app(app)` dans la factory Flask, une seule fois, avant les blueprints.
+- Config Mongo centralisée dans un objet de config (`MONGODB_SETTINGS`), pas éparpillée.
+
+## Modèles
+- Analyser d'abord le code existant (état du jeu en mémoire, structures JS/Flask) pour identifier les vraies entités (plateau, tuiles, joueurs, parties, etc.) avant de créer les modèles.
+- Proposer le mapping "objets actuels → modèles MongoEngine" avant implémentation finale.
+- Modèles propres : types explicites, `meta` (collection, index) définis, timestamps si pertinent.
+- Pas de modèles "fourre-tout" — un modèle = une entité métier claire.
+
+## Accès aux données
+- Aucune requête Mongo directement dans les routes/vues.
+- Passer par une couche d'abstraction (repository ou service) pour chaque entité.
+- Les routes appellent cette couche, jamais les modèles bruts.
+
+## Divers
+- Mettre à jour `.gitignore` si besoin.
+- Documenter rapidement (README) comment lancer MongoDB en local.
+- Demander confirmation avant de toucher aux fichiers critiques existants (point d'entrée, factory Flask) si le contexte est ambigu.

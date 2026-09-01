@@ -211,3 +211,41 @@ class TestDeplacer:
         plateau = Plateau()
         assert plateau.deplacer(c, large) is True
         assert len(plateau) == 0
+
+
+class TestSerialisation:
+    """`en_dict` et `restaurer` : la partie tient dans un dict « case → clé de pion »."""
+
+    def test_en_dict_donne_le_format_du_scenario(self, terrain):
+        a, c, *_ = terrain
+        plateau = Plateau([(c, pion(ELFE)), (a, pion(ORQUE))])
+        assert plateau.en_dict() == {c.cle: ELFE, a.cle: ORQUE}
+
+    def test_l_aller_retour_repose_les_memes_pions(self, terrain):
+        a, c, *_ = terrain
+        plateau = Plateau([(c, pion(ELFE)), (a, pion(ORQUE))])
+        copie = Plateau().restaurer(plateau.en_dict())
+        assert copie.en_dict() == plateau.en_dict()
+        assert copie.pion_sur(c).cle == ELFE
+
+    def test_restaurer_travaille_en_place_et_ecrase_l_existant(self, terrain):
+        a, c, _, large = terrain
+        plateau = Plateau([(large, pion(NAIN))])
+        rendu = plateau.restaurer({c.cle: ELFE, a.cle: ORQUE})
+        assert rendu is plateau
+        assert plateau.pion_sur(large) is None
+        assert len(plateau) == 2
+
+    def test_un_pion_inconnu_est_refuse_sans_toucher_au_plateau(self, terrain):
+        _, c, _, large = terrain
+        plateau = Plateau([(large, pion(NAIN))])
+        with pytest.raises(KeyError):
+            plateau.restaurer({c.cle: "carton-qui-n-existe-pas"})
+        assert plateau.pion_sur(large).cle == NAIN
+
+    def test_une_case_hors_carte_est_refusee_sans_toucher_au_plateau(self, terrain):
+        _, _, _, large = terrain
+        plateau = Plateau([(large, pion(NAIN))])
+        with pytest.raises(ValueError):
+            plateau.restaurer({HORS_CARTE.cle: ELFE})
+        assert plateau.pion_sur(large).cle == NAIN

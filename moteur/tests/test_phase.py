@@ -72,3 +72,33 @@ def test_en_dict_porte_l_essentiel(tour):
         "camp": "alliance", "type": MOUVEMENT, "armee": "Nains",
         "libelle": "Phase de mouvement — Nains", "numero": 1,
     }
+
+
+class TestRestaurer:
+    def test_restaurer_ramene_a_la_phase_sauvegardee(self, tour):
+        tour.restaurer("tenebres", COMBAT, 7)
+        assert (tour.camp_actif, tour.type_de_phase, tour.numero) == ("tenebres", COMBAT, 7)
+
+    def test_l_aller_retour_par_en_dict_retombe_sur_la_meme_phase(self, tour):
+        for _ in range(3):
+            tour.suivante()
+        sauvegarde = tour.en_dict()
+        repris = Tour(CAMPS, NOMS).restaurer(
+            sauvegarde["camp"], sauvegarde["type"], sauvegarde["numero"])
+        assert repris.en_dict() == sauvegarde
+
+    def test_restaurer_travaille_en_place(self, tour):
+        assert tour.restaurer("alliance", COMBAT, 2) is tour
+
+    def test_la_magie_est_refusee(self, tour):
+        with pytest.raises(ValueError):
+            tour.restaurer("alliance", "magie", 1)
+
+    def test_un_camp_inconnu_est_refuse(self, tour):
+        with pytest.raises(ValueError):
+            tour.restaurer("empire", MOUVEMENT, 1)
+
+    def test_la_partie_reprise_continue_normalement(self, tour):
+        tour.restaurer("tenebres", COMBAT, 3)
+        tour.suivante()
+        assert (tour.camp_actif, tour.type_de_phase, tour.numero) == ("alliance", MOUVEMENT, 4)

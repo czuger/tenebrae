@@ -9,13 +9,25 @@ from werkzeug.serving import make_server
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app import PLATEAU, SUIVI, TOUR, application  # noqa: E402
+from app import PLATEAU, SUIVI, TOUR, create_app  # noqa: E402
+from config import ConfigDeTest  # noqa: E402
+
+
+@pytest.fixture(scope="session")
+def application():
+    """L'application de test, construite une seule fois par la factory.
+
+    Une seule instance pour toute la session : le client Flask et le serveur des tests de
+    navigateur doivent parler au même objet. La configuration de test débranche la persistance
+    (dépôt nul) — l'état de jeu reste dans les module-globaux de `app`, que les fixtures et les
+    tests manipulent directement.
+    """
+    return create_app(ConfigDeTest)
 
 
 @pytest.fixture
-def client():
+def client(application):
     """Client de test Flask, sans navigateur ni socket."""
-    application.config["TESTING"] = True
     return application.test_client()
 
 
@@ -38,7 +50,7 @@ def carte_deserte():
 
 
 @pytest.fixture(scope="session")
-def serveur():
+def serveur(application):
     """Sert l'application sur un port libre, le temps de la session de tests."""
     serveur = make_server("127.0.0.1", 0, application)
     fil = threading.Thread(target=serveur.serve_forever, daemon=True)

@@ -3,7 +3,14 @@
 Le serveur pose la mise en place d'un scénario — le n° 4, « La guerre des nains » —, lue une
 fois pour toutes dans `scenarios/`, et la passe au gabarit sous forme de JSON (champ caché).
 C'est le JavaScript qui convertit les coordonnées cubiques en pixels et qui pose les pions sur la
-carte. La mise en place est **fixe** : recharger la page repose les mêmes pions aux mêmes cases.
+carte.
+
+La partie est **sauvegardée dans MongoDB** : chaque coup joué l'enregistre, et « / » la reprend là
+où on l'a laissée. Les routes ne voient pas la base — elles passent par le dépôt que `create_app`
+accroche à l'application (`depots.py`), et lui parlent en dicts d'état. `POST /partie/nouvelle`
+repart de la mise en place. Sans persistance (`PERSISTANCE=aucune`, et la configuration de test),
+le dépôt ne retient rien : chaque chargement de « / » repose alors les mêmes pions aux mêmes
+cases, comme avant.
 
 Les règles, elles, ne sont pas ici : les déplacements possibles et leur validation viennent de
 `moteur.hexagone`, que les routes /deplacements et /deplacer se contentent d'exposer. Chaque pion
@@ -40,11 +47,13 @@ import random
 import sys
 from pathlib import Path
 
-from flask import Flask, abort, render_template, request, send_from_directory
+from flask import Blueprint, Flask, abort, current_app, render_template, request, \
+    send_from_directory
 
 # Le dépôt n'est pas un paquet installé : on l'ajoute à sys.path pour atteindre `moteur`.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from config import Config  # noqa: E402
 from moteur import combat  # noqa: E402
 from moteur import hexagone as moteur_hexagone  # noqa: E402
 from moteur.hexagone import CARTE_TRANSCRITE, Hex  # noqa: E402
@@ -101,7 +110,10 @@ GRILLE_MATRICE = [[107.5724, -0.3407], [62.8901, 125.6828]]
 # Côté du pion, en pixels de map.jpg (un hexagone fait environ 143 px de sommet à sommet).
 PION_TAILLE = 104
 
-application = Flask(__name__)
+# Les routes vivent sur un blueprint : c'est la factory `create_app`, en fin de fichier, qui les
+# enregistre — après avoir branché la persistance. L'état de jeu, lui, reste aux module-globaux
+# ci-dessous : une seule partie courante par processus, que les tests lisent par `app.PLATEAU`.
+jeu = Blueprint("jeu", __name__)
 
 # Le journal est un fichier local, écrit une ligne par événement. On ne le configure qu'une fois.
 JOURNAL = logging.getLogger("tenebrae.journal")
@@ -223,18 +235,99 @@ def la_phase_courante():
     return TOUR.en_dict() | {"indisponibles": les_unites_indisponibles()}
 
 
-@application.route("/")
+# --- La partie sauvegardée ---
+#
+# Les routes ne connaissent pas MongoDB : elles passent par le dépôt que la factory a accroché à
+# l'application (voir `depots.py`), et n'échangent avec lui que des dicts d'état. Sous la
+# configuration de test — et sous `PERSISTANCE=aucune` — ce dépôt ne retient rien, et tout se
+# passe comme avant : chaque chargement de « / » repart de la mise en place.
+
+
+def le_depot():
+    """Le dépôt de partie de l'application courante."""
+    return current_app.extensions["depot_de_partie"]
+
+
+def photographier_la_partie():
+    """Tout l'état de jeu du serveur, sous la forme que le dépôt sait écrire.
+
+    Rien d'autre ne change en jouant : la carte, les cartons et le scénario sont des référentiels
+    lus au démarrage, et c'est le numéro du scénario qui dit sur laquelle de ces mises en place
+    la sauvegarde se lit.
+    """
+    return {"scenario": NUMERO_DU_SCENARIO,
+            "placement": PLATEAU.en_dict(),
+            "camp_actif": TOUR.camp_actif,
+            "type_de_phase": TOUR.type_de_phase,
+            "numero_de_tour": TOUR.numero} | SUIVI.en_dict()
+
+
+def restaurer_la_partie(etat):
+    """Repose le plateau, le tour et le registre des combats tels qu'une sauvegarde les tenait."""
+    PLATEAU.restaurer(etat["placement"])
+    TOUR.restaurer(etat["camp_actif"], etat["type_de_phase"], etat["numero_de_tour"])
+    SUIVI.restaurer(etat["attaquants_engages"], etat["cibles_engagees"])
+
+
+def sauvegarder_la_partie():
+    """Enregistre la partie après un coup joué — un déplacement, un combat, un changement de phase."""
+    le_depot().sauvegarder(photographier_la_partie())
+
+
+def les_unites_posees():
+    """Les unités du plateau sous la forme que le navigateur attend, comme à la mise en place.
+
+    `poser_la_mise_en_place` rend la même chose en partant du scénario ; celle-ci part du plateau,
+    et sert donc aussi bien à une partie reprise qu'à une partie neuve.
+    """
+    poses = []
+    for case, pion_pose in PLATEAU.pions.items():
+        hexagone = Hex.depuis_cle(case)
+        pion = dict(PIONS_PAR_CLE[pion_pose.cle])
+        poses.append({"q": hexagone.q, "r": hexagone.r, "s": hexagone.s,
+                      "image": pion.pop("chemin")} | pion)
+    return poses
+
+
+@jeu.route("/")
 def plateau():
+    """La carte, ses pions et la phase courante.
+
+    La partie est reprise là où on l'a laissée : le dépôt rend la dernière sauvegarde, et le
+    serveur la repose. Faute de sauvegarde — première visite, base vide, dépôt nul —, ou si la
+    sauvegarde est celle d'un autre scénario que celui qu'on joue, la mise en place du scénario
+    est refaite et une nouvelle partie ouverte.
+    """
+    etat = le_depot().charger()
+    if etat is None or etat["scenario"] != NUMERO_DU_SCENARIO:
+        poses = poser_la_mise_en_place()
+        le_depot().nouvelle_partie(photographier_la_partie())
+    else:
+        restaurer_la_partie(etat)
+        poses = les_unites_posees()
     return render_template(
         "carte.html",
-        pions=json.dumps(poser_la_mise_en_place(), ensure_ascii=False),
+        pions=json.dumps(poses, ensure_ascii=False),
         grille=json.dumps({"origine": GRILLE_ORIGINE, "matrice": GRILLE_MATRICE,
                            "taille_pion": PION_TAILLE}),
         phase=json.dumps(la_phase_courante(), ensure_ascii=False),
     )
 
 
-@application.route("/deplacements")
+@jeu.route("/partie/nouvelle", methods=["POST"])
+def nouvelle_partie():
+    """Recommence : la mise en place du scénario, et une partie neuve en base.
+
+    Les parties précédentes restent en base — c'est le dépôt qui en décide —, mais celle-ci
+    devient la plus récente, donc celle que « / » reprendra.
+    """
+    poses = poser_la_mise_en_place()
+    le_depot().nouvelle_partie(photographier_la_partie())
+    JOURNAL.info("Nouvelle partie : scénario %s", NUMERO_DU_SCENARIO)
+    return {"pions": poses, "phase": la_phase_courante()}
+
+
+@jeu.route("/deplacements")
 def deplacements():
     """Les hexagones qu'une unité posée en (q, r, s) peut atteindre.
 
@@ -251,7 +344,7 @@ def deplacements():
     }
 
 
-@application.route("/deplacer", methods=["POST"])
+@jeu.route("/deplacer", methods=["POST"])
 def deplacer():
     """Déplace une unité de `depart` vers `arrivee`, si la règle le permet.
 
@@ -269,10 +362,10 @@ def deplacer():
     decrit = decrire_un_deplacement(depart, pion)
     pose = PLATEAU.pion_sur(depart)
     hors_phase = pose is not None and not TOUR.autorise_mouvement(pose.camp)
-    return decrit | {
-        "autorise": not hors_phase and PLATEAU.deplacer(depart, arrivee, pion),
-        "arrivee": arrivee.en_dict(),
-    }
+    autorise = not hors_phase and PLATEAU.deplacer(depart, arrivee, pion)
+    if autorise:
+        sauvegarder_la_partie()
+    return decrit | {"autorise": autorise, "arrivee": arrivee.en_dict()}
 
 
 def decrire_un_deplacement(depart, pion):
@@ -286,13 +379,13 @@ def decrire_un_deplacement(depart, pion):
     }
 
 
-@application.route("/phase")
+@jeu.route("/phase")
 def phase_courante():
     """La phase en cours — le navigateur s'en sert pour son libellé et ses blocages."""
     return la_phase_courante()
 
 
-@application.route("/phase/suivante", methods=["POST"])
+@jeu.route("/phase/suivante", methods=["POST"])
 def phase_suivante():
     """Passe à la phase suivante ; la magie est franchie d'elle-même.
 
@@ -301,6 +394,7 @@ def phase_suivante():
     """
     TOUR.suivante()
     SUIVI.reinitialiser()
+    sauvegarder_la_partie()
     JOURNAL.info("Phase : %s (tour %s)", TOUR.libelle, TOUR.numero)
     return la_phase_courante()
 
@@ -310,7 +404,7 @@ def lire_un_hexagone_prefixe(prefixe, source):
     return lire_un_hexagone({nom: source.get(f"{prefixe}{nom}") for nom in ("q", "r", "s")})
 
 
-@application.route("/combat/portee")
+@jeu.route("/combat/portee")
 def verifier_la_portee():
     """Dit si l'unité en `a…` peut engager la cible en `c…` : à portée, et pas déjà engagée.
 
@@ -336,7 +430,7 @@ def verifier_la_portee():
     return {"a_portee": dans_la_portee, "disponible": disponible, "message": message}
 
 
-@application.route("/combat/cible")
+@jeu.route("/combat/cible")
 def verifier_la_cible():
     """Dit si l'unité en `c…` peut encore être prise pour cible durant cette phase de combat.
 
@@ -354,7 +448,7 @@ def verifier_la_cible():
     return {"disponible": disponible, "message": message}
 
 
-@application.route("/combat", methods=["POST"])
+@jeu.route("/combat", methods=["POST"])
 def combattre():
     """Résout un combat : une cible adverse, un ou plusieurs attaquants du camp actif.
 
@@ -397,6 +491,7 @@ def combattre():
     jet = lancer_le_de()
     resultat = combat.livrer_combat(PLATEAU, cible, valides, jet)
     SUIVI.enregistrer([hexagone.cle for hexagone in valides], cible.cle)
+    sauvegarder_la_partie()
     message = MESSAGES_DE_COMBAT.get(resultat.resultat, "Combat résolu : sans effet")
     JOURNAL.info("%s — dé %s, rapport %s", message, resultat.de,
                  "-".join(map(str, resultat.rapport)) if resultat.rapport else "?")
@@ -423,7 +518,7 @@ def ecrire_les_corrections(corrections):
         fichier.write("\n")
 
 
-@application.route("/admin/map_fix")
+@jeu.route("/admin/map_fix")
 def corriger_la_carte():
     """La carte, le terrain de chaque hexagone au survol, et un clic pour le corriger.
 
@@ -441,7 +536,7 @@ def corriger_la_carte():
     )
 
 
-@application.route("/admin/map_fix", methods=["POST"])
+@jeu.route("/admin/map_fix", methods=["POST"])
 def corriger_un_hexagone():
     """Note la correction d'un hexagone — corps `{q, r, s, terrain}`.
 
@@ -492,17 +587,42 @@ def lire_un_hexagone(source):
     return hexagone
 
 
-@application.route("/carte.jpg")
+@jeu.route("/carte.jpg")
 def image_de_la_carte():
     return send_from_directory(BOITE, "map.jpg")
 
 
-@application.route("/pions/<path:chemin>")
+@jeu.route("/pions/<path:chemin>")
 def image_de_pion(chemin):
     if not est_un_pion(chemin):
         abort(404)
     return send_from_directory(PIONS, chemin)
 
 
+def create_app(config=None):
+    """Construit l'application : la configuration, la persistance, puis les routes.
+
+    Tout Flask naît ici — le module n'a plus d'app globale, seulement le blueprint `jeu` et
+    l'état de jeu. La persistance est branchée sous forme de dépôt (voir `depots.py`), accroché
+    aux extensions de l'app : les routes le retrouvent par `le_depot()` et ne savent rien de
+    MongoDB. Les imports de la branche Mongo sont faits ici, et pas en tête de fichier, pour
+    qu'une app sans persistance — celle des tests — se construise sans mongoengine.
+    """
+    application = Flask(__name__)
+    application.config.from_object(config or Config)
+    print(application.config)
+    if application.config["PERSISTANCE"] == "mongo":
+        from depots import DepotDePartieMongo
+        from extensions import db
+        db.init_app(application)  # avant les routes, et une seule fois : l'instance est partagée
+        depot = DepotDePartieMongo()
+    else:
+        from depots import DepotDePartieNul
+        depot = DepotDePartieNul()
+    application.extensions["depot_de_partie"] = depot
+    application.register_blueprint(jeu)
+    return application
+
+
 if __name__ == "__main__":
-    application.run(debug=True)
+    create_app().run(debug=True)

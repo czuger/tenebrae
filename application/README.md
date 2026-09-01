@@ -31,10 +31,61 @@ python3 app.py
 ```
 
 puis <http://127.0.0.1:5000/> pour le plateau, <http://127.0.0.1:5000/admin/map_fix> pour la
-correction de la carte. Chaque rechargement du plateau **remet le scénario en place** : les pions
-déplacés reviennent à leur case de départ.
+correction de la carte. Le plateau **reprend la partie là où on l'a laissée** (voir « Persistance
+de la partie ») ; `POST /partie/nouvelle` la recommence.
 
-Dépendance : `Flask` (plus `pytest` et `pytest-playwright` pour les tests).
+Dépendances : `Flask`, `mongoengine` et `python-dotenv` (plus `pytest`, `pytest-playwright` et
+`mongomock` pour les tests).
+
+## Persistance de la partie
+
+La partie est enregistrée dans **MongoDB** à chaque coup joué — déplacement, combat, changement de
+phase —, et `GET /` la reprend. Seul l'état de jeu y va : les positions, la phase courante et ce
+que la phase de combat a déjà consommé. La carte, le catalogue des pions et les scénarios restent
+des fichiers de `game_box/` et `scenarios/`, qui sont la source de vérité du dépôt.
+
+**Lancer un MongoDB local**, par Docker :
+
+```
+docker run -d --name tenebrae-mongo -p 27017:27017 mongo:7
+```
+
+ou par Homebrew (`brew install mongodb-community && brew services start mongodb-community`).
+
+**Configurer**, depuis la racine du dépôt :
+
+```
+cp .env.example .env
+```
+
+`.env` n'est pas versionné : c'est le seul endroit où vivent les informations de connexion, et
+`application/config.py` les y lit une fois au démarrage. Deux variables : `MONGODB_URI` et
+`PERSISTANCE`.
+
+**Jouer sans MongoDB** : `PERSISTANCE=aucune` dans `.env`. Le serveur branche alors un dépôt qui ne
+retient rien, et l'application se comporte comme avant la persistance — chaque chargement de `/`
+repose la mise en place du scénario. C'est aussi ce que fait la configuration de test, ce qui
+permet à toute la suite de tourner sans base.
+
+| Route | Effet |
+| --- | --- |
+| `GET /` | reprend la dernière partie ; à défaut — base vide, ou sauvegarde d'un autre scénario — repose le scénario et en ouvre une |
+| `POST /partie/nouvelle` | repose le scénario et ouvre une nouvelle partie ; rend `{"pions": […], "phase": {…}}` |
+
+Les parties précédentes restent en base : `POST /partie/nouvelle` n'efface rien, il ouvre un
+document de plus, et c'est le plus récent que `/` reprend.
+
+**Les routes ne connaissent pas MongoDB.** Elles passent par un *dépôt* (`depots.py`) que la
+factory `create_app` accroche à l'application, et n'échangent avec lui que des dicts d'état ; le
+document et les requêtes sont dans `depots.py` et `modeles.py`, nulle part ailleurs. La
+sérialisation, elle, est dans le moteur (`Plateau.en_dict`/`restaurer`, `Tour.restaurer`,
+`SuiviDeCombat.en_dict`/`restaurer`) et ne dépend d'aucune base.
+
+Un mot sur l'extension : le todo demandait Flask-MongoEngine, dont la dernière version (1.0.0,
+2022) importe `flask.json.JSONEncoder`, retiré de Flask depuis la 2.3 — elle ne s'importe pas sous
+le Flask 3 de ce dépôt. `application/extensions.py` en reprend l'interface (`db = MongoEngine()`,
+`db.init_app(app)`, `MONGODB_SETTINGS` dans la config) au-dessus de `mongoengine` seul. Si
+l'extension redevient installable, ce fichier est le seul à changer.
 
 ## Comment ça marche
 
@@ -57,10 +108,10 @@ par `/deplacer`. Sans lui, les zones se calculeraient sur des positions périmé
 déplacement.
 
 À côté du plateau, le serveur tient un `moteur.phase.Tour` — le module-global `TOUR` — : quel
-camp joue, et à quoi. Il est lui aussi refait à chaque chargement de `/`, donc le rechargement
-ramène toujours à « Phase de mouvement — Nains », tour 1. Rien d'autre ne survit : pas de reprise
-de partie. Deux onglets ouverts sur `/` se partagent le même plateau et le même tour — le dernier
-chargement gagne.
+camp joue, et à quoi. Plateau et tour sont **repris de la sauvegarde** à chaque chargement de `/`,
+ou refaits depuis le scénario s'il n'y en a pas (voir « Persistance de la partie »). Il n'y a
+qu'**une partie courante par processus** : deux onglets ouverts sur `/` se partagent le même
+plateau et le même tour.
 
 Le JavaScript convertit chaque hexagone en pixels avec la formule relevée dans
 `game_box/carte.md` :
@@ -174,8 +225,9 @@ Le fascicule limite chaque unité à une attaque par phase, et chaque cible à u
 même par des attaquants différents. Le compte est tenu **côté serveur** par le module-global
 `SUIVI` (`moteur.combat.SuiviDeCombat`), à côté de `PLATEAU` et de `TOUR` :
 
-- il est **vidé à chaque changement de phase** (`POST /phase/suivante`) et à chaque `GET /` — donc
-  entre la phase de combat des Nains et celle des Orques, et au tour suivant ;
+- il est **vidé à chaque changement de phase** (`POST /phase/suivante`) — donc entre la phase de
+  combat des Nains et celle des Orques, et au tour suivant. `GET /` le reprend de la sauvegarde,
+  ou le vide s'il repose le scénario ;
 - un combat **livré** y inscrit tous ses attaquants et sa cible, **quelle que soit son issue** : un
   recul, que le moteur laisse sans effet, a tout de même engagé ses unités ;
 - un combat **refusé** (aucun attaquant valide) n'y inscrit rien.
@@ -291,16 +343,17 @@ Pas de gestion d'administration : la route est ouverte.
 ## La mise en place
 
 Le serveur ne tire plus rien au hasard : il lit la mise en place du scénario `NUMERO_DU_SCENARIO`
-(4) dans `scenarios/` par `moteur.scenario`, une fois au démarrage, et la repose à chaque
-chargement de `/`.
+(4) dans `scenarios/` par `moteur.scenario`, une fois au démarrage, et la repose au premier
+chargement de `/` — ou à chacun, si la persistance est débranchée.
 
 - **Le placement vient du fichier, pas du serveur.** `scenarios/scenario-04-la-guerre-des-nains.json`
   donne « case → clé de pion » ; l'application n'y ajoute que ce qu'il faut pour l'affichage —
   l'image, le nom lisible, le mouvement et le camp, tous repris au catalogue de
   `game_box/pions/`. Le détail du déploiement et ses réserves sont dans `scenarios/README.md`.
-- **La position est reproductible.** Recharger la page remet les 52 unités à leur case : c'est ce
-  qui permet d'éprouver un déplacement deux fois de suite et d'obtenir le même résultat. En
-  contrepartie, il n'y a aucun moyen de reprendre une partie en cours — le rechargement l'efface.
+- **La position de départ est reproductible.** Une partie neuve remet toujours les 52 unités aux
+  mêmes cases : c'est ce qui permet d'éprouver un déplacement deux fois de suite et d'obtenir le
+  même résultat. `POST /partie/nouvelle` — et, sans persistance, le simple rechargement — y
+  ramène.
 - **Le mouvement est celui du carton** : chaque pion emporte ses points, lus sur la photo et
   rangés dans `game_box/pions/pions.json`. La **force** sert maintenant au combat ; le tir et la
   portée n'y servent que pour la distance d'engagement d'un archer.
@@ -309,16 +362,26 @@ chargement de `/`.
 - Les vues d'ensemble ne sont toujours pas servies : les 4 photos de `21-vues-d-ensemble/` et les
   2 planchettes de suivi de `19-magiciens/` ne montrent pas un pion isolé, et `/pions/…` les
   refuse. Le scénario ne les nomme pas non plus.
-- Une case n'accueille qu'un pion, et le plateau ne se souvient de rien d'un rechargement à
-  l'autre.
+- Une case n'accueille qu'un pion. Ce que le plateau garde d'un rechargement à l'autre dépend de
+  la persistance (voir plus haut).
 
 ## Tests
 
 Depuis la **racine du dépôt**, pour couvrir aussi le moteur :
 
 ```
-python3 -m pytest
+make test
 ```
+
+`make test` monte lui-même un MongoDB de test dans un conteneur — port 27018, base
+`tenebrae_test`, à part de celui du jeu —, attend qu'il réponde, puis lance toute la suite en le
+lui désignant. Sans Docker, `make test-rapide` lance la même suite sans base : les tests qui
+demandent un vrai MongoDB se sautent d'eux-mêmes. `make mongo-arret` retire le conteneur, qui
+reste sinon allumé d'une série à l'autre. `ARGS` passe des arguments à pytest :
+`make test ARGS="-k persistance -v"`.
+
+**Rien ne se vérifie à la main** : ni serveur lancé pour aller voir, ni `curl`. Ce qu'on veut
+éprouver s'écrit en test, et ce qui se voit dans une page s'éprouve dans Chromium par Playwright.
 
 `tests/test_map_fix.py` et `tests/test_map_fix_navigateur.py` couvrent la page de correction —
 le second dans Chromium : survol, dialogue, enregistrement, boutons de zoom. Tous deux
@@ -366,8 +429,25 @@ retomber —, et le **combat unique par phase** : les unités engagées grisées
 registre du serveur les inscrit, le clic qui ne les reprend pas, et le grisage qui tombe à la
 phase suivante.
 
+`tests/test_persistance.py` est le seul à brancher la persistance, sur **mongomock** — un MongoDB
+en mémoire : aucun serveur n'est demandé, et le fichier se saute de lui-même si mongomock n'est pas
+installé. Il couvre l'ouverture d'une partie au premier chargement, la reprise après un
+redémarrage simulé (le déplacement retrouvé, la phase retrouvée, le registre des combats retrouvé),
+l'élimination qui ne revient pas, la sauvegarde d'un autre scénario écartée, `POST
+/partie/nouvelle` qui ouvre un second document sans effacer le premier — y compris quand les deux
+partagent la même date, l'identifiant les départageant —, et l'aller-retour du dépôt seul. Partout
+ailleurs la configuration de test pose le **dépôt nul** : les autres fichiers de tests ne voient
+aucune base, et `GET /` y repose la mise en place comme avant.
+
+`tests/test_reprise_navigateur.py` éprouve la reprise **vue de l'écran**, dans Chromium : déplacer
+un pion puis recharger la page et le retrouver à sa nouvelle case, la phase retrouvée de même, et
+`POST /partie/nouvelle` qui repose les 52 unités. Chaque test y tourne **deux fois** — sur
+mongomock, et sur le vrai MongoDB dès que `MONGODB_URI_TEST` en désigne un qui répond, ce que
+`make test` fait — de sorte que la chaîne complète est éprouvée telle qu'elle tourne en vrai, sans
+avoir à lancer le serveur soi-même.
+
 Les tests de navigateur demandent Chromium :
 
 ```
-python3 -m playwright install chromium
+make navigateur
 ```

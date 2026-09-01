@@ -187,6 +187,23 @@ class SuiviDeCombat:
         self.cibles_engagees.add(case_cible)
         return self
 
+    def en_dict(self):
+        """Le registre sous une forme sérialisable : deux listes de cases, triées.
+
+        Le tri ne doit rien à la règle — un ensemble n'a pas d'ordre — mais rend la forme stable
+        d'une sauvegarde à l'autre.
+        """
+        return {"attaquants_engages": sorted(self.attaquants_engages),
+                "cibles_engagees": sorted(self.cibles_engagees)}
+
+    def restaurer(self, attaquants_engages, cibles_engagees):
+        """Remplace le contenu du registre par celui d'une sauvegarde."""
+        self.attaquants_engages.clear()
+        self.attaquants_engages.update(attaquants_engages)
+        self.cibles_engagees.clear()
+        self.cibles_engagees.update(cibles_engagees)
+        return self
+
     def reinitialiser(self):
         """Vide le registre — une nouvelle phase de combat rend toutes les unités disponibles.
 

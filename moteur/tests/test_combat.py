@@ -201,3 +201,20 @@ class TestSuiviDeCombat:
         suivi.reinitialiser()
         assert suivi.peut_attaquer(contact)
         assert suivi.peut_etre_cible(centre)
+
+    def test_en_dict_livre_les_deux_listes_triees(self, cases, suivi):
+        centre, contact, large = cases
+        suivi.enregistrer([large, contact], centre)
+        assert suivi.en_dict() == {"attaquants_engages": sorted([contact, large]),
+                                   "cibles_engagees": [centre]}
+
+    def test_restaurer_remplace_le_registre_en_place(self, cases, suivi):
+        centre, contact, large = cases
+        suivi.enregistrer([large], large)
+        sauvegarde = {"attaquants_engages": [contact], "cibles_engagees": [centre]}
+        assert suivi.restaurer(**sauvegarde) is suivi
+        assert suivi.en_dict() == sauvegarde
+        # Ce que la sauvegarde ne cite pas est redevenu libre.
+        assert suivi.peut_attaquer(large) and suivi.peut_etre_cible(large)
+        assert not suivi.peut_attaquer(contact)
+        assert not suivi.peut_etre_cible(centre)

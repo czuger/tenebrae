@@ -91,11 +91,17 @@ def test_chaque_pion_est_incline_de_moins_de_cinq_degres(plateau):
 
 
 def test_les_inclinaisons_sont_tirees_au_hasard(plateau):
-    """Des pions tous à la même inclinaison trahiraient une rotation figée."""
-    angles = [round(pion["angle"], 3) for pion in geometrie_des_pions(plateau)]
-    # Deux inclinaisons sur cinquante-deux peuvent coïncider au millième de degré près ; une
-    # rotation figée, elle, les rendrait toutes égales.
-    assert len(set(angles)) >= len(angles) - 3
+    """Des pions tous à la même inclinaison trahiraient une rotation figée.
+
+    Les inclinaisons sont écrites à deux décimales (`toFixed(2)` dans carte.js) : elles ne prennent
+    que mille et une valeurs, et cinquante-deux tirages y donnent une poignée de doublons — un peu
+    plus d'un en moyenne, parfois cinq. Exiger cinquante-deux valeurs distinctes, ou presque,
+    faisait donc échouer le test une fois sur quelques dizaines sans que rien ne soit cassé. Ce
+    qu'on veut prendre est une rotation figée, qui n'en donnerait qu'une seule : la moitié de
+    valeurs distinctes laisse toute la marge au hasard et ne lui laisse aucune échappatoire.
+    """
+    angles = [pion["angle"] for pion in geometrie_des_pions(plateau)]
+    assert len(set(angles)) > len(angles) / 2
     assert any(angle < 0 for angle in angles) and any(angle > 0 for angle in angles)
 
 

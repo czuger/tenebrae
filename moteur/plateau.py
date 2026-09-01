@@ -9,7 +9,7 @@ et sait en tirer les déplacements permis.
 """
 
 from moteur.hexagone import MOUVEMENT_PAR_DEFAUT, Hex, zone_de_controle
-from moteur.pion import ADVERSAIRES
+from moteur.pion import ADVERSAIRES, CATALOGUE
 
 
 class Plateau:
@@ -111,6 +111,31 @@ class Plateau:
         if pose is not None:
             self.poser(arrivee, pose)
         return True
+
+    def en_dict(self):
+        """« q,r,s » → clé de pion, dans l'ordre de pose — le format de `Scenario.placement`.
+
+        C'est toute la partie qui tient là : un pion posé n'a pas d'autre état que sa case et son
+        carton, et le carton se retrouve au catalogue par sa clé.
+        """
+        return {cle: pion.cle for cle, pion in self._pions.items()}
+
+    def restaurer(self, placement):
+        """Vide le plateau et repose chaque pion d'un dict « case → clé de pion ».
+
+        L'inverse d'`en_dict` : les cartons sont repris au catalogue, les cases revérifiées —
+        une sauvegarde qui cite une case hors carte ou un pion inconnu est refusée, pas rafistolée.
+        Tout est vérifié avant de toucher au plateau : refusé veut dire laissé tel quel.
+        """
+        poses = []
+        for cle, cle_de_pion in placement.items():
+            hexagone = Hex.depuis_cle(cle)
+            self._exiger_la_carte(hexagone)
+            poses.append((hexagone, CATALOGUE[cle_de_pion]))
+        self.vider()
+        for hexagone, pion in poses:
+            self.poser(hexagone, pion)
+        return self
 
     @staticmethod
     def _exiger_la_carte(hexagone):

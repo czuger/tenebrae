@@ -736,8 +736,14 @@ def test_cliquer_un_fantome_deplace_le_pion(plateau):
     cible.click()
     plateau.wait_for_function("document.querySelectorAll('img.fantome').length === 0")
 
-    assert pion.evaluate(
-        "p => [Number(p.dataset.q), Number(p.dataset.r), Number(p.dataset.s)]") == arrivee
+    # L'unité se retrouve à sa case, et plus à celle d'où elle vient. On la cherche sur le
+    # plateau plutôt que de garder la main sur son image : le coup joué revient aussitôt par le
+    # flux (voir `test_flux_navigateur.py`), et la scène reposée recrée toutes les images. Le
+    # `pion` d'avant le clic ne désigne alors plus la même unité — ce que les trois secondes de
+    # l'ancien sondage cachaient.
+    cases = {(p["q"], p["r"], p["s"]) for p in geometrie_des_pions(plateau)}
+    assert tuple(arrivee) in cases
+    assert (depart.q, depart.r, depart.s) not in cases
     assert arrivee != [depart.q, depart.r, depart.s]
 
     pose = next(p for p in geometrie_des_pions(plateau) if [p["q"], p["r"], p["s"]] == arrivee)

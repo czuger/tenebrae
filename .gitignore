@@ -3,3 +3,4 @@ __pycache__/
 .pytest_cache/
 application/journal_de_combat.log
 .env
+.DS_Store

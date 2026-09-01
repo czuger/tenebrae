@@ -83,7 +83,8 @@ let phase = JSON.parse(document.getElementById("phase").value);
 let table = JSON.parse(document.getElementById("table").value);
 
 // Le numéro de version de la partie. Il monte à chaque coup joué, du nôtre comme de celui d'en
-// face : c'est à lui qu'on voit qu'il y a quelque chose à reprendre (voir `suivreLaPartie`).
+// face. Il ouvre le flux — le serveur sait ainsi si l'on a du retard à rattraper — et sert
+// ensuite d'identifiant au dernier message reçu (voir « Suivre la partie de l'adversaire »).
 let version = Number(document.getElementById("version").value);
 
 // La sélection de la phase de combat : une cible adverse, et un ensemble d'attaquants alliés.
@@ -571,21 +572,30 @@ async function seDeconnecter() {
 // --- Suivre la partie de l'adversaire ---
 //
 // Deux joueurs, deux navigateurs : sans cela, chacun resterait devant un plateau périmé jusqu'à
-// ce qu'il pense à recharger. On demande donc au serveur, régulièrement, s'il s'est passé quelque
-// chose — en lui donnant le numéro de version qu'on connaît. Tant que rien n'a bougé, il ne rend
-// que ce numéro ; dès qu'il a changé, tout revient d'un coup et la scène se repose.
+// ce qu'il pense à recharger. La page tient donc un **flux ouvert** vers le serveur (`/flux`, du
+// Server-Sent Events), et c'est lui qui écrit quand la partie change. On ne demande plus rien :
+// on écoute.
+//
+// C'est un canal à sens unique, serveur → navigateur, et il le reste : tout ce que le joueur
+// fait — un déplacement, un combat, une place prise — part en POST comme avant, et le flux ne
+// sert qu'à porter aux **autres** le résultat du coup. Rien n'a changé de ce côté-là.
+//
+// Le repli est gardé : si l'`EventSource` échoue trop souvent — un intermédiaire qui coupe le
+// SSE, un proxy d'entreprise —, on retombe sur l'ancien sondage de `/partie/etat`, qui est resté
+// servi pour cela. Le jeu ralentit, il ne casse pas.
 
-const PERIODE_DU_SUIVI = 3000; // millisecondes
+const PERIODE_DU_SUIVI = 3000; // millisecondes, pour le repli seul
+// Au-delà, on cesse de croire au flux : le navigateur retente tout seul entre chaque échec, ce
+// sont donc cinq tentatives espacées de quelques secondes.
+const ECHECS_AVANT_REPLI = 5;
 
-async function suivreLaPartie() {
-  // Un onglet caché ne regarde rien : inutile de tenir le serveur éveillé pour lui.
-  if (document.hidden) return;
-  const reponse = await fetch(`/partie/etat?version=${version}`).catch(() => null);
-  if (!reponse || !reponse.ok) return; // le serveur redémarre : on retentera dans trois secondes
-  const etat = await reponse.json();
+let flux = null;
+let echecsDuFlux = 0;
+let minuterieDuSondage = null;
+
+// Reposer la scène, d'où que vienne l'état — du flux ou du sondage de repli.
+function reprendreLaPartie(etat) {
   version = etat.version;
-  if (!etat.change) return;
-
   // On ne défait pas ce que le joueur est en train de faire de son côté : une sélection ou un
   // combat en cours de composition sont abandonnés, ils portaient sur une position dépassée.
   reposerLesPions(etat.pions);
@@ -593,14 +603,92 @@ async function suivreLaPartie() {
   majLaTable(etat.table);
 }
 
+function ouvrirLeFlux() {
+  // La version connue voyage dans l'URL : un `EventSource` ne sait pas poser d'en-tête. Aux
+  // reconnexions suivantes, c'est le navigateur qui renvoie de lui-même le « Last-Event-ID » du
+  // dernier message reçu, et le serveur s'en sert de préférence — il est plus récent que l'URL.
+  flux = new EventSource(`/flux?version=${version}`);
+
+  flux.addEventListener("open", () => { echecsDuFlux = 0; });
+
+  flux.addEventListener("message", (evenement) => {
+    echecsDuFlux = 0;
+    reprendreLaPartie(JSON.parse(evenement.data));
+  });
+
+  // Le navigateur se reconnecte tout seul — serveur redémarré, réseau coupé, portable
+  // réveillé —, et il n'y a rien à faire pour cela. On ne compte que les échecs répétés, qui
+  // disent que le SSE ne passe pas du tout ici.
+  flux.addEventListener("error", () => {
+    echecsDuFlux += 1;
+    if (echecsDuFlux < ECHECS_AVANT_REPLI) return;
+    fermerLeFlux();
+    replierSurLeSondage();
+  });
+}
+
+function fermerLeFlux() {
+  if (!flux) return;
+  flux.close(); // sans quoi le navigateur retenterait la connexion indéfiniment
+  flux = null;
+}
+
+// L'ancien suivi, gardé pour le seul cas où le flux ne passe pas. Il redemande l'état toutes les
+// trois secondes, en donnant le numéro de version qu'on connaît : tant que rien n'a bougé, le
+// serveur ne rend que ce numéro.
+function replierSurLeSondage() {
+  if (minuterieDuSondage) return;
+  minuterieDuSondage = setInterval(suivreLaPartie, PERIODE_DU_SUIVI);
+}
+
+async function suivreLaPartie() {
+  // Un onglet caché ne regarde rien : inutile de tenir le serveur éveillé pour lui. Cela ne vaut
+  // que pour le sondage — un flux ouvert et silencieux ne coûte rien, et un onglet caché doit
+  // rester à jour pour l'instant où l'on y revient.
+  if (document.hidden) return;
+  const reponse = await fetch(`/partie/etat?version=${version}`).catch(() => null);
+  if (!reponse || !reponse.ok) return; // le serveur redémarre : on retentera dans trois secondes
+  const etat = await reponse.json();
+  version = etat.version;
+  if (!etat.change) return;
+  reprendreLaPartie(etat);
+}
+
+// Quitter la page ferme le flux : le serveur voit la connexion tomber et radie l'abonné, au lieu
+// de lui garder une boîte et de continuer d'y déposer chaque coup joué. Deux événements, et non
+// un : « beforeunload » ne se déclenche pas sur mobile, où « pagehide » est le seul fiable.
+window.addEventListener("beforeunload", fermerLeFlux);
+window.addEventListener("pagehide", fermerLeFlux);
+
+// ... et y revenir le rouvre. Le navigateur garde la page telle quelle dans son cache de
+// navigation (« bfcache ») : revenir en arrière la restaure sans la recharger, JavaScript
+// compris — mais avec le flux qu'on vient de fermer. Sans ceci, le plateau resterait figé pour
+// de bon. Le flux rouvre avec la version qu'on connaît, et le serveur rend d'emblée ce qui s'est
+// joué entre-temps.
+window.addEventListener("pageshow", (evenement) => {
+  if (evenement.persisted && !flux && !minuterieDuSondage) ouvrirLeFlux();
+});
+
 function reposerLesPions(nouveaux) {
   effacerLesFantomes();
   nettoyerLeCombat();
+  // Le repère de « localiser » vise une image qui va être retirée du plateau : on retient sa
+  // **case**, et on le repose sur l'image qui la reprendra. Sans cela le bouton s'éteignait à
+  // chaque scène reposée — donc, depuis que le flux les rend instantanées, juste après chacun de
+  // ses propres coups, au moment précis où l'on veut retrouver l'unité qu'on vient de manœuvrer.
+  const repere = dernierPionClique
+    ? cle(dernierPionClique.dataset)
+    : null;
+
   for (const image of pionsPoses) image.remove();
   pionsPoses.length = 0;
-  oublierLePion(); // le repère visait une image qui vient d'être retirée du plateau
+  oublierLePion();
   pions = nouveaux;
   poserLesPions();
+
+  // L'unité a pu être éliminée entre-temps : il n'y a alors plus rien à viser.
+  const retrouve = repere && pionsPoses.find((image) => cle(image.dataset) === repere);
+  if (retrouve) retenirLePion(retrouve);
 }
 
 function demarrer() {
@@ -623,7 +711,7 @@ function demarrer() {
   });
   majBoutonDuCompte();
   majBoutonsDuJoueur();
-  setInterval(suivreLaPartie, PERIODE_DU_SUIVI);
+  ouvrirLeFlux();
   // La carte fait 6173 × 5102 px : elle s'ouvre réduite à la fenêtre, et la molette ou les
   // boutons « + », « − » et « ajuster » la rapprochent — jusqu'à la taille du scan, où un pion
   // se lit vraiment.

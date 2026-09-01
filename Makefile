@@ -42,7 +42,10 @@ test-rapide:
 test-navigateur: mongo
 	MONGODB_URI_TEST=$(URI) python3 -m pytest application/tests/test_plateau.py \
 		application/tests/test_map_fix_navigateur.py \
-		application/tests/test_reprise_navigateur.py $(ARGS)
+		application/tests/test_reprise_navigateur.py \
+		application/tests/test_connexion_navigateur.py \
+		application/tests/test_ia_navigateur.py \
+		application/tests/test_flux_navigateur.py $(ARGS)
 
 # Monte le conteneur s'il n'est pas déjà là, puis attend que la base réponde vraiment : un
 # conteneur « Up » n'est pas encore un serveur qui accepte les connexions, et pytest partirait

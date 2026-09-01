@@ -34,8 +34,14 @@ entre la session et le joueur du moteur). La carte reste publique — un visiteu
 la voit et consulte les déplacements possibles —, mais tout ce qui change l'état demande d'être
 connecté et d'occuper le camp dont c'est la phase : c'est ce que posent les décorateurs
 `connexion_requise`, `place_requise` et `camp_actif_requis`. Le module-global `PLACES` retient qui
-tient quoi, et `VERSION` monte à chaque coup joué : c'est à lui que le navigateur de l'adversaire
-voit, par /partie/etat, qu'il a quelque chose à reprendre.
+tient quoi, et `VERSION` monte à chaque coup joué.
+
+Chaque navigateur suit la partie de l'autre par un **flux ouvert**, /flux, du Server-Sent Events :
+il ne demande plus rien, le serveur lui pousse la partie quand elle change. Le registre des flux
+ouverts est dans `flux.py` ; le seul point d'où l'on publie est `marquer_un_coup`, par où passe
+tout ce qui bouge. La route /partie/etat, que le navigateur sondait avant, reste servie comme
+**repli** — une page dont l'EventSource ne passe pas y retombe. Voir `DEPLOIEMENT.md` pour ce que
+le flux demandera derrière Nginx.
 
 La route /admin/map_fix est à part : elle sert à corriger à l'œil les erreurs de la transcription
 de la carte, et c'est le seul endroit où l'application écrit dans `game_box/` — dans un fichier à
@@ -66,6 +72,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from client_discord import ErreurDiscord  # noqa: E402
 from config import Config  # noqa: E402
+from flux import Diffuseur  # noqa: E402
 from models.connexion import Connexion  # noqa: E402
 from moteur import combat  # noqa: E402
 from moteur import hexagone as moteur_hexagone  # noqa: E402
@@ -214,17 +221,43 @@ SUIVI = combat.SuiviDeCombat()
 PLACES = Places()
 
 # Le numéro de version de la partie : il monte d'un cran à chaque coup joué. C'est à cela que le
-# navigateur de l'adversaire voit qu'il a quelque chose à reprendre, sans que le serveur ait à lui
-# renvoyer tout le plateau trois fois par minute (voir `/partie/etat`). Un simple entier suffit :
-# il n'y a qu'un processus, et deux navigateurs qui lisent la même partie.
+# navigateur de l'adversaire voit qu'il a quelque chose à reprendre. Un simple entier suffit : il
+# n'y a qu'un processus, et deux navigateurs qui lisent la même partie. Il sert deux fois — c'est
+# aussi l'**identifiant d'événement** du flux SSE, celui que le navigateur renvoie en
+# `Last-Event-ID` quand il se reconnecte (voir `/flux`).
 VERSION = 0
+
+# À qui pousser la partie quand elle change (voir `flux.py`). Un abonné par onglet ouvert ; le
+# registre est en mémoire, dans ce processus.
+DIFFUSEUR = Diffuseur()
 
 
 def marquer_un_coup():
-    """Note qu'un coup a été joué. Le prochain sondage des navigateurs le verra."""
+    """Note qu'un coup a été joué, et le pousse aux navigateurs qui suivent la partie.
+
+    C'est le passage obligé de tout ce qui bouge — `poser_la_mise_en_place` et
+    `sauvegarder_la_partie` sont ses deux seuls appelants, et toute route qui change quoi que ce
+    soit passe par l'un des deux. Brancher la diffusion ici, et nulle part ailleurs, est ce qui
+    garantit qu'aucun coup ne peut être joué sans que les flux ouverts l'apprennent.
+
+    L'instantané est pris **ici**, dans le fil qui vient d'écrire, et c'est lui qui voyage : les
+    générateurs de flux n'ont ainsi jamais à relire le plateau depuis leur propre fil pendant
+    qu'un autre le modifie (voir l'en-tête de `flux.py`).
+    """
     global VERSION
     VERSION += 1
+    DIFFUSEUR.publier(instantane_partage())
     return VERSION
+
+
+def instantane_partage():
+    """L'état de la partie que **tous** les spectateurs ont en commun.
+
+    Tout n'est pas partagé : `la_table` dit à chacun s'il est connecté, sous quel pseudo et quels
+    camps il tient — c'est la seule part du message qui se compose par destinataire, et le flux
+    l'ajoute au moment d'écrire (voir `/flux`).
+    """
+    return {"version": VERSION, "pions": les_unites_posees(), "phase": la_phase_courante()}
 
 
 def poser_la_mise_en_place():
@@ -235,13 +268,19 @@ def poser_la_mise_en_place():
     qu'une partie reprise, et l'inclinaison que la pose vient de tirer est déjà là.
 
     La table n'y est pas touchée : recommencer une partie ne renvoie personne de sa place.
+
+    Le coup est marqué **une fois les pions posés**, et non avant : `marquer_un_coup` photographie
+    la partie pour la pousser aux flux ouverts, et une photo prise entre le `vider` et la pose
+    montrerait un plateau désert. C'était déjà vrai du sondage — un `/partie/etat` tombant dans
+    cet intervalle rendait une partie vide —, mais il fallait tomber juste ; le flux, lui, y
+    serait tombé à chaque fois.
     """
     PLATEAU.vider()
     TOUR.recommencer()
     SUIVI.reinitialiser()
-    marquer_un_coup()
     for case, cle in SCENARIO.placement.items():
         PLATEAU.poser(Hex.depuis_cle(case), CATALOGUE[cle])
+    marquer_un_coup()
     return les_unites_posees()
 
 
@@ -420,13 +459,22 @@ def est_administrateur(joueur):
 
 
 def la_table():
+    """La table telle que la voit le visiteur de la requête courante."""
+    return la_table_de(le_joueur_courant())
+
+
+def la_table_de(joueur):
     """Qui regarde, qui tient quoi — sous la forme que le navigateur reçoit.
 
     Les identifiants Discord n'en sont pas : le navigateur n'a besoin que d'un pseudo et d'un
     avatar pour dire qui tient l'Alliance, et servir un identifiant à tout visiteur serait donner
     une donnée personnelle pour rien.
+
+    Le joueur est passé plutôt que lu dans la session : c'est la **seule** part de l'état qui
+    diffère d'un spectateur à l'autre, et le flux SSE la compose hors de toute requête, pour un
+    joueur qu'il a relu au dépôt lui-même (voir `/flux`). Les routes, elles, appellent
+    `la_table()` et ne voient aucune différence.
     """
-    joueur = le_joueur_courant()
 
     def occupant_de(camp):
         """Le joueur assis à ce camp — l'IA n'est pas en base, elle n'a qu'un nom."""
@@ -659,12 +707,20 @@ def nouvelle_partie():
 
 @jeu.route("/partie/etat")
 def etat_de_la_partie():
-    """Où en est la partie — la route que le navigateur interroge pour suivre l'adversaire.
+    """Où en est la partie — le **repli** du flux SSE, et rien de plus.
 
-    Avec `?version=N`, elle ne rend que le numéro tant que rien n'a bougé : c'est le cas le plus
-    fréquent, et il ne coûte alors ni sérialisation du plateau ni trafic. Dès que la version a
+    C'est la route que le navigateur sondait toutes les trois secondes. Il ne la sonde plus : il
+    tient un flux ouvert (`/flux`) et le serveur lui pousse la partie quand elle change. Elle
+    reste servie pour deux raisons, et elle est écrite pour n'avoir jamais à changer :
+
+    - un navigateur dont l'`EventSource` échoue cinq fois de suite y retombe (voir
+      `suivreLaPartie` dans `carte.js`) — un intermédiaire qui casse le SSE ne doit pas casser
+      le jeu ;
+    - elle dit l'état en un aller-retour, ce qui est commode à interroger.
+
+    Avec `?version=N`, elle ne rend que le numéro tant que rien n'a bougé ; dès que la version a
     changé, tout revient d'un coup — les pions, la phase, la table — et le navigateur repose la
-    scène. Un aller-retour, jamais deux.
+    scène.
 
     Elle est publique : un visiteur de passage suit la partie comme il voit la carte.
     """
@@ -673,6 +729,127 @@ def etat_de_la_partie():
         return {"version": VERSION, "change": False}
     return {"version": VERSION, "change": True, "pions": les_unites_posees(),
             "phase": la_phase_courante(), "table": la_table()}
+
+
+# --- Le flux : la partie poussée à ceux qui la regardent ---------------------------------------
+#
+# Un `GET /flux` par onglet ouvert, qui ne se referme jamais de lui-même. Le serveur y écrit un
+# message à chaque coup joué — pas une seconde avant, pas une de plus —, et un simple commentaire
+# de loin en loin pour que la connexion reste vivante.
+#
+# Le format est celui du Server-Sent Events, que le navigateur sait lire tout seul par
+# `EventSource` : reconnexion comprise, avec l'identifiant du dernier message reçu en
+# `Last-Event-ID`. Cet identifiant, ici, est le numéro de version de la partie — il ne restait
+# rien à inventer.
+
+# Le battement de cœur : au bout de ce silence, le flux écrit un commentaire SSE plutôt que rien.
+# Une ligne qui commence par « : » est ignorée par le navigateur, mais elle traverse la
+# connexion, et c'est tout ce qu'on lui demande — sans quoi un pare-feu, un proxy ou le
+# navigateur lui-même finirait par refermer une connexion qu'il croit morte.
+#
+# TODO: PRODUCTION — 20 s tient sous les valeurs par défaut usuelles (Nginx `proxy_read_timeout`
+# à 60 s, ALB à 60 s). Voir `DEPLOIEMENT.md` : augmenter le timeout de l'intermédiaire plutôt que
+# de descendre celui-ci.
+BATTEMENT = 20  # secondes
+
+
+def message_sse(etat, joueur):
+    """Un événement SSE : l'état partagé, la table de *ce* joueur, et la version pour identifiant.
+
+    L'identifiant est ce que le navigateur renverra en `Last-Event-ID` s'il se reconnecte : le
+    serveur saura alors s'il a manqué quelque chose entre-temps.
+    """
+    corps = json.dumps(etat | {"table": la_table_de(joueur)}, ensure_ascii=False)
+    return f"id: {etat['version']}\ndata: {corps}\n\n"
+
+
+def flux_de_la_partie(application, identifiant, version_connue):
+    """Le générateur du flux : l'état d'entrée s'il y a lieu, puis un message par coup joué.
+
+    Il tourne **hors de toute requête** — werkzeug le déroule après que la vue a rendu sa
+    réponse. D'où le contexte d'application poussé à la main : composer la table demande le dépôt
+    de joueurs et la liste des administrateurs, tous deux accrochés à l'application.
+
+    Ce contexte est poussé et retiré **entre deux `yield`**, jamais à cheval sur l'un d'eux, et
+    c'est la seule façon de faire : Flask tient ses contextes dans des `ContextVar`, qu'un
+    générateur ne possède pas en propre — il les partage avec qui le déroule. Un `with
+    application.app_context():` enveloppant la boucle serait entré dans un appelant et quitté
+    dans un autre, et Flask le dit sans détour : « Popped wrong app context ».
+
+    On ne se sert pas non plus de `stream_with_context`, qui garderait le contexte de *requête*
+    ouvert pour toute la durée du flux — c'est-à-dire tant que l'onglet reste ouvert : `g.joueur`
+    y serait mis en cache une fois pour toutes, et un joueur qui change de pseudo ou quitte sa
+    place ne le verrait jamais. Ici le joueur est relu au dépôt à chaque message, comme partout
+    ailleurs dans le projet.
+
+    L'abonnement, lui, enveloppe bien toute la boucle : c'est un objet à nous, sans `ContextVar`.
+    Quoi qu'il arrive — onglet fermé, réseau coupé, serveur arrêté —, le générateur est fermé,
+    `GeneratorExit` traverse le `with`, et l'abonné est radié.
+    """
+    joueurs = application.extensions["depot_de_joueurs"]
+
+    def composer(etat):
+        """Le message à écrire, table comprise — le seul endroit qui demande l'application."""
+        with application.app_context():
+            joueur = joueurs.par_discord_id(identifiant) if identifiant else None
+            return message_sse(etat, joueur)
+
+    with DIFFUSEUR.abonnement() as abonne:
+        # L'état d'entrée. Le navigateur arrive avec le numéro qu'il connaît — du gabarit à la
+        # première connexion, du `Last-Event-ID` à une reconnexion. S'il est à jour, on ne lui
+        # renvoie pas tout le plateau pour rien : un commentaire suffit à ouvrir le flux, ce qui
+        # fait passer son `EventSource` à l'état « ouvert ». S'il ne l'est pas — l'adversaire a
+        # joué pendant la coupure, ou le serveur a redémarré et sa version est repartie de
+        # zéro —, il rattrape tout d'un coup.
+        yield ": partie suivie\n\n" if version_connue == VERSION \
+            else composer(instantane_partage())
+
+        while True:
+            etat = abonne.attendre(BATTEMENT)
+            yield ": battement\n\n" if etat is None else composer(etat)
+
+
+@jeu.route("/flux")
+def flux_de_partie():
+    """Le flux d'événements de la partie. Publique, comme `/partie/etat`.
+
+    La version que connaît le navigateur vient de deux endroits, et jamais des deux à la fois :
+    `?version=N` à la première connexion — un `EventSource` ne peut pas poser d'en-tête —, et
+    l'en-tête `Last-Event-ID` que le navigateur renvoie de lui-même à chaque reconnexion. C'est
+    ce dernier qui prime : il est plus récent que l'URL, qui date de l'ouverture de la page.
+
+    Tout ce que le générateur aura besoin de savoir est capturé **ici**, tant qu'on est encore
+    dans la requête : l'objet application, et l'identifiant Discord de la session. Le générateur,
+    lui, tourne après.
+    """
+    dernier = request.headers.get("Last-Event-ID")
+    version_connue = _en_entier(dernier) if dernier is not None \
+        else request.args.get("version", type=int)
+
+    reponse = current_app.response_class(
+        flux_de_la_partie(current_app._get_current_object(),
+                          la_connexion().identifiant, version_connue),
+        mimetype="text/event-stream")
+    reponse.headers["Cache-Control"] = "no-cache"
+    reponse.headers["Connection"] = "keep-alive"
+    # TODO: PRODUCTION — Nginx tamponne les réponses par défaut, et retiendrait chaque message
+    # jusqu'à remplir son tampon : le jeu paraîtrait figé. Cet en-tête le lui interdit pour cette
+    # réponse-ci, sans rien avoir à configurer. Le `proxy_buffering off;` de `DEPLOIEMENT.md`
+    # dit la même chose côté serveur ; les deux ensemble, l'un ne dépendant pas de l'autre.
+    reponse.headers["X-Accel-Buffering"] = "no"
+    return reponse
+
+
+def _en_entier(texte):
+    """Le `Last-Event-ID` en entier, ou `None` s'il ne l'est pas.
+
+    L'en-tête vient du navigateur : il peut être vide — c'est ce qu'envoie un `EventSource` qui
+    n'a encore rien reçu — ou n'importe quoi. Un `None` fait simplement renvoyer l'état complet.
+    """
+    try:
+        return int(texte)
+    except ValueError:
+        return None
 
 
 @jeu.route("/deplacements")

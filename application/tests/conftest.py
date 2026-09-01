@@ -90,8 +90,15 @@ def carte_deserte():
 
 @pytest.fixture(scope="session")
 def serveur(application):
-    """Sert l'application sur un port libre, le temps de la session de tests."""
-    serveur = make_server("127.0.0.1", 0, application)
+    """Sert l'application sur un port libre, le temps de la session de tests.
+
+    `threaded=True` n'est pas un confort : depuis que la page tient un **flux SSE** ouvert
+    (`/flux`, voir `application/flux.py`), une requête reste en cours tant que l'onglet vit. Un
+    serveur mono-thread — ce que `make_server` donne par défaut — servirait ce flux et plus
+    jamais rien d'autre, et toute la suite Playwright s'arrêterait là. Les fils de werkzeug sont
+    des démons : l'arrêt n'attend pas les flux encore ouverts.
+    """
+    serveur = make_server("127.0.0.1", 0, application, threaded=True)
     fil = threading.Thread(target=serveur.serve_forever, daemon=True)
     fil.start()
     yield f"http://127.0.0.1:{serveur.server_port}"

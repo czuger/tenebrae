@@ -85,6 +85,9 @@ au serveur où il peut aller, et le serveur répond d'après `moteur/`.
   reste visible sans compte ; jouer demande d'être connecté et de tenir le camp actif.
 - Elle est **sauvegardée dans MongoDB** à chaque coup — positions, phase, combats déjà livrés, et
   qui tient quel camp — et reprise au chargement de `/`.
+- Chaque navigateur suit la partie de l'autre par un **flux d'événements** (`/flux`, du
+  Server-Sent Events, dans `application/flux.py`) : le serveur pousse la partie quand elle change,
+  au lieu qu'on la lui redemande. Les coups du joueur, eux, partent en `POST` comme avant.
 - `/admin/map_fix` sert à corriger la transcription de la carte, réservée aux comptes déclarés
   dans `ADMIN_DISCORD_IDS`. C'est le seul endroit où l'application écrit dans `game_box/`.
 
@@ -165,6 +168,7 @@ Un test suit son sujet : `moteur/tests/test_places.py` éprouve le registre des 
 | `moteur/README.md` | les classes du moteur et l'interprétation des règles |
 | `scenarios/README.md` | le format des mises en place |
 | `application/README.md` | le serveur, l'affichage, les phases, la connexion Discord |
+| `DEPLOIEMENT.md` | ce que le flux d'événements demandera derrière un vrai serveur |
 | `CLAUDE.md` | les conventions de travail du dépôt |
 
 ## Sources

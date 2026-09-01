@@ -20,7 +20,8 @@ les zones de contrôle couvrent les six cases qui les environnent.
 
 La partie se joue **à deux, un joueur par camp**, chacun identifié par son compte Discord : le
 serveur refuse un coup joué par celui dont ce n'est pas le tour, et chaque navigateur voit avancer
-la partie de l'autre sans rien recharger. La carte, elle, reste visible sans compte (voir « Deux
+la partie de l'autre sans rien recharger — par un **flux d'événements** que le serveur pousse quand
+la partie change, et non plus en redemandant toutes les trois secondes. La carte, elle, reste visible sans compte (voir « Deux
 joueurs, deux camps » et « Se connecter par Discord »).
 
 Une seconde page, `/admin/map_fix`, sert à corriger la transcription de la carte : c'est le seul
@@ -196,7 +197,7 @@ degrés**, pour que le plateau n'ait pas l'air posé à la règle. Cet angle n'e
 page : il vient du serveur, avec le pion, parce qu'il est de l'état de partie — le plateau du
 moteur le tire à la pose et le garde (`moteur/plateau.py`), la sauvegarde l'emporte, et il ne
 change que lorsque le pion est déplacé. Une page qui le retirait à chaque fois faisait pivoter les
-cinquante-deux cartons à chaque sondage de `/partie/etat`. La page n'en tire un que pour les
+cinquante-deux cartons à chaque scène reposée. La page n'en tire un que pour les
 **fantômes**, qui ne sont posés nulle part. Les positions sont exprimées en pixels de `map.jpg` :
 la carte est portée à sa taille naturelle par `#plateau`, que le JavaScript met ensuite à
 l'échelle.
@@ -439,10 +440,12 @@ jouer une partie à elle seule.
 | --- | --- | --- | --- |
 | `/partie/place` | POST | s'asseoir au camp du corps `{camp}` | tout compte connecté |
 | `/partie/place/quitter` | POST | rendre sa place ; la partie ne bouge pas | tout compte connecté |
-| `/partie/etat` | GET | où en est la partie — voir plus bas | tout le monde |
+| `/partie/etat` | GET | où en est la partie — le repli du flux, voir plus bas | tout le monde |
+| `/flux` | GET | le flux d'événements : la partie poussée quand elle change | tout le monde |
 
 Ce qui est **public** : `/`, la carte, les images de pions, `/deplacements`, `/phase`,
-`/combat/portee`, `/combat/cible` et `/partie/etat`. Un visiteur de passage voit donc la partie et
+`/combat/portee`, `/combat/cible`, `/partie/etat` et `/flux`. Un visiteur de passage voit donc la
+partie — et la suit en direct — et
 peut consulter ce qui serait atteignable, comme avant. Ce qui demande une **place au camp actif** :
 `/deplacer`, `/combat`, `/phase/suivante`. `POST /partie/nouvelle` demande seulement d'être assis :
 recommencer n'est pas un coup, et **les places sont conservées** — ce sont les deux mêmes personnes,
@@ -474,20 +477,74 @@ appelé à la fin de `POST /phase/suivante` — et à la création de la partie,
 scénario ouvre sur son camp. La stratégie vit dans le moteur (`moteur/ia.py`, voir
 `moteur/README.md`) ; l'application ne fait qu'y passer le dé (`lancer_le_de`), sauvegarder et
 journaliser. Une seule sauvegarde à la fin du tour : la version monte, et le navigateur voit les
-coups de l'IA à son prochain sondage, comme il verrait ceux d'un adversaire humain. Une
+coups de l'IA aussitôt par le flux, comme il verrait ceux d'un adversaire humain. Une
 sauvegarde ne tombe donc jamais sur une phase tenue par l'IA — « / » n'a jamais à la faire jouer.
 
 ### Suivre la partie de l'adversaire
 
-Chaque coup joué fait monter d'un cran le module-global `VERSION`. Le navigateur interroge
-`GET /partie/etat?version=N` toutes les trois secondes — et s'arrête quand l'onglet est caché.
-Tant que `N` est la version courante, le serveur ne rend que `{version, change: false}` : ni
-sérialisation du plateau, ni trafic. Dès qu'elle a changé, tout revient d'un coup — `pions`,
-`phase`, `table` — et la page repose la scène. Un aller-retour, jamais deux.
+La page tient un **flux ouvert** vers le serveur — `GET /flux`, du Server-Sent Events — et n'en
+redemande jamais rien. C'est le serveur qui écrit, au moment où la partie change, et à tous ceux
+qui la regardent à la fois. Le navigateur voit donc le coup de l'adversaire en quelques
+millisecondes, là où le sondage d'avant mettait jusqu'à trois secondes et posait vingt questions
+inutiles pour une réponse utile.
+
+Le canal est **à sens unique**, serveur → navigateur, et il le reste : tout ce que le joueur fait
+part en `POST` sur les routes ordinaires, exactement comme avant. Le flux ne sert qu'à porter le
+résultat d'un coup aux **autres**.
+
+**Le mécanisme, en trois pièces** (`application/flux.py`) :
+
+- un **abonné** par flux ouvert, c'est-à-dire par onglet qui regarde la partie ;
+- une **boîte à une place** par abonné — un `Queue(maxsize=1)` dont le contenu est *remplacé*
+  plutôt qu'empilé. Personne n'a besoin d'un état périmé : une requête qui fait monter la version
+  trois fois (c'est le cas de `/partie/nouvelle`, qui repose le scénario puis laisse l'IA jouer)
+  ne réveille l'abonné qu'une fois, et sur le dernier état ;
+- `marquer_un_coup`, dans `app.py`, qui publie. **C'est le seul point de publication**, et c'est
+  aussi le passage obligé de tout ce qui bouge : aucun coup ne peut être joué sans que les flux
+  ouverts l'apprennent.
+
+**Pourquoi la photo est prise au moment de publier.** Le plateau, le tour et le registre des
+combats sont des module-globaux, et rien ne les protège. Si le générateur d'un flux allait les
+relire à son réveil, il les lirait depuis le fil qui sert *son* flux, pendant qu'un autre fil est
+peut-être en train de déplacer un pion. On ne lui laisse donc rien à relire : la photo est prise
+une fois, dans le fil qui vient d'écrire, et c'est elle qui voyage.
+
+**Ce qui se compose par destinataire.** Presque tout est partagé — les pions, la phase —, mais
+pas la **table** : elle dit à chacun s'il est connecté, sous quel pseudo, et quels camps il
+tient. C'est la seule part du message que le flux compose au moment d'écrire, pour un joueur
+qu'il relit au dépôt à chaque fois (jamais mis en cache : quitter sa place se voit au message
+suivant).
+
+**Le numéro de version sert deux fois.** Il monte d'un cran à chaque coup joué, et c'est aussi
+l'**identifiant d'événement** du flux — celui que le navigateur renvoie en `Last-Event-ID`
+lorsqu'il se reconnecte. Le serveur sait alors s'il y a du retard à rattraper : si le numéro colle,
+il ouvre le flux sur un simple commentaire ; sinon il envoie toute la partie. C'est ce qui fait
+qu'un serveur redémarré, un réseau coupé ou un portable réveillé se rattrapent tout seuls, sans
+une ligne de code pour cela.
+
+**Un battement de cœur** — un commentaire SSE, `: battement` — traverse la connexion toutes les
+20 secondes. Sans lui, un pare-feu, un proxy ou le navigateur finirait par refermer une connexion
+qu'il croit morte.
+
+**L'onglet fermé libère sa place.** La page ferme son flux sur `beforeunload` et `pagehide`, et
+l'abonnement est de toute façon radié dès que le générateur est fermé, quoi qu'il arrive. Sans
+cela, chaque page refermée laisserait une boîte à qui le serveur continuerait de déposer chaque
+coup joué.
+
+**Le repli est gardé.** Si l'`EventSource` échoue cinq fois de suite — un intermédiaire qui coupe
+le SSE, un proxy d'entreprise —, la page referme le flux et retombe sur l'ancien sondage de
+`GET /partie/etat?version=N`, toutes les trois secondes. Cette route reste servie pour cela : le
+jeu ralentit, il ne casse pas.
 
 Reposer la scène doit être **sans effet visible** sur ce qui n'a pas bougé : c'est pourquoi
 l'inclinaison de chaque pion voyage avec lui (voir « Poser les pions »). Elle vient du plateau du
-serveur, qui la retient d'un sondage à l'autre ; seul un pion déplacé se recouche.
+serveur, qui la retient d'un message à l'autre ; seul un pion déplacé se recouche. Pour la même
+raison, le repère du bouton « localiser » est retenu par sa **case** et non par son image : la
+scène reposée détruit toutes les images et les recrée, et le bouton s'éteindrait à chaque coup.
+
+Ce que tout ceci demandera le jour d'une mise en production — serveur WSGI, Nginx, délais
+d'attente, et pourquoi un seul worker — est dans `DEPLOIEMENT.md`, à la racine. Les endroits du
+code concernés portent le marqueur `TODO: PRODUCTION`.
 
 ## Se connecter par Discord
 
@@ -599,6 +656,28 @@ reste sinon allumé d'une série à l'autre. `ARGS` passe des arguments à pytes
 **Rien ne se vérifie à la main** : ni serveur lancé pour aller voir, ni `curl`. Ce qu'on veut
 éprouver s'écrit en test, et ce qui se voit dans une page s'éprouve dans Chromium par Playwright.
 
+`tests/test_diffuseur.py`, `tests/test_flux.py` et `tests/test_flux_navigateur.py` couvrent le
+**flux SSE**, en trois couches. Le premier prend le diffuseur seul, sans Flask ni navigateur :
+boîte à une place, coalescence de trois publications en un réveil, fan-out à plusieurs abonnés, et
+radiation garantie — sur une sortie normale, sur une erreur, et sur un générateur abandonné, qui
+est ce qui arrive quand un onglet se ferme. Le deuxième prend la route `/flux` par le client
+Flask : mimetype et en-têtes (`Cache-Control`, `X-Accel-Buffering`), le commentaire d'ouverture à
+qui est à jour et toute la partie à qui ne l'est pas, le `Last-Event-ID` qui prime sur `?version`
+et le serveur redémarré qu'il rattrape, le coup poussé sans que personne ait rien demandé, le
+battement, la **table composée par destinataire** — un joueur assis et un visiteur anonyme
+reçoivent la même partie et deux tables différentes —, le joueur relu à chaque message, et dix
+flux ouverts puis refermés qui ne laissent rien derrière eux. Le troisième ouvre Chromium : la
+page tient bien un `EventSource`, elle ne sonde **plus jamais** `/partie/etat`, elle n'appelle
+plus rien du tout au repos, un coup joué dehors — par un client HTTP indépendant du navigateur —
+arrive en moins d'une seconde et demie, deux onglets le voient ensemble, un visiteur sans compte
+le voit aussi, le repère de « localiser » survit à la scène reposée, le repli sur le sondage
+s'installe quand `/flux` est coupé, la page se reconnecte et rattrape ce qu'elle a manqué, et un
+onglet fermé libère son abonnement.
+
+Le serveur des tests de navigateur est **concurrent** (`threaded=True` dans `tests/conftest.py` et
+`tests/test_reprise_navigateur.py`) : depuis le flux, une page ouverte tient une requête en cours
+tant qu'elle vit, et un serveur mono-thread ne servirait plus rien d'autre.
+
 `tests/test_map_fix.py` et `tests/test_map_fix_navigateur.py` couvrent la page de correction —
 le second dans Chromium : survol, dialogue, enregistrement, boutons de zoom. Tous deux
 détournent le chemin du fichier de corrections vers un répertoire temporaire : **aucun test
@@ -625,7 +704,7 @@ résolution des combats, dans `moteur/tests/test_combat.py` et `test_phase.py`.
 
 `tests/test_plateau.py` ouvre la page dans Chromium avec Playwright : les 52 pions chargés et
 centrés à moins d'un pixel, inclinés de moins de 5° — et **inclinés une fois pour toutes** : un
-coup joué hors de la page fait reposer la scène par le sondage, et les angles doivent être les
+coup joué hors de la page fait reposer la scène par le flux, et les angles doivent être les
 mêmes, seul un pion déplacé se recouchant —, carte qui reste à l'échelle après
 redimensionnement, le zoom — boutons, molette qui garde son point sous le pointeur, pions qui
 restent sur leur hexagone une fois approchés, échelle réglée à la main qu'un redimensionnement ne

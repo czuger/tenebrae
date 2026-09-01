@@ -49,7 +49,9 @@ def serveur_persistant(request, installer_le_joueur):
     Partie.objects.delete()
     Joueur.objects.delete()
 
-    serveur = make_server("127.0.0.1", 0, application)
+    # `threaded=True` pour la même raison que dans `conftest.py` : la page tient un flux
+    # SSE ouvert, et un serveur mono-thread ne servirait plus rien d'autre.
+    serveur = make_server("127.0.0.1", 0, application, threaded=True)
     fil = threading.Thread(target=serveur.serve_forever, daemon=True)
     fil.start()
     installer_le_joueur(application)

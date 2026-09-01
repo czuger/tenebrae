@@ -50,9 +50,10 @@ Dépendances : `Flask`, `mongoengine` et `python-dotenv` (plus `pytest`, `pytest
 ## Persistance de la partie
 
 La partie est enregistrée dans **MongoDB** à chaque coup joué — déplacement, combat, changement de
-phase —, et `GET /` la reprend. Seul l'état de jeu y va : les positions, la phase courante, ce que
-la phase de combat a déjà consommé, et **qui tient quel camp** — savoir qui joue l'Alliance fait
-partie de la partie, et un redémarrage ne doit pas vider la table. À côté d'elle, une seconde
+phase —, et `GET /` la reprend. Seul l'état de jeu y va : les positions, l'angle sous lequel
+chaque carton est couché, la phase courante, ce que la phase de combat a déjà consommé, et **qui
+tient quel camp** — savoir qui joue l'Alliance fait partie de la partie, et un redémarrage ne doit
+pas vider la table. À côté d'elle, une seconde
 collection retient les **joueurs** connus (`joueurs`). La carte, le catalogue des pions et les
 scénarios restent des fichiers de `game_box/` et `scenarios/`, qui sont la source de vérité du
 dépôt.
@@ -60,7 +61,9 @@ dépôt.
 Les places voyagent dans le dict d'état, avec le reste, et non dans des méthodes de dépôt à part :
 `_remplir()` réécrit toute la partie à chaque coup, et des places tenues à côté seraient effacées
 à chaque sauvegarde. Une partie enregistrée avant les joueurs n'a pas de champ `places` : elle
-reste reprenable, la table est simplement vide.
+reste reprenable, la table est simplement vide. Il en va de même du champ `inclinaisons`, venu
+plus tard : les pions d'une vieille sauvegarde se recouchent une fois à la reprise, et le premier
+coup joué fige leurs angles.
 
 **Lancer un MongoDB local**, par Docker :
 
@@ -158,7 +161,7 @@ molette, boutons, défilement — dans `static/zoom.js` et `static/zoom.css`.
 
 | Champ caché | Contenu |
 | --- | --- |
-| `#pions` | une entrée par unité du scénario : `{q, r, s}` sa case, `{cle, image, nom}` le pion posé, `{mouvement, camp}` ce dont le déplacement se sert, et les valeurs de son carton (voir « Survoler une unité ») |
+| `#pions` | une entrée par unité du scénario : `{q, r, s}` sa case, `inclinaison` l'angle sous lequel elle est couchée, `{cle, image, nom}` le pion posé, `{mouvement, camp}` ce dont le déplacement se sert, et les valeurs de son carton (voir « Survoler une unité ») |
 | `#grille` | `origine`, `matrice` et `taille_pion` : le calage de la grille sur `map.jpg` |
 | `#phase` | la phase courante : `{camp, type, armee, libelle, numero, indisponibles}` (voir « Phases et combat ») |
 | `#table` | qui regarde et qui tient quel camp : `{connecte, pseudo, avatar, administrateur, camps, armees, places}` (voir « Deux joueurs, deux camps ») |
@@ -188,10 +191,15 @@ Le JavaScript convertit chaque hexagone en pixels avec la formule relevée dans
 centre(q, r) = origine + matrice · (q, r)
 ```
 
-Le pion est ensuite **centré** sur ce point (`translate(-50%, -50%)`) puis **incliné au hasard de
-± 5°**, pour que le plateau n'ait pas l'air posé à la règle. Les positions sont exprimées en
-pixels de `map.jpg` : la carte est portée à sa taille naturelle par `#plateau`, que le
-JavaScript met ensuite à l'échelle.
+Le pion est ensuite **centré** sur ce point (`translate(-50%, -50%)`) puis **incliné de quelques
+degrés**, pour que le plateau n'ait pas l'air posé à la règle. Cet angle n'est **pas** tiré par la
+page : il vient du serveur, avec le pion, parce qu'il est de l'état de partie — le plateau du
+moteur le tire à la pose et le garde (`moteur/plateau.py`), la sauvegarde l'emporte, et il ne
+change que lorsque le pion est déplacé. Une page qui le retirait à chaque fois faisait pivoter les
+cinquante-deux cartons à chaque sondage de `/partie/etat`. La page n'en tire un que pour les
+**fantômes**, qui ne sont posés nulle part. Les positions sont exprimées en pixels de `map.jpg` :
+la carte est portée à sa taille naturelle par `#plateau`, que le JavaScript met ensuite à
+l'échelle.
 
 ## Approcher et reculer
 
@@ -219,7 +227,7 @@ est un aller-retour avec le serveur.
 | Route | Réponse |
 | --- | --- |
 | `GET /deplacements?q=&r=&s=&pion=` | `{"depart": {…}, "pion": "cle", "camp": "alliance", "mouvement": 8, "hexagones": [{q, r, s, terrain}, …]}` |
-| `POST /deplacer` — corps `{"depart": {…}, "arrivee": {…}, "pion": "cle"}` | `{"autorise": bool, "depart": {…}, "arrivee": {…}, "pion": "cle", "camp": "alliance", "mouvement": 8}` |
+| `POST /deplacer` — corps `{"depart": {…}, "arrivee": {…}, "pion": "cle"}` | `{"autorise": bool, "depart": {…}, "arrivee": {…}, "inclinaison": -3.52, "pion": "cle", "camp": "alliance", "mouvement": 8}` |
 
 Coordonnées illisibles ou de somme non nulle → 400 ; hexagone hors carte → 404 ; pion inconnu du
 catalogue → 400.
@@ -239,8 +247,9 @@ de 5 points s'applique et la carte est réputée sans adversaire.
    d'opacité, sous les pions posés, centrée et inclinée comme eux. Une cavalerie de Reissland
    (8 points) en couvre plus de deux cents en plaine, le bélier d'Yzent (2 points) une vingtaine,
    un marqueur aucun — et un adversaire proche les fait s'arrêter à son contact ;
-2. clic sur un fantôme → `/deplacer` → le pion se repose sur la case, de travers autrement, et
-   **change de case sur le plateau du serveur** : les zones du coup d'après en tiennent compte ;
+2. clic sur un fantôme → `/deplacer` → le pion se repose sur la case, de travers autrement — c'est
+   le serveur qui a tiré ce nouvel angle et qui le rend, dans `inclinaison` —, et il **change de
+   case sur le plateau du serveur** : les zones du coup d'après en tiennent compte ;
 3. clic ailleurs, ou de nouveau sur le pion sélectionné → les fantômes s'effacent.
 
 `/deplacer` recalcule la portée côté serveur au lieu de croire le navigateur.
@@ -476,6 +485,10 @@ Tant que `N` est la version courante, le serveur ne rend que `{version, change: 
 sérialisation du plateau, ni trafic. Dès qu'elle a changé, tout revient d'un coup — `pions`,
 `phase`, `table` — et la page repose la scène. Un aller-retour, jamais deux.
 
+Reposer la scène doit être **sans effet visible** sur ce qui n'a pas bougé : c'est pourquoi
+l'inclinaison de chaque pion voyage avec lui (voir « Poser les pions »). Elle vient du plateau du
+serveur, qui la retient d'un sondage à l'autre ; seul un pion déplacé se recouche.
+
 ## Se connecter par Discord
 
 Le flux OAuth2 tient en quatre temps, et tout ce qui parle à Discord est dans
@@ -611,7 +624,9 @@ contient le scénario lui-même est éprouvé à part, dans `moteur/tests/test_s
 résolution des combats, dans `moteur/tests/test_combat.py` et `test_phase.py`.
 
 `tests/test_plateau.py` ouvre la page dans Chromium avec Playwright : les 52 pions chargés et
-centrés à moins d'un pixel, inclinés de moins de 5°, carte qui reste à l'échelle après
+centrés à moins d'un pixel, inclinés de moins de 5° — et **inclinés une fois pour toutes** : un
+coup joué hors de la page fait reposer la scène par le sondage, et les angles doivent être les
+mêmes, seul un pion déplacé se recouchant —, carte qui reste à l'échelle après
 redimensionnement, le zoom — boutons, molette qui garde son point sous le pointeur, pions qui
 restent sur leur hexagone une fois approchés, échelle réglée à la main qu'un redimensionnement ne
 défait pas —, la fiche du survol — les valeurs du carton des cinquante-deux unités comparées au
@@ -636,15 +651,19 @@ phase suivante.
 en mémoire : aucun serveur n'est demandé, et le fichier se saute de lui-même si mongomock n'est pas
 installé. Il couvre l'ouverture d'une partie au premier chargement, la reprise après un
 redémarrage simulé (le déplacement retrouvé, la phase retrouvée, le registre des combats retrouvé),
-l'élimination qui ne revient pas, la sauvegarde d'un autre scénario écartée, `POST
+l'élimination qui ne revient pas, les **inclinaisons** écrites, reprises et réécrites au
+déplacement — et la sauvegarde sans ce champ qui reste reprenable —, la sauvegarde d'un autre
+scénario écartée, `POST
 /partie/nouvelle` qui ouvre un second document sans effacer le premier — y compris quand les deux
 partagent la même date, l'identifiant les départageant —, et l'aller-retour du dépôt seul. Partout
 ailleurs la configuration de test pose le **dépôt nul** : les autres fichiers de tests ne voient
 aucune base, et `GET /` y repose la mise en place comme avant.
 
 `tests/test_reprise_navigateur.py` éprouve la reprise **vue de l'écran**, dans Chromium : déplacer
-un pion puis recharger la page et le retrouver à sa nouvelle case, la phase retrouvée de même, et
-`POST /partie/nouvelle` qui repose les 52 unités. Chaque test y tourne **deux fois** — sur
+un pion puis recharger la page et le retrouver à sa nouvelle case, la phase retrouvée de même,
+`POST /partie/nouvelle` qui repose les 52 unités, et les cartons qu'un rechargement retrouve
+couchés sous le même angle — celui d'avant pour les pions immobiles, le nouveau pour le pion
+déplacé. Chaque test y tourne **deux fois** — sur
 mongomock, et sur le vrai MongoDB dès que `MONGODB_URI_TEST` en désigne un qui répond, ce que
 `make test` fait — de sorte que la chaîne complète est éprouvée telle qu'elle tourne en vrai, sans
 avoir à lancer le serveur soi-même.

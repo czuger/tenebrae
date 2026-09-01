@@ -8,7 +8,7 @@ import pytest
 
 from moteur.hexagone import CARTE, MOUVEMENT_PAR_DEFAUT, Hex, zone_de_controle
 from moteur.pion import ALLIANCE, NEUTRE, TENEBRES, pion
-from moteur.plateau import Plateau
+from moteur.plateau import INCLINAISON_MAXIMALE, Plateau
 from moteur.tests.plaines import couronne_de, plaine_bien_entouree
 
 ELFE = "elfes-01-5-infanteries"            # alliance, 4 points de mouvement
@@ -249,3 +249,92 @@ class TestSerialisation:
         with pytest.raises(ValueError):
             plateau.restaurer({HORS_CARTE.cle: ELFE})
         assert plateau.pion_sur(large).cle == NAIN
+
+
+class TestInclinaisons:
+    """L'angle du carton posé : tiré à la pose, retenu, et repris à la restauration.
+
+    Ce n'est pas une règle du fascicule, mais c'est de l'état de partie — voir l'en-tête de
+    `moteur/plateau.py` : un pion qui se recouche autrement à chaque relecture du plateau
+    trahirait un angle recalculé au lieu d'être retenu.
+    """
+
+    def test_poser_couche_le_carton_de_travers(self, terrain):
+        _, c, *_ = terrain
+        plateau = Plateau([(c, pion(ELFE))])
+        assert abs(plateau.inclinaison_sur(c)) <= INCLINAISON_MAXIMALE
+
+    def test_une_case_vide_n_a_pas_d_inclinaison(self, terrain):
+        _, c, x1, _ = terrain
+        plateau = Plateau([(c, pion(ELFE))])
+        assert plateau.inclinaison_sur(x1) is None
+
+    def test_l_inclinaison_donnee_est_reprise_telle_quelle(self, terrain):
+        _, c, *_ = terrain
+        plateau = Plateau()
+        plateau.poser(c, pion(ELFE), 3.14)
+        assert plateau.inclinaison_sur(c) == 3.14
+
+    def test_les_cartons_ne_sont_pas_tous_couches_pareil(self):
+        """Une inclinaison figée se verrait : cinquante poses ne donneraient qu'un seul angle."""
+        cases = [Hex.depuis_cle(cle) for cle in list(CARTE)[:50]]
+        plateau = Plateau([(case, pion(ELFE)) for case in cases])
+        assert len(set(plateau.inclinaisons.values())) > len(cases) / 2
+
+    def test_retirer_oublie_l_inclinaison(self, terrain):
+        _, c, *_ = terrain
+        plateau = Plateau([(c, pion(ELFE))])
+        plateau.retirer(c)
+        assert plateau.inclinaison_sur(c) is None
+        assert plateau.inclinaisons == {}
+
+    def test_vider_oublie_les_inclinaisons(self, terrain):
+        _, c, x1, _ = terrain
+        plateau = Plateau([(c, pion(ELFE)), (x1, pion(ORQUE))])
+        plateau.vider()
+        assert plateau.inclinaisons == {}
+
+    def test_les_inclinaisons_rendues_ne_sont_pas_celles_du_plateau(self, terrain):
+        _, c, *_ = terrain
+        plateau = Plateau([(c, pion(ELFE))])
+        plateau.inclinaisons.clear()
+        assert plateau.inclinaison_sur(c) is not None
+
+    def test_deplacer_recouche_le_carton(self, terrain):
+        """Le seul moment où l'angle change : le pion est repris en main."""
+        _, c, *_ = terrain
+        plateau = Plateau()
+        plateau.poser(c, pion(ELFE), 4.2)
+        arrivee = plateau.deplacements(c)[0]
+        assert plateau.deplacer(c, arrivee) is True
+        assert plateau.inclinaison_sur(c) is None
+        assert plateau.inclinaison_sur(arrivee) != 4.2
+        assert abs(plateau.inclinaison_sur(arrivee)) <= INCLINAISON_MAXIMALE
+
+    def test_un_deplacement_refuse_ne_recouche_rien(self, terrain):
+        """Hors de portée, le pion ne bouge pas — il ne se recouche donc pas non plus."""
+        _, c, *_ = terrain
+        plateau = Plateau()
+        plateau.poser(c, pion(ELFE), 4.2)
+        assert plateau.deplacer(c, HORS_CARTE) is False
+        assert plateau.inclinaison_sur(c) == 4.2
+
+    def test_restaurer_repose_les_cartons_comme_ils_etaient(self, terrain):
+        a, c, *_ = terrain
+        plateau = Plateau([(c, pion(ELFE)), (a, pion(ORQUE))])
+        copie = Plateau().restaurer(plateau.en_dict(), plateau.inclinaisons)
+        assert copie.inclinaisons == plateau.inclinaisons
+
+    def test_restaurer_sans_inclinaisons_en_tire_de_neuves(self, terrain):
+        """Une sauvegarde d'avant qu'on les retienne reste reprenable."""
+        a, c, *_ = terrain
+        plateau = Plateau().restaurer({c.cle: ELFE, a.cle: ORQUE})
+        assert set(plateau.inclinaisons) == {c.cle, a.cle}
+        assert all(abs(angle) <= INCLINAISON_MAXIMALE
+                   for angle in plateau.inclinaisons.values())
+
+    def test_une_case_absente_des_inclinaisons_en_recoit_une(self, terrain):
+        a, c, *_ = terrain
+        plateau = Plateau().restaurer({c.cle: ELFE, a.cle: ORQUE}, {c.cle: 1.5})
+        assert plateau.inclinaison_sur(c) == 1.5
+        assert plateau.inclinaison_sur(a) is not None

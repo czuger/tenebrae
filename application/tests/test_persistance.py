@@ -327,6 +327,82 @@ class TestPlacesPersistees:
             assert app.le_depot_de_joueurs().par_discord_id("999") is None
 
 
+class TestInclinaisonsPersistees:
+    """L'angle sous lequel chaque carton est couché fait partie de la partie sauvegardée.
+
+    Sans lui en base, il serait retiré à chaque relecture du plateau, et les cinquante-deux pions
+    pivoteraient à chaque rechargement de la page. Il ne change qu'au déplacement.
+    """
+
+    def test_les_inclinaisons_sont_ecrites_avec_la_partie(self, client_mongo, parties):
+        client_mongo.get("/")
+        inclinaisons = dict(parties.objects.first().inclinaisons)
+        assert set(inclinaisons) == set(app.SCENARIO.placement)
+        assert inclinaisons == app.PLATEAU.inclinaisons
+
+    def test_les_inclinaisons_sont_reprises_apres_un_redemarrage(self, client_mongo, parties):
+        client_mongo.get("/")
+        avant = app.PLATEAU.inclinaisons
+
+        # Le serveur redémarre : la mémoire est vide, seule la base sait comment les pions
+        # étaient couchés.
+        app.PLATEAU.vider()
+        app.TOUR.recommencer()
+        client_mongo.get("/")
+
+        assert app.PLATEAU.inclinaisons == avant
+
+    def test_sonder_la_partie_ne_recouche_pas_les_pions(self, client_mongo):
+        """Ce que le joueur voit : la page repose la scène et les pions ne pivotent pas.
+
+        C'est le sondage de `/partie/etat` qui donne au navigateur les pions à reposer ; il est
+        joué ici deux fois de suite, autour d'un chargement de « / » qui relit la sauvegarde.
+        """
+        client_mongo.get("/")
+        premier = client_mongo.get("/partie/etat").json["pions"]
+        client_mongo.get("/")
+        second = client_mongo.get("/partie/etat").json["pions"]
+        assert [pion["inclinaison"] for pion in second] == [pion["inclinaison"]
+                                                            for pion in premier]
+
+    def test_un_deplacement_ecrit_la_nouvelle_inclinaison(self, client_mongo, parties):
+        client_mongo.get("/")
+        depart = Hex.depuis_cle(next(iter(app.SCENARIO.placement)))
+        arrivee = app.PLATEAU.deplacements(depart)[0]
+        avant = app.PLATEAU.inclinaison_sur(depart)
+
+        reponse = client_mongo.post("/deplacer", json={
+            "depart": depart.en_dict(), "arrivee": arrivee.en_dict(),
+            "pion": app.PLATEAU.pion_sur(depart).cle})
+        assert reponse.json["autorise"] is True
+
+        inclinaisons = dict(parties.objects.first().inclinaisons)
+        assert depart.cle not in inclinaisons
+        assert inclinaisons[arrivee.cle] == reponse.json["inclinaison"] != avant
+
+    def test_une_partie_enregistree_sans_inclinaisons_reste_reprenable(self, client_mongo,
+                                                                      parties):
+        """Les parties d'avant qu'on les retienne n'ont pas le champ.
+
+        Elles se reprennent quand même : le plateau tire les angles qui lui manquent, et le
+        premier coup joué les écrit. Ils sont figés à partir de là.
+        """
+        client_mongo.get("/")
+        parties.objects.update(unset__inclinaisons=1)
+        app.PLATEAU.vider()
+
+        client_mongo.get("/")
+        repris = app.PLATEAU.inclinaisons
+        assert set(repris) == set(app.SCENARIO.placement)
+
+        client_mongo.post("/phase/suivante")  # un coup joué, donc une sauvegarde
+        assert dict(parties.objects.first().inclinaisons) == repris
+
+        app.PLATEAU.vider()
+        client_mongo.get("/")
+        assert app.PLATEAU.inclinaisons == repris
+
+
 class TestPartieContreLIAPersistee:
     """La place de l'IA voyage dans le dict des places, sous sa sentinelle : rien de plus à
     sauver, rien de plus à reprendre."""

@@ -11,7 +11,7 @@ valant pour toutes les unités qu'il représente (`orques-01-15-infanteries` est
 dans le scénario n° 4). Le document suit cette règle — il n'invente pas d'identifiant d'unité.
 """
 
-from mongoengine import (DateTimeField, Document, IntField, ListField, MapField,
+from mongoengine import (DateTimeField, Document, FloatField, IntField, ListField, MapField,
                          StringField)
 
 from moteur.phase import COMBAT, MOUVEMENT
@@ -30,6 +30,13 @@ class Partie(Document):
 
     scenario = IntField(required=True)
     placement = MapField(StringField(), required=True)
+
+    # L'angle sous lequel chaque carton est couché, « q,r,s » → degrés (voir `moteur/plateau.py`).
+    # Ce n'est pas une règle, c'est de l'apparence — mais une apparence qui doit tenir : sans
+    # elle en base, le pion se recoucherait autrement à chaque rechargement de la page. Mêmes
+    # clés que `placement`, et le champ n'est pas requis : les parties enregistrées avant qu'on
+    # les retienne n'en ont pas, et leurs pions se recouchent une fois à la reprise.
+    inclinaisons = MapField(FloatField())
 
     # La phase courante. Le couple (camp, type) suffit à replacer le tour dans sa séquence ; la
     # magie n'y figure pas, le serveur la franchit toujours.

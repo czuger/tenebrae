@@ -8,6 +8,7 @@ import pytest
 import app
 from moteur.hexagone import CARTE, MOUVEMENT_PAR_DEFAUT, Hex
 from moteur.pion import ALLIANCE, CATALOGUE, TENEBRES
+from moteur.plateau import INCLINAISON_MAXIMALE
 
 
 @pytest.fixture(autouse=True)
@@ -77,6 +78,18 @@ def test_chaque_pion_pose_porte_son_camp(client):
     pions = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
     for pion in pions:
         assert pion["camp"] == CATALOGUE[pion["cle"]].camp
+
+
+def test_chaque_pion_pose_porte_son_inclinaison(client):
+    """L'angle sous lequel le carton est couché part avec le pion : le navigateur n'en tire pas.
+
+    C'est le serveur qui le tire, à la pose, et qui le garde — sans quoi le pion se recoucherait
+    autrement à chaque fois que la page repose la scène.
+    """
+    pions = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
+    for pion in pions:
+        assert isinstance(pion["inclinaison"], float)
+        assert abs(pion["inclinaison"]) <= INCLINAISON_MAXIMALE
 
 
 def test_chaque_pion_pose_porte_les_valeurs_de_son_carton(client):
@@ -159,10 +172,22 @@ def test_le_calage_de_la_grille_est_transmis(client):
 
 
 def test_la_mise_en_place_ne_change_pas_d_un_chargement_a_l_autre(client):
-    """Un scénario fixé se rejoue à l'identique : c'est ce qu'on lui demande."""
+    """Un scénario fixé se rejoue à l'identique : c'est ce qu'on lui demande.
+
+    L'inclinaison est mise de côté : elle n'est pas du scénario mais de la pose, et sans
+    persistance — la configuration de test — chaque chargement de « / » refait la mise en place,
+    donc relâche les cartons sur la carte. Une partie sauvegardée, elle, les retrouve tels
+    qu'elle les avait laissés (voir `test_persistance.py`).
+    """
     premier = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
     second = lire_le_champ_cache(client.get("/").get_data(as_text=True), "pions")
-    assert premier == second
+    assert sans_inclinaison(premier) == sans_inclinaison(second)
+
+
+def sans_inclinaison(pions):
+    """Les pions servis, l'angle de pose en moins."""
+    return [{champ: valeur for champ, valeur in pion.items() if champ != "inclinaison"}
+            for pion in pions]
 
 
 def test_la_carte_est_servie(client):
@@ -328,6 +353,25 @@ def test_un_deplacement_accepte_change_le_plateau(client):
     assert client.post("/deplacer", json={"depart": PLAINE, "arrivee": VOISINE}).json["autorise"]
     assert app.PLATEAU.pion_sur(Hex(**PLAINE)) is None
     assert app.PLATEAU.pion_sur(Hex(**VOISINE)).cle == ELFE
+
+
+def test_un_deplacement_rend_la_nouvelle_inclinaison(client):
+    """Repris en main, le pion se recouche — et c'est le serveur qui dit comment."""
+    poser(PLAINE, ELFE)
+    avant = app.PLATEAU.inclinaison_sur(Hex(**PLAINE))
+    reponse = client.post("/deplacer", json={"depart": PLAINE, "arrivee": VOISINE}).json
+    assert reponse["autorise"] is True
+    assert reponse["inclinaison"] == app.PLATEAU.inclinaison_sur(Hex(**VOISINE))
+    assert reponse["inclinaison"] != avant
+
+
+def test_un_deplacement_ne_recouche_pas_les_autres_pions(client):
+    """Seul le pion déplacé change d'angle : les autres n'ont pas été touchés."""
+    poser(PLAINE, ELFE)
+    poser(LOINTAINE, ELFE)
+    immobile = app.PLATEAU.inclinaison_sur(Hex(**LOINTAINE))
+    client.post("/deplacer", json={"depart": PLAINE, "arrivee": VOISINE})
+    assert app.PLATEAU.inclinaison_sur(Hex(**LOINTAINE)) == immobile
 
 
 def test_un_deplacement_refuse_laisse_le_plateau_en_place(client):
@@ -677,6 +721,37 @@ def test_un_deplacement_se_voit_dans_l_etat(client, carte_deserte):
 
     assert (arrivee.q, arrivee.r, arrivee.s) in cases
     assert (depart.q, depart.r, depart.s) not in cases
+
+
+def test_l_etat_rend_les_memes_inclinaisons_a_chaque_fois(client):
+    """Le cœur de l'affaire : sonder la partie ne recouche pas les pions.
+
+    Le navigateur repose la scène à chaque changement de version ; si l'angle était retiré à
+    chaque envoi, tous les cartons pivoteraient sous les yeux du joueur à chaque coup joué d'en
+    face.
+    """
+    client.get("/")
+    premier = client.get("/partie/etat").json["pions"]
+    client.post("/phase/suivante")
+    second = client.get("/partie/etat").json["pions"]
+    assert [pion["inclinaison"] for pion in premier] == [pion["inclinaison"] for pion in second]
+
+
+def test_seul_le_pion_deplace_change_d_inclinaison_dans_l_etat(client):
+    client.get("/")
+    depart = Hex.depuis_cle(next(iter(app.SCENARIO.placement)))
+    arrivee = app.PLATEAU.deplacements(depart)[0]
+    avant = {(pion["q"], pion["r"], pion["s"]): pion["inclinaison"]
+             for pion in client.get("/partie/etat").json["pions"]}
+
+    client.post("/deplacer", json={"depart": depart.en_dict(), "arrivee": arrivee.en_dict(),
+                                   "pion": app.PLATEAU.pion_sur(depart).cle})
+
+    apres = {(pion["q"], pion["r"], pion["s"]): pion["inclinaison"]
+             for pion in client.get("/partie/etat").json["pions"]}
+    del avant[(depart.q, depart.r, depart.s)]
+    del apres[(arrivee.q, arrivee.r, arrivee.s)]
+    assert apres == avant
 
 
 def test_l_etat_est_public(client_anonyme):

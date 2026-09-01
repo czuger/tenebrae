@@ -230,10 +230,9 @@ def marquer_un_coup():
 def poser_la_mise_en_place():
     """Refait le plateau du serveur d'après le scénario, et rend ses unités pour l'affichage.
 
-    Le scénario ne donne qu'un couple « case → clé de pion » ; tout le reste — l'image, le nom et
-    les valeurs du carton — est repris au catalogue, comme pour n'importe quel pion servi par
-    l'application. L'entrée du catalogue part entière : ce qu'on lui ajoutera suivra tout seul.
-    Seul `chemin` est renommé, en `image`, parce que c'est ce que le navigateur met dans `src`.
+    Le scénario ne donne qu'un couple « case → clé de pion » : les pions sont posés, puis c'est
+    le plateau qu'on décrit, par `les_unites_posees` — la mise en place n'a rien à dire de plus
+    qu'une partie reprise, et l'inclinaison que la pose vient de tirer est déjà là.
 
     La table n'y est pas touchée : recommencer une partie ne renvoie personne de sa place.
     """
@@ -241,14 +240,9 @@ def poser_la_mise_en_place():
     TOUR.recommencer()
     SUIVI.reinitialiser()
     marquer_un_coup()
-    poses = []
     for case, cle in SCENARIO.placement.items():
-        hexagone = Hex.depuis_cle(case)
-        pion = dict(PIONS_PAR_CLE[cle])
-        PLATEAU.poser(hexagone, CATALOGUE[cle])
-        poses.append({"q": hexagone.q, "r": hexagone.r, "s": hexagone.s,
-                      "image": pion.pop("chemin")} | pion)
-    return poses
+        PLATEAU.poser(Hex.depuis_cle(case), CATALOGUE[cle])
+    return les_unites_posees()
 
 
 def les_unites_indisponibles():
@@ -299,6 +293,7 @@ def photographier_la_partie():
     """
     return {"scenario": NUMERO_DU_SCENARIO,
             "placement": PLATEAU.en_dict(),
+            "inclinaisons": PLATEAU.inclinaisons,
             "camp_actif": TOUR.camp_actif,
             "type_de_phase": TOUR.type_de_phase,
             "numero_de_tour": TOUR.numero} | SUIVI.en_dict() | PLACES.en_dict()
@@ -311,7 +306,10 @@ def restaurer_la_partie(etat):
     `.get` sur les places : une partie enregistrée avant les joueurs n'en a pas, et elle doit
     rester reprenable — la table est alors simplement vide, et chacun vient s'y asseoir.
     """
-    PLATEAU.restaurer(etat["placement"])
+    # Les inclinaisons se reposent avec les pions : une partie reprise retrouve ses cartons
+    # couchés comme on les a laissés. `.get` pour la même raison que les places — une sauvegarde
+    # d'avant qu'on les retienne n'en a pas, et le plateau en tire alors des neuves.
+    PLATEAU.restaurer(etat["placement"], etat.get("inclinaisons"))
     TOUR.restaurer(etat["camp_actif"], etat["type_de_phase"], etat["numero_de_tour"])
     SUIVI.restaurer(etat["attaquants_engages"], etat["cibles_engagees"])
     PLACES.restaurer(etat.get("places"))
@@ -356,14 +354,22 @@ def faire_jouer_l_ia():
 def les_unites_posees():
     """Les unités du plateau sous la forme que le navigateur attend, comme à la mise en place.
 
-    `poser_la_mise_en_place` rend la même chose en partant du scénario ; celle-ci part du plateau,
-    et sert donc aussi bien à une partie reprise qu'à une partie neuve.
+    Tout ce qui n'est pas la case vient du catalogue — l'image, le nom, les valeurs du carton —,
+    et l'entrée en part entière : ce qu'on lui ajoutera suivra tout seul. Seul `chemin` est
+    renommé, en `image`, parce que c'est ce que le navigateur met dans `src`. S'y ajoute
+    l'inclinaison, qui n'est pas du carton mais du plateau : elle dit comment **ce** pion-ci est
+    couché, et le navigateur la reprend telle quelle au lieu d'en tirer une (voir
+    `moteur/plateau.py`).
+
+    Une partie neuve passe par ici comme une partie reprise : `poser_la_mise_en_place` pose les
+    pions du scénario, puis appelle cette fonction.
     """
     poses = []
     for case, pion_pose in PLATEAU.pions.items():
         hexagone = Hex.depuis_cle(case)
         pion = dict(PIONS_PAR_CLE[pion_pose.cle])
         poses.append({"q": hexagone.q, "r": hexagone.r, "s": hexagone.s,
+                      "inclinaison": PLATEAU.inclinaison_sur(hexagone),
                       "image": pion.pop("chemin")} | pion)
     return poses
 
@@ -708,7 +714,11 @@ def deplacer():
     autorise = not hors_phase and PLATEAU.deplacer(depart, arrivee, pion)
     if autorise:
         sauvegarder_la_partie()
-    return decrit | {"autorise": autorise, "arrivee": arrivee.en_dict()}
+    # Le carton repris en main s'est recouché : c'est le plateau qui a tiré l'angle, et le
+    # navigateur le reçoit plutôt que d'en tirer un de son côté — sans quoi le pion se
+    # recoucherait encore au premier rechargement de la page.
+    return decrit | {"autorise": autorise, "arrivee": arrivee.en_dict(),
+                     "inclinaison": PLATEAU.inclinaison_sur(arrivee)}
 
 
 def decrire_un_deplacement(depart, pion):

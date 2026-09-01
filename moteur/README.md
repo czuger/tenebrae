@@ -7,7 +7,7 @@ servir ce que ce paquet décide. Un déplacement n'est jamais jugé légal par l
 | --- | --- |
 | `hexagone.py` | la carte lue en constante, et la classe `Hex` |
 | `pion.py` | le catalogue des pions lu en constante, et la classe `Pion` |
-| `plateau.py` | l'état de partie : quels pions sont posés, où, et dans quel camp |
+| `plateau.py` | l'état de partie : quels pions sont posés, où, dans quel camp, et sous quel angle |
 | `scenario.py` | les mises en place fixées dans `scenarios/`, et le `Plateau` qu'elles donnent |
 | `phase.py` | la machine à états d'un tour : quel camp joue, et à quoi (`Tour`) |
 | `combat.py` | la résolution d'un combat d'après le Tableau I du fascicule |
@@ -28,7 +28,7 @@ ne gère que la connexion.
 
 | Classe | Fichier | Collection Mongo | Ce qu'elle tient |
 | --- | --- | --- | --- |
-| `Partie` | `models/partie.py` | `parties` | placement, phase, tour, combats déjà livrés, places |
+| `Partie` | `models/partie.py` | `parties` | placement, inclinaisons, phase, tour, combats déjà livrés, places |
 | `Joueur` | `models/joueur.py` | `joueurs` | un compte Discord connu du jeu : identifiant, pseudo, avatar |
 | `Places` | `models/places.py` | — | camp → identifiant Discord ; sauvegardée dans le champ `places` de `Partie` |
 
@@ -207,6 +207,7 @@ from moteur.plateau import Plateau
 plateau = Plateau([(Hex(1, 26, -27), pion("elfes-01-5-infanteries"))])
 plateau.poser(hexagone, pion)          # une case, un pion ; retirer() et vider() défont
 plateau.pion_sur(hexagone)             # le Pion posé là, ou None
+plateau.inclinaison_sur(hexagone)      # l'angle sous lequel il est couché, en degrés
 plateau.cases_tenues_par("alliance")   # les clés « q,r,s » de ce camp
 plateau.adversaires_de("alliance")     # celles du camp opposé
 plateau.zones_de_controle_contre("alliance")
@@ -225,6 +226,12 @@ donne les adversaires, les adversaires donnent les zones de contrôle.
 - **Une case amie se traverse mais ne se prend pas.** Le fascicule autorise le passage
   (« une unité peut traverser une case occupée par une unité de la même armée ») et interdit
   l'empilement : les cases occupées sont donc retirées des destinations, pas du parcours.
+- **Le carton est couché de travers, et il le reste.** `poser` tire une **inclinaison** au sort —
+  quelques degrés, `INCLINAISON_MAXIMALE` — que `inclinaisons` rend par case et que `restaurer`
+  reprend telle quelle. Ce n'est pas une règle du fascicule, mais c'est de l'état de partie : elle
+  se sauvegarde avec les positions, et elle ne change qu'au déplacement, puisque `deplacer` repose
+  le pion. Un plateau relu ne rejoue pas ce tirage — sinon les pions pivoteraient à chaque
+  rechargement de la page.
 
 ## Les scénarios
 

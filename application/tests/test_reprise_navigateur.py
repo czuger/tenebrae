@@ -99,6 +99,17 @@ def cases_posees(page):
         ".map((p) => `${p.dataset.q},${p.dataset.r},${p.dataset.s}`)"))
 
 
+def angles_poses(page):
+    """L'angle de chaque pion posé, par case — lu sur la rotation que le navigateur a appliquée."""
+    return page.evaluate("""() => Object.fromEntries(
+        [...document.querySelectorAll('img.pion:not(.fantome)')].map((pion) => {
+            const matrice = new DOMMatrix(getComputedStyle(pion).transform);
+            const angle = Math.atan2(matrice.b, matrice.a) * 180 / Math.PI;
+            return [`${pion.dataset.q},${pion.dataset.r},${pion.dataset.s}`,
+                    Math.round(angle * 100) / 100];
+        }))""")
+
+
 def deplacer_un_pion(page):
     """Déplace la première unité qui a des cases où aller, et rend son départ et son arrivée."""
     for indice in range(len(app.SCENARIO)):
@@ -153,3 +164,22 @@ def test_recommencer_repose_le_scenario(plateau_persistant, serveur_persistant):
     posees = cases_posees(plateau_persistant)
     assert posees == set(app.SCENARIO.placement)
     assert depart in posees and arrivee not in posees
+
+
+def test_les_pions_gardent_leur_inclinaison_apres_rechargement(plateau_persistant,
+                                                               serveur_persistant):
+    """L'angle des cartons est sauvegardé avec les positions : recharger ne les recouche pas."""
+    avant = angles_poses(plateau_persistant)
+    ouvrir(plateau_persistant, serveur_persistant)
+    assert angles_poses(plateau_persistant) == avant
+
+
+def test_le_pion_deplace_garde_son_nouvel_angle_apres_rechargement(plateau_persistant,
+                                                                   serveur_persistant):
+    """Repris en main, il se recouche une fois — et la base retient ce nouvel angle."""
+    _, arrivee = deplacer_un_pion(plateau_persistant)
+    angle = angles_poses(plateau_persistant)[arrivee]
+
+    ouvrir(plateau_persistant, serveur_persistant)
+
+    assert angles_poses(plateau_persistant)[arrivee] == angle

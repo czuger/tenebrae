@@ -1,8 +1,8 @@
 """Le dépôt de la partie : la couche d'accès à la partie sauvegardée.
 
 Un dépôt échange des **dicts d'état** — le format de `photographier_la_partie()` dans
-`application/app.py` : `{scenario, placement, camp_actif, type_de_phase, numero_de_tour,
-attaquants_engages, cibles_engagees, places}` — jamais un Document MongoEngine. C'est ce qui tient
+`application/app.py` : `{scenario, placement, inclinaisons, camp_actif, type_de_phase,
+numero_de_tour, attaquants_engages, cibles_engagees, places}` — jamais un Document MongoEngine. C'est ce qui tient
 Mongo hors des routes : `app.py` n'importe ni `moteur.models` ni `mongoengine`, il appelle
 `charger`, `sauvegarder` et `nouvelle_partie`, point.
 
@@ -34,6 +34,7 @@ class DepotDePartieMongo:
             return None
         return {"scenario": partie.scenario,
                 "placement": dict(partie.placement),
+                "inclinaisons": dict(partie.inclinaisons),
                 "camp_actif": partie.camp_actif,
                 "type_de_phase": partie.type_de_phase,
                 "numero_de_tour": partie.numero_de_tour,
@@ -56,6 +57,7 @@ class DepotDePartieMongo:
     def _remplir(self, partie, etat):
         partie.scenario = etat["scenario"]
         partie.placement = etat["placement"]
+        partie.inclinaisons = etat["inclinaisons"]
         partie.camp_actif = etat["camp_actif"]
         partie.type_de_phase = etat["type_de_phase"]
         partie.numero_de_tour = etat["numero_de_tour"]

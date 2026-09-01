@@ -112,6 +112,55 @@ def test_les_inclinaisons_sont_tirees_au_hasard(plateau):
     assert any(angle < 0 for angle in angles) and any(angle > 0 for angle in angles)
 
 
+def angles_par_case(page):
+    """L'angle de chaque pion posé, par case « q,r,s » — lu sur la rotation rendue."""
+    return {f"{pion['q']},{pion['r']},{pion['s']}": round(pion["angle"], 2)
+            for pion in geometrie_des_pions(page)}
+
+
+def faire_jouer_l_adversaire(page, serveur):
+    """Joue un coup hors de la page — comme le ferait l'autre navigateur — et attend qu'elle le voie.
+
+    Le sondage de `/partie/etat` repose alors toute la scène : c'est le moment où une inclinaison
+    tirée par la page, et non par le serveur, se verrait. Le libellé de la phase est ce qui dit
+    que la reprise a eu lieu ; il est rafraîchi juste après les pions.
+    """
+    assert page.request.post(f"{serveur}/phase/suivante").ok
+    page.wait_for_function(
+        "document.getElementById('phase-libelle').textContent === 'Phase de combat — Nains'")
+
+
+def test_les_pions_gardent_leur_inclinaison_quand_la_scene_est_reposee(plateau, serveur):
+    """Ce qui perturbait : les cartons pivotaient à chaque sondage de l'état de la partie.
+
+    L'inclinaison est de l'état de partie — le serveur la tire à la pose et la garde (voir
+    `moteur/plateau.py`) —, la page la repose donc telle quelle.
+    """
+    avant = angles_par_case(plateau)
+    faire_jouer_l_adversaire(plateau, serveur)
+    assert angles_par_case(plateau) == avant
+
+
+def test_le_pion_deplace_se_recouche_une_fois_et_garde_son_angle(plateau, serveur):
+    """Le seul moment où l'angle change, et il ne rechange plus au sondage suivant."""
+    pion, depart, _ = pion_qui_peut_bouger(plateau)
+    avant = angles_par_case(plateau)
+    montrer_les_fantomes(plateau, pion)
+    fantome = plateau.locator("img.fantome").last
+    arrivee = fantome.evaluate("f => `${f.dataset.q},${f.dataset.r},${f.dataset.s}`")
+    fantome.click()
+    plateau.wait_for_function("document.querySelectorAll('img.fantome').length === 0")
+
+    apres = angles_par_case(plateau)
+    assert apres[arrivee] != avant[depart.cle], "le pion s'est reposé du même côté"
+    # Les autres n'ont pas été touchés : eux n'ont pas été repris en main.
+    assert {case: angle for case, angle in apres.items() if case != arrivee} \
+        == {case: angle for case, angle in avant.items() if case != depart.cle}
+
+    faire_jouer_l_adversaire(plateau, serveur)
+    assert angles_par_case(plateau) == apres
+
+
 def test_les_pions_ont_la_taille_prevue(plateau):
     for pion in geometrie_des_pions(plateau):
         assert pion["largeur"] == app.PION_TAILLE

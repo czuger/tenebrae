@@ -10,6 +10,10 @@
 // rien à ce qui est posé sur la carte. Le zoom lui-même est dans zoom.js, partagé avec la page de
 // correction.
 
+// L'inclinaison des pions posés vient du serveur : elle est de l'état de partie, tirée au sort à
+// la pose et sauvegardée avec elle (voir `moteur/plateau.py`). La page n'en tire une que pour les
+// fantômes, qui ne sont posés nulle part — et pour un pion qui arriverait sans, ce que le serveur
+// ne fait pas.
 const ROTATION_MAXIMALE = 5; // degrés, en avant ou en arrière
 
 // Les valeurs chiffrées du carton, dans l'ordre où la fiche les donne à lire (voir la section
@@ -116,16 +120,16 @@ function hexagoneClique(evenement) {
   return hexagoneDuPixel(x, y);
 }
 
-function poser(image, hexagone) {
+function poser(image, hexagone, inclinaison) {
   const centre = centreDeLHexagone(hexagone.q, hexagone.r);
-  const inclinaison = (Math.random() * 2 - 1) * ROTATION_MAXIMALE;
+  const angle = inclinaison ?? (Math.random() * 2 - 1) * ROTATION_MAXIMALE;
   image.dataset.q = hexagone.q;
   image.dataset.r = hexagone.r;
   image.dataset.s = hexagone.s;
   image.style.left = `${centre.x}px`;
   image.style.top = `${centre.y}px`;
   // Le décalage de moitié centre le pion sur l'hexagone ; la rotation vient après.
-  image.style.transform = `translate(-50%, -50%) rotate(${inclinaison.toFixed(2)}deg)`;
+  image.style.transform = `translate(-50%, -50%) rotate(${angle.toFixed(2)}deg)`;
 }
 
 // --- La fiche de l'unité survolée ---
@@ -175,21 +179,21 @@ function estUnPionPose(cible) {
     && cible.classList.contains("pion") && !cible.classList.contains("fantome");
 }
 
-function creerImage(pion, hexagone, classe) {
+function creerImage(pion, hexagone, classe, inclinaison) {
   const image = document.createElement("img");
   image.className = classe;
   image.src = `/pions/${pion.image}`;
   image.alt = pion.nom;
   image.style.width = `${grille.taille_pion}px`;
   image.style.height = `${grille.taille_pion}px`;
-  poser(image, hexagone);
+  poser(image, hexagone, inclinaison);
   plateau.appendChild(image);
   return image;
 }
 
 function poserLesPions() {
   for (const pion of pions) {
-    const image = creerImage(pion, { q: pion.q, r: pion.r, s: pion.s }, "pion");
+    const image = creerImage(pion, { q: pion.q, r: pion.r, s: pion.s }, "pion", pion.inclinaison);
     image.pion = pion; // le pion tiré par le serveur, pour ses fantômes et sa fiche
     pionsPoses.push(image);
   }
@@ -238,12 +242,13 @@ async function deplacer(image, hexagone) {
     }),
   });
   if (!reponse) return;
-  const { autorise, arrivee } = await reponse.json();
+  const { autorise, arrivee, inclinaison } = await reponse.json();
   if (!autorise) return;
 
   effacerLesFantomes();
-  // Le pion a été repris en main : il se repose de travers, autrement que la fois d'avant.
-  poser(image, arrivee);
+  // Le pion a été repris en main : il se repose de travers, autrement que la fois d'avant. C'est
+  // le serveur qui a tiré ce nouvel angle, et qui le garde — le pion restera couché ainsi.
+  poser(image, arrivee, inclinaison);
   // Si le pointeur était resté sur ce pion, sa fiche doit dire la case où il vient d'arriver.
   if (survole === image) montrerLaFiche(image);
 }

@@ -36,24 +36,22 @@ def page_view(client):
 
 # --- What the page carries -----------------------------------------------------------------------
 
-def test_the_page_has_no_view_to_return_to_an_anonymous_visitor(anonymous_client):
-    """A passing visitor has nowhere to store it: the map opens fitted."""
+def test_the_page_has_no_view_to_return_to_whoever_stored_none(anonymous_client, client):
+    """A passing visitor has nowhere to store one, and a player who has not moved has none: the
+    map opens fitted in both cases."""
     assert page_view(anonymous_client) is None
-
-
-def test_the_page_has_no_view_to_return_to_someone_who_has_adjusted_nothing(client):
     assert page_view(client) is None
 
 
 def test_the_page_returns_the_adjusted_view(client):
-    assert client.post("/view", json=A_VIEW).status_code == 200
+    """The route hands it straight back too, so the browser knows what was kept."""
+    answer = client.post("/view", json=A_VIEW)
+    assert answer.status_code == 200
+    assert answer.json == A_VIEW
     assert page_view(client) == A_VIEW
 
 
 # --- What the route accepts ----------------------------------------------------------------------
-
-def test_the_adjusted_view_is_returned_as_it_is(client):
-    assert client.post("/view", json=A_VIEW).json == A_VIEW
 
 
 def test_an_anonymous_visitor_can_store_nothing(anonymous_client):

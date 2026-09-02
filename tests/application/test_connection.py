@@ -94,14 +94,15 @@ def test_a_second_login_updates_the_nickname(anonymous_client, application):
     assert player["nickname"] == "Joueuse d'essai, deuxième"
 
 
-def test_a_return_without_a_state_is_refused(anonymous_client):
-    assert anonymous_client.get("/login/return?code=x").status_code == 400
-
-
-def test_a_state_that_does_not_match_is_refused(anonymous_client):
-    anonymous_client.get("/login")
-    answer = anonymous_client.get("/login/return?code=x&state=an-invented-state")
-    assert answer.status_code == 400
+def test_a_return_that_does_not_carry_the_state_back_is_refused(anonymous_client):
+    """No state at all, a state nobody handed out, or a state but no code: 400 each, and in no case
+    a session. What each refusal *says* is exercised further down, with the log."""
+    departure = anonymous_client.get("/login")
+    refused = ("/login/return?code=x",
+               "/login/return?code=x&state=an-invented-state",
+               f"/login/return?state={state_of(departure)}")
+    for url in refused:
+        assert anonymous_client.get(url).status_code == 400, url
     with anonymous_client.session_transaction() as session:
         assert "joueur" not in session
 
@@ -112,12 +113,6 @@ def test_the_state_serves_only_once(anonymous_client):
     return_url = departure.headers["Location"]
     assert anonymous_client.get(return_url).status_code == 302
     assert anonymous_client.get(return_url).status_code == 400
-
-
-def test_a_return_without_a_code_is_refused(anonymous_client):
-    departure = anonymous_client.get("/login")
-    answer = anonymous_client.get(f"/login/return?state={state_of(departure)}")
-    assert answer.status_code == 400
 
 
 def test_a_refusal_on_discords_page_brings_back_to_the_map(anonymous_client):
@@ -211,19 +206,15 @@ def test_a_missing_code_is_logged(anonymous_client, log):
     assert log[-1]["text"] == "Connexion refusée : code d'autorisation absent de la requête"
 
 
-def test_an_answer_that_does_not_touch_the_session_does_not_rewrite_the_cookie(anonymous_client):
+def test_only_an_answer_that_touches_the_session_rewrites_the_cookie(anonymous_client):
     """The heart of the bug: a logged-in player has a permanent session, which Flask rewrote into
     the cookie at every response. A request that left with the old session before `/login` and
     answered afterwards then erased the OAuth2 state. Only responses that modify the session must
-    set the cookie."""
+    set the cookie - and `/login`, which sets the state, is one of them."""
     log_in(anonymous_client)
     for route in ("/", "/game/state", "/game/state?version=0"):
         assert "Set-Cookie" not in anonymous_client.get(route).headers, route
 
-
-def test_setting_the_state_rewrites_the_cookie(anonymous_client):
-    """The counterpart: `/login` modifies the session, and its cookie must go out."""
-    log_in(anonymous_client)
     assert "Set-Cookie" in anonymous_client.get("/login").headers
 
 
@@ -238,28 +229,21 @@ def test_the_access_token_never_goes_into_the_session(anonymous_client):
         assert set(session) == {"joueur", "_permanent"}
 
 
-def test_logging_out_empties_the_session(client):
+def test_logging_out_empties_the_session_but_keeps_the_seat(client):
+    """One comes back to sit in it: leaving the table is a separate gesture."""
     assert client.post("/logout").json == {"connected": False}
     with client.session_transaction() as session:
         assert "joueur" not in session
-
-
-def test_logging_out_does_not_give_up_the_seat(client):
-    """One comes back to sit in it: leaving the table is a separate gesture."""
-    client.post("/logout")
     assert app.SEATS.occupant(ALLIANCE) == DEFAULT_IDENTITY["discord_id"]
 
 
 # --- What an anonymous visitor sees ---------------------------------------------------------------
 
 
-def test_an_anonymous_visitor_sees_the_map(anonymous_client):
+def test_an_anonymous_visitor_sees_the_map_and_consults_it(anonymous_client):
+    """The board stays public: a passer-by watches the game and asks where a piece could go."""
     assert anonymous_client.get("/").status_code == 200
-
-
-def test_an_anonymous_visitor_consults_the_moves(anonymous_client):
-    answer = anonymous_client.get("/moves", query_string=PLAIN)
-    assert answer.status_code == 200
+    assert anonymous_client.get("/moves", query_string=PLAIN).status_code == 200
 
 
 def test_an_anonymous_visitor_moves_nothing(anonymous_client, deserted_map):
@@ -270,12 +254,14 @@ def test_an_anonymous_visitor_moves_nothing(anonymous_client, deserted_map):
     assert deserted_map.piece_on(app.Hex(**PLAIN)) is not None
 
 
-def test_an_anonymous_visitor_does_not_change_the_phase(anonymous_client):
+def test_everything_that_changes_something_asks_for_a_session(anonymous_client):
+    """Playing, restarting, sitting down, fixing the map: 401 without an account. Moving is set
+    apart just above, because there the board must be checked as well."""
     assert anonymous_client.post("/phase/next").status_code == 401
-
-
-def test_an_anonymous_visitor_does_not_restart_the_game(anonymous_client):
     assert anonymous_client.post("/game/new").status_code == 401
+    assert anonymous_client.post("/game/seat", json={"side": ALLIANCE}).status_code == 401
+    assert anonymous_client.get("/admin/map_fix").status_code == 401
+    assert anonymous_client.post("/admin/map_fix", json={}).status_code == 401
 
 
 # --- Each to their own side ----------------------------------------------------------------------
@@ -318,16 +304,14 @@ def seatless_client(application, seat_the_player):
 
 
 def test_sitting_down_takes_the_side(seatless_client):
+    """And the table that comes back names its occupants by nickname, never by Discord
+    identifier: the browser has no use for one, and it is not ours to hand out."""
     answer = seatless_client.post("/game/seat", json={"side": ALLIANCE})
     assert answer.status_code == 200
     assert answer.json["seated"] is True
     assert answer.json["sides"] == [ALLIANCE]
     assert app.SEATS.occupant(ALLIANCE) == DEFAULT_IDENTITY["discord_id"]
 
-
-def test_the_table_says_who_holds_what_by_their_nickname(seatless_client):
-    """The browser receives nicknames, never Discord identifiers."""
-    answer = seatless_client.post("/game/seat", json={"side": ALLIANCE})
     assert answer.json["seats"] == {ALLIANCE: DEFAULT_IDENTITY["nickname"], DARKNESS: None}
     assert DEFAULT_IDENTITY["discord_id"] not in answer.get_data(as_text=True)
 
@@ -336,15 +320,15 @@ def test_a_side_unknown_to_the_scenario_is_refused(seatless_client):
     assert seatless_client.post("/game/seat", json={"side": "dragons"}).status_code == 400
 
 
-def test_a_second_side_is_refused_to_whoever_already_holds_one(seatless_client):
+def test_one_seat_each_and_sitting_back_down_in_it_makes_no_fuss(seatless_client):
+    """A player holds one side: asking for the other is refused, asking for their own again is
+    not - a reloaded page must not look like a conflict."""
     seatless_client.post("/game/seat", json={"side": ALLIANCE})
-    answer = seatless_client.post("/game/seat", json={"side": DARKNESS})
-    assert answer.status_code == 409
+
+    refused = seatless_client.post("/game/seat", json={"side": DARKNESS})
+    assert refused.status_code == 409
     assert app.SEATS.is_free(DARKNESS)
 
-
-def test_sitting_back_down_in_ones_own_seat_makes_no_fuss(seatless_client):
-    seatless_client.post("/game/seat", json={"side": ALLIANCE})
     assert seatless_client.post("/game/seat", json={"side": ALLIANCE}).status_code == 200
 
 
@@ -376,10 +360,6 @@ def test_leaving_gives_the_seat_back(client):
     assert app.SEATS.is_free(ALLIANCE) and app.SEATS.is_free(DARKNESS)
 
 
-def test_an_anonymous_visitor_does_not_take_a_seat(anonymous_client):
-    assert anonymous_client.post("/game/seat", json={"side": ALLIANCE}).status_code == 401
-
-
 def test_restarting_keeps_both_players_at_the_table(client):
     """Starting again from the set-up sends nobody away: they are the same two people."""
     client.post("/game/new")
@@ -387,11 +367,6 @@ def test_restarting_keeps_both_players_at_the_table(client):
 
 
 # --- Fixing the map ------------------------------------------------------------------------------
-
-
-def test_fixing_the_map_requires_being_logged_in(anonymous_client):
-    assert anonymous_client.get("/admin/map_fix").status_code == 401
-    assert anonymous_client.post("/admin/map_fix", json={}).status_code == 401
 
 
 def test_fixing_the_map_is_refused_to_an_ordinary_player(application, seat_the_player):

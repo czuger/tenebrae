@@ -30,10 +30,9 @@ class TestScenarioCatalogue:
         assert SCENARIOS.is_dir()
         assert SCENARIOS.name == "scenarios"
 
-    def test_scenario_four_is_fixed(self):
+    def test_only_the_scenarios_that_are_fixed_can_be_asked_for(self):
+        """No. 4 is the one fixed to date; the booklet's others have no file yet."""
         assert WAR_OF_THE_DWARVES in available_scenarios()
-
-    def test_an_unfixed_scenario_cannot_be_found(self):
         with pytest.raises(KeyError):
             scenario(99)
 
@@ -179,18 +178,15 @@ class TestWarOfTheDwarves:
 
 
 class TestPlacementOnTheMap:
-    def test_every_square_is_on_the_map(self, war_of_the_dwarves):
+    def test_every_unit_stands_on_a_square_it_can_stand_on(self, war_of_the_dwarves):
+        """On the map, and not in a lake, a river, the rift or a mountain.
+
+        That no two units share a square needs no test: the placement is a dictionary keyed by
+        square, so stacking is impossible by construction.
+        """
         for square in war_of_the_dwarves.placement:
             assert square in MAP
-
-    def test_no_unit_on_impracticable_terrain(self, war_of_the_dwarves):
-        """A lake, a river, the rift or a mountain cannot be stood on."""
-        for square in war_of_the_dwarves.placement:
             assert MAP[square][0] not in FORBIDDEN_TERRAINS, square
-
-    def test_a_square_carries_only_one_unit(self, war_of_the_dwarves):
-        """The placement is a dictionary: stacking is impossible by construction."""
-        assert len(war_of_the_dwarves.placement) == len(set(war_of_the_dwarves.placement))
 
     def test_every_piece_exists_in_the_box(self, war_of_the_dwarves):
         for key in war_of_the_dwarves.placement.values():
@@ -199,12 +195,9 @@ class TestPlacementOnTheMap:
 
 
 class TestScenarioBoard:
-    def test_the_board_carries_every_unit(self, war_of_the_dwarves):
+    def test_the_board_carries_every_unit_on_its_square(self, war_of_the_dwarves):
         board = war_of_the_dwarves.board()
         assert len(board) == len(war_of_the_dwarves)
-
-    def test_each_piece_is_on_its_square(self, war_of_the_dwarves):
-        board = war_of_the_dwarves.board()
         for square, key in war_of_the_dwarves.placement.items():
             assert board.piece_on(Hex.from_key(square)).key == key
 

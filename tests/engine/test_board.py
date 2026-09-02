@@ -31,21 +31,16 @@ class TestPositions:
         assert board.pieces == {}
 
     def test_placing_and_finding_a_piece(self, ground):
-        _, c, *_ = ground
+        """Placed one by one or handed to the constructor, it comes to the same board; and a square
+        nobody stands on answers nothing."""
+        _, c, x1, _ = ground
         board = Board()
         board.place(c, piece(ELF))
         assert board.piece_on(c).key == ELF
+        assert board.piece_on(x1) is None
         assert len(board) == 1
 
-    def test_an_empty_square_carries_nothing(self, ground):
-        _, c, x1, _ = ground
-        board = Board([(c, piece(ELF))])
-        assert board.piece_on(x1) is None
-
-    def test_a_board_is_built_with_its_pieces(self, ground):
-        _, c, x1, _ = ground
-        board = Board([(c, piece(ELF)), (x1, piece(ORC))])
-        assert len(board) == 2
+        assert len(Board([(c, piece(ELF)), (x1, piece(ORC))])) == 2
 
     def test_removing_returns_the_piece(self, ground):
         _, c, *_ = ground
@@ -85,16 +80,15 @@ class TestSides:
         assert board.opponents_of(ALLIANCE) == frozenset()
         assert board.squares_held_by(ALLIANCE) == {c.key, x1.key}
 
-    def test_the_neutral_side_has_no_opponent(self, ground):
+    def test_the_neutral_side_takes_no_part(self, ground):
+        """It opposes nobody, and nobody opposes it: the relation is empty both ways."""
         _, c, x1, _ = ground
-        board = Board([(c, piece(BAT)), (x1, piece(ORC))])
-        assert board.opponents_of(NEUTRAL) == frozenset()
-        assert board.zones_of_control_against(NEUTRAL) == frozenset()
+        neutral = Board([(c, piece(BAT)), (x1, piece(ORC))])
+        assert neutral.opponents_of(NEUTRAL) == frozenset()
+        assert neutral.zones_of_control_against(NEUTRAL) == frozenset()
 
-    def test_the_neutral_side_is_nobodys_opponent(self, ground):
-        _, c, x1, _ = ground
-        board = Board([(c, piece(ELF)), (x1, piece(BAT))])
-        assert board.opponents_of(ALLIANCE) == frozenset()
+        against = Board([(c, piece(ELF)), (x1, piece(BAT))])
+        assert against.opponents_of(ALLIANCE) == frozenset()
 
 
 class TestZonesOfControl:
@@ -103,15 +97,13 @@ class TestZonesOfControl:
         board = Board([(c, piece(ELF)), (a, piece(ORC))])
         assert board.zones_of_control_against(ALLIANCE) == zone_of_control([a])
 
-    def test_a_marker_exerts_no_zone(self, ground):
+    def test_what_stands_next_to_a_friend_exerts_no_zone(self, ground):
+        """Two reasons, one result: a marker exerts none at all, and a piece of the same side
+        exerts none against its own."""
         a, c, *_ = ground
-        board = Board([(c, piece(ELF)), (a, piece(MARKER))])
-        assert board.zones_of_control_against(ALLIANCE) == frozenset()
-
-    def test_friends_exert_nothing_against_their_own(self, ground):
-        a, c, *_ = ground
-        board = Board([(c, piece(ELF)), (a, piece(DWARF))])
-        assert board.zones_of_control_against(ALLIANCE) == frozenset()
+        for neighbour in (MARKER, DWARF):
+            board = Board([(c, piece(ELF)), (a, piece(neighbour))])
+            assert board.zones_of_control_against(ALLIANCE) == frozenset(), neighbour
 
 
 class TestMoves:
@@ -121,15 +113,13 @@ class TestMoves:
         assert board.movement_of(c) == 3
         assert board.moves(c) == c.moves(3)
 
-    def test_an_empty_square_answers_with_the_flat_rate(self, ground):
+    def test_an_empty_square_answers_with_the_flat_rate_or_the_piece_offered(self, ground):
+        """Nobody there: the flat rate, unless the caller says which piece it has in hand."""
         _, c, *_ = ground
         board = Board()
         assert board.movement_of(c) == DEFAULT_MOVEMENT
         assert board.moves(c) == c.moves()
 
-    def test_an_empty_square_is_queried_with_a_piece(self, ground):
-        _, c, *_ = ground
-        board = Board()
         assert board.movement_of(c, piece(DWARF)) == 3
         assert board.moves(c, piece(DWARF)) == c.moves(3)
 
@@ -145,11 +135,6 @@ class TestMoves:
         board.place(a, piece(ORC))
         assert len(board.moves(c)) < len(alone)
 
-    def test_one_does_not_enter_the_enemys_square(self, ground):
-        a, c, *_ = ground
-        board = Board([(c, piece(ELF)), (a, piece(ORC))])
-        assert a not in board.moves(c)
-
     def test_a_friend_does_not_hinder_the_walk(self, ground):
         """A friendly square does not bar the way: beyond it, everything stays reachable."""
         a, c, *_ = ground
@@ -160,10 +145,12 @@ class TestMoves:
         assert all(hexagon in reached for hexagon in beyond)
 
     def test_one_does_not_stop_on_an_occupied_square(self, ground):
-        """Stacking: one crosses a friend, one does not take their place."""
+        """Stacking: one crosses a friend, one does not take their place - and an enemy's square
+        is no more a destination than a friend's."""
         a, c, *_ = ground
-        board = Board([(c, piece(ELF)), (a, piece(DWARF))])
-        assert a not in board.moves(c)
+        for occupant in (DWARF, ORC):
+            board = Board([(c, piece(ELF)), (a, piece(occupant))])
+            assert a not in board.moves(c), occupant
 
     def test_the_neutral_side_goes_where_it_likes(self, ground):
         """With no opponent, neither zone nor held square stops it - occupied squares apart."""
@@ -255,21 +242,17 @@ class TestTilts:
     betray an angle recomputed rather than kept.
     """
 
-    def test_placing_lays_the_counter_askew(self, ground):
-        _, c, *_ = ground
-        board = Board([(c, piece(ELF))])
-        assert abs(board.tilt_on(c)) <= MAXIMUM_TILT
-
-    def test_an_empty_square_has_no_tilt(self, ground):
+    def test_placing_lays_the_counter_askew_unless_told_at_what_angle(self, ground):
+        """The board draws one, within the bounds; a caller resuming a game gives its own. A square
+        with no counter on it has no angle either."""
         _, c, x1, _ = ground
         board = Board([(c, piece(ELF))])
+        assert abs(board.tilt_on(c)) <= MAXIMUM_TILT
         assert board.tilt_on(x1) is None
 
-    def test_the_given_tilt_is_taken_as_it_is(self, ground):
-        _, c, *_ = ground
-        board = Board()
-        board.place(c, piece(ELF), 3.14)
-        assert board.tilt_on(c) == 3.14
+        given = Board()
+        given.place(c, piece(ELF), 3.14)
+        assert given.tilt_on(c) == 3.14
 
     def test_the_counters_are_not_all_laid_the_same(self):
         """A frozen tilt would show: fifty placings would give only one angle."""
@@ -277,18 +260,17 @@ class TestTilts:
         board = Board([(square, piece(ELF)) for square in squares])
         assert len(set(board.tilts.values())) > len(squares) / 2
 
-    def test_removing_forgets_the_tilt(self, ground):
-        _, c, *_ = ground
+    def test_taking_a_counter_off_forgets_its_tilt(self, ground):
+        """One by one or all at once: no angle outlives the counter it belonged to."""
+        _, c, x1, _ = ground
         board = Board([(c, piece(ELF))])
         board.remove(c)
         assert board.tilt_on(c) is None
         assert board.tilts == {}
 
-    def test_clearing_forgets_the_tilts(self, ground):
-        _, c, x1, _ = ground
-        board = Board([(c, piece(ELF)), (x1, piece(ORC))])
-        board.clear()
-        assert board.tilts == {}
+        whole = Board([(c, piece(ELF)), (x1, piece(ORC))])
+        whole.clear()
+        assert whole.tilts == {}
 
     def test_the_returned_tilts_are_not_the_boards(self, ground):
         _, c, *_ = ground
@@ -321,15 +303,14 @@ class TestTilts:
         copy = Board().restore(board.to_dict(), board.tilts)
         assert copy.tilts == board.tilts
 
-    def test_restore_without_tilts_draws_fresh_ones(self, ground):
-        """A game saved before we started keeping them stays resumable."""
+    def test_a_square_restored_without_an_angle_is_given_one(self, ground):
+        """Whether the save carried no angle at all - one written before we started keeping them -
+        or carried some and not others, every counter comes back lying at an angle."""
         a, c, *_ = ground
-        board = Board().restore({c.key: ELF, a.key: ORC})
-        assert set(board.tilts) == {c.key, a.key}
-        assert all(abs(angle) <= MAXIMUM_TILT for angle in board.tilts.values())
+        without = Board().restore({c.key: ELF, a.key: ORC})
+        assert set(without.tilts) == {c.key, a.key}
+        assert all(abs(angle) <= MAXIMUM_TILT for angle in without.tilts.values())
 
-    def test_a_square_missing_from_the_tilts_gets_one(self, ground):
-        a, c, *_ = ground
-        board = Board().restore({c.key: ELF, a.key: ORC}, {c.key: 1.5})
-        assert board.tilt_on(c) == 1.5
-        assert board.tilt_on(a) is not None
+        partial = Board().restore({c.key: ELF, a.key: ORC}, {c.key: 1.5})
+        assert partial.tilt_on(c) == 1.5
+        assert partial.tilt_on(a) is not None

@@ -413,12 +413,21 @@ def as_written_on_the_card(value):
     return "—" if value is None else str(value)
 
 
-def test_the_card_is_hidden_while_nothing_is_hovered(board):
+def test_the_card_is_hidden_until_a_piece_is_hovered_and_again_after(board):
+    assert read_card(board)["hidden"]
+    piece = board.locator("img.piece:not(.ghost)").first
+    assert not hover(board, piece)["hidden"]
+    leave_the_piece(board)
     assert read_card(board)["hidden"]
 
 
 def test_hovering_a_piece_shows_its_counters_values(board):
-    """Every placed unit shows, on hover, what its counter carries - and nothing invented."""
+    """Every placed unit shows, on hover, what its counter carries - and nothing invented.
+
+    The remarks line is part of it: it appears exactly when the counter has a remark, which is why
+    `seen` counts both cases and the walk refuses to pass if the scenario offers only one.
+    """
+    seen = {True: 0, False: 0}
     for index in range(len(app.SCENARIO)):
         piece = board.locator("img.piece:not(.ghost)").nth(index)
         key = piece.evaluate("p => p.piece.key")
@@ -436,51 +445,25 @@ def test_hovering_a_piece_shows_its_counters_values(board):
         assert card["symbol"] == as_written_on_the_card(placed.symbol), key
         # A remark is what the photograph leaves open: no remark, no line.
         assert card["remarks"] == placed.remarks, key
+        seen[placed.remarks is None] += 1
         leave_the_piece(board)
 
-
-def test_the_pieces_without_a_remark_do_not_show_its_line(board):
-    """The remarks line only appears if there is something to say."""
-    without, with_one = 0, 0
-    for index in range(len(app.SCENARIO)):
-        piece = board.locator("img.piece:not(.ghost)").nth(index)
-        remark = CATALOGUE[piece.evaluate("p => p.piece.key")].remarks
-        read = hover(board, piece)["remarks"]
-        if remark is None:
-            assert read is None
-            without += 1
-        else:
-            assert read == remark
-            with_one += 1
-        leave_the_piece(board)
-    assert without and with_one, "the scenario must carry both cases for the test to be worth it"
+    assert seen[True] and seen[False], (
+        "the scenario must carry pieces with and without a remark for the walk to be worth it")
 
 
-def test_the_card_states_the_pieces_name_side_and_square(board):
+def test_the_card_states_the_piece_and_shows_its_photograph(board):
+    """Name, side and square in words - and the counter itself, which is where it is really read:
+    the fitted map shows only a dozen pixels of it."""
     piece = board.locator("img.piece:not(.ghost)").first
-    key, square = piece.evaluate(
-        "p => [p.piece.key, `${p.dataset.q},${p.dataset.r},${p.dataset.s}`]")
+    key, square, source = piece.evaluate(
+        "p => [p.piece.key, `${p.dataset.q},${p.dataset.r},${p.dataset.s}`, p.src]")
 
     card = hover(board, piece)
     assert card["name"] == app.PIECES_BY_KEY[key]["name"]
     assert card["extra"] == f"{CATALOGUE[key].side} — {square}"
-
-
-def test_the_card_shows_the_pieces_photograph(board):
-    """That is where the counter is read: the fitted map shows only a dozen pixels of it."""
-    piece = board.locator("img.piece:not(.ghost)").first
-    source = piece.evaluate("p => p.src")
-
-    card = hover(board, piece)
     assert card["source"] == source
     assert card["loaded"]
-
-
-def test_leaving_the_piece_closes_the_card(board):
-    piece = board.locator("img.piece:not(.ghost)").first
-    hover(board, piece)
-    leave_the_piece(board)
-    assert read_card(board)["hidden"]
 
 
 def test_hovering_a_ghost_shows_no_card(board):
@@ -684,16 +667,10 @@ def test_the_card_does_not_capture_clicks(board):
     }""")
 
 
-def test_the_ghosts_are_half_transparent(board):
-    piece, _, _ = a_piece_that_can_move(board)
-    piece.click()
-    board.wait_for_function("document.querySelectorAll('img.ghost').length > 0")
-
-    for ghost in ghosts(board):
-        assert ghost["opacity"] == 0.5
-
-
-def test_the_ghosts_take_the_pieces_image(board):
+def test_a_ghost_is_the_piece_itself_shown_half_transparent_on_a_reachable_square(board):
+    """The unit's own image, at half opacity, centred and tilted on the hexagon it could reach:
+    one selection says all of it, and laying the scene out again for each facet would say no
+    more."""
     piece, _, _ = a_piece_that_can_move(board)
     source = piece.evaluate("p => p.src")
     piece.click()
@@ -702,14 +679,8 @@ def test_the_ghosts_take_the_pieces_image(board):
     assert board.evaluate(
         "(src) => [...document.querySelectorAll('img.ghost')].every((g) => g.src === src)", source
     )
-
-
-def test_each_ghost_is_centred_and_tilted(board):
-    piece, _, _ = a_piece_that_can_move(board)
-    piece.click()
-    board.wait_for_function("document.querySelectorAll('img.ghost').length > 0")
-
     for ghost in ghosts(board):
+        assert ghost["opacity"] == 0.5
         x, y = expected_centre(ghost["q"], ghost["r"])
         assert math.isclose(ghost["x"], x, abs_tol=1.0), ghost
         assert math.isclose(ghost["y"], y, abs_tol=1.0), ghost
@@ -753,28 +724,19 @@ def test_clicking_a_ghost_moves_the_piece(board):
     assert math.isclose(placed["x"], x, abs_tol=1.0) and math.isclose(placed["y"], y, abs_tol=1.0)
     assert abs(placed["angle"]) <= 5.0
 
-
-def test_the_number_of_units_does_not_change_after_a_move(board):
-    piece, _, _ = a_piece_that_can_move(board)
-    piece.click()
-    board.wait_for_function("document.querySelectorAll('img.ghost').length > 0")
-    board.locator("img.ghost").last.click()
-    board.wait_for_function("document.querySelectorAll('img.ghost').length === 0")
-
+    # A move moves: it neither loses a counter nor draws a second one.
     assert board.locator("img.piece:not(.ghost)").count() == len(app.SCENARIO)
 
 
-def test_clicking_the_piece_again_erases_the_ghosts(board):
-    piece, _, _ = a_piece_that_can_move(board)
+def test_giving_up_a_selection_erases_the_ghosts(board):
+    """Two ways of changing one's mind: clicking the unit again, or clicking a square with neither
+    piece nor ghost on it."""
+    piece, origin, reachable = a_piece_that_can_move(board)
     piece.click()
     board.wait_for_function("document.querySelectorAll('img.ghost').length > 0")
     piece.click()
     board.wait_for_function("document.querySelectorAll('img.ghost').length === 0")
 
-
-def test_clicking_elsewhere_erases_the_ghosts(board):
-    """A click on a square with neither piece nor ghost clears the selection."""
-    piece, origin, reachable = a_piece_that_can_move(board)
     piece.click()
     board.wait_for_function("document.querySelectorAll('img.ghost').length > 0")
 

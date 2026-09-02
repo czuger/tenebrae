@@ -4,7 +4,6 @@ import json
 
 import pytest
 
-from tenebrae.engine.hexagon import Hex
 from tenebrae.engine.piece import (ALLIANCE, BOX, CATALOGUE, DARKNESS, MOTIONLESS, NEUTRAL,
                                    SIDES, Piece, piece, read_catalogue)
 
@@ -21,14 +20,12 @@ class TestCatalogue:
     def test_the_hundred_and_twenty_seven_photographs_are_there(self):
         assert len(CATALOGUE) == 127
 
-    def test_the_key_is_the_image_name(self):
+    def test_the_key_names_an_image_that_is_there(self):
+        """The key is the image's name, and `image` the path to it from the repository root -
+        `game_box/pions/...`."""
+        root = BOX.parent
         for key, read in CATALOGUE.items():
             assert read.image.endswith(f"{key}.jpg")
-
-    def test_every_image_exists(self):
-        """`image` is relative to the repository root: "game_box/pions/...`."""
-        root = BOX.parent
-        for read in CATALOGUE.values():
             assert (root / read.image).exists(), read
 
     def test_an_unknown_piece_does_not_pass(self):
@@ -44,12 +41,13 @@ class TestCatalogue:
 
 class TestValuesRead:
     def test_the_counter_values(self):
+        """A unit that only fights hand to hand, and one that shoots: the firing pair is filled in
+        for the second and empty for the first."""
         infantry = piece(INFANTRY)
         assert (infantry.strength, infantry.movement) == (4, 4)
         assert (infantry.fire, infantry.range) == (None, None)
         assert infantry.symbol == "infanterie"
 
-    def test_an_archer_carries_its_firing_values(self):
         archer = piece("elfes-02-4-archers")
         assert (archer.strength, archer.movement, archer.fire, archer.range) == (8, 4, 8, 3)
 
@@ -93,14 +91,13 @@ class TestSides:
     def test_every_faction_in_the_box_is_filed(self):
         assert {read.faction for read in CATALOGUE.values()} <= SIDES.keys()
 
-    def test_the_two_sides_of_the_game(self):
+    def test_the_two_sides_of_the_game_and_what_belongs_to_neither(self):
         assert piece("elfes-01-5-infanteries").side == ALLIANCE
         assert piece(INFANTRY).side == ALLIANCE          # Tharque Empire
         assert piece("orques-01-15-infanteries").side == DARKNESS
         assert piece(RAM).side == DARKNESS               # Yzent, ally of convenience
         assert piece("machines-de-siege-01-juggernaut").side == DARKNESS
 
-    def test_the_neutrals(self):
         assert piece(BAT).side == NEUTRAL                # a conjuration
         assert piece("volants-01-5-infanteries").side == NEUTRAL
         assert piece(MARKER).side == NEUTRAL
@@ -116,11 +113,10 @@ class TestZoneOfControlExerted:
         assert piece(INFANTRY).exerts_a_zone_of_control
         assert piece("orques-01-15-infanteries").exerts_a_zone_of_control
 
-    def test_a_marker_exerts_none(self):
+    def test_what_holds_no_side_exerts_none(self):
+        """A marker, a record sheet, a neutral: nothing that stops an opponent walking past."""
         assert not piece(MARKER).exerts_a_zone_of_control
         assert not piece(SHEET).exerts_a_zone_of_control
-
-    def test_a_neutral_exerts_none(self):
         assert not piece(BAT).exerts_a_zone_of_control
 
     def test_the_booklet_exceptions_are_not_applied(self):
@@ -136,10 +132,10 @@ class TestMovementPoints:
         assert piece(INFANTRY).movement_points == 4
         assert piece(CAVALRY).movement_points == 8
 
-    def test_flight_serves_for_want_of_ground_movement(self):
+    def test_flight_serves_only_for_want_of_ground_movement(self):
+        """The bat's ground value is illegible, so it flies; the dragon has both, and walks."""
         assert piece(BAT).movement_points == 2
 
-    def test_ground_movement_prevails_over_flight(self):
         dragon = piece(DRAGON)
         assert (dragon.movement, dragon.flight_movement) == (5, 15)
         assert dragon.movement_points == 5
@@ -148,29 +144,13 @@ class TestMovementPoints:
         assert piece(MARKER).movement_points == MOTIONLESS == 0
         assert piece(SHEET).movement_points == MOTIONLESS
 
-    def test_every_unit_has_something_to_move_with(self):
-        for read in CATALOGUE.values():
-            if read.is_a_unit:
-                assert read.movement_points > 0, read
-
-    def test_no_far_fetched_movement(self):
-        """The slowest does 1 point, the fastest 20: beyond that, it is a misreading."""
+    def test_every_budget_read_is_plausible(self):
+        """A unit moves, and the slowest does 1 point where the fastest does 20: a budget outside
+        that range is a misreading of the counter, not a piece."""
         for read in CATALOGUE.values():
             assert 0 <= read.movement_points <= 20, read
-
-
-class TestMoves:
-    """What the piece's movement changes about its reach, on the game map."""
-
-    PLAIN = Hex(1, 26, -27)
-
-    def test_the_slow_piece_goes_less_far_than_the_fast_one(self):
-        slow = self.PLAIN.moves(piece(RAM).movement_points)
-        fast = self.PLAIN.moves(piece(CAVALRY).movement_points)
-        assert 0 < len(slow) < len(fast)
-
-    def test_a_marker_goes_nowhere(self):
-        assert self.PLAIN.moves(piece(MARKER).movement_points) == []
+            if read.is_a_unit:
+                assert read.movement_points > 0, read
 
 
 class TestRendering:

@@ -92,7 +92,7 @@ def place(hexagon, key):
 
 
 class TestOpeningTheGame:
-    def test_the_first_load_writes_the_set_up(self, mongo_client, games):
+    def test_the_first_load_writes_the_set_up_and_the_next_resumes_it(self, mongo_client, games):
         mongo_client.get("/")
         assert games.objects.count() == 1
         game = games.objects.first()
@@ -103,8 +103,7 @@ class TestOpeningTheGame:
         assert game.engaged_attackers == [] and game.engaged_targets == []
         assert game.created_at is not None and game.updated_at is not None
 
-    def test_reloading_does_not_create_a_second_game(self, mongo_client, games):
-        mongo_client.get("/")
+        # And loading again resumes that one rather than opening a second.
         mongo_client.get("/")
         assert games.objects.count() == 1
 
@@ -285,15 +284,12 @@ class TestRepository:
 class TestPersistedSeats:
     """Who holds which side is part of the game: a restart does not empty the table."""
 
-    def test_the_seats_are_written_with_the_game(self, mongo_client, games):
+    def test_the_seats_are_written_with_the_game_and_resumed_with_it(self, mongo_client, games):
         # The fixture seats the test player at both sides; we rebuild the table with two.
-        app.SEATS.clear().seat("alliance", DWARF_PLAYER)
-        mongo_client.get("/")
-        assert dict(games.objects.first().seats) == {"alliance": DWARF_PLAYER}
-
-    def test_the_seats_are_resumed_after_a_restart(self, mongo_client, games):
         app.SEATS.clear().seat("alliance", DWARF_PLAYER).seat("tenebres", ORC_PLAYER)
         mongo_client.get("/")
+        assert dict(games.objects.first().seats) == {"alliance": DWARF_PLAYER,
+                                                     "tenebres": ORC_PLAYER}
 
         # The server restarts: the table in memory is lifted, only the base knows it.
         app.SEATS.clear()
@@ -312,11 +308,12 @@ class TestPersistedSeats:
 
         assert app.SEATS.is_free("alliance")
 
-    def test_the_recorded_players_are_found_again(self, mongo_application):
+    def test_the_recorded_players_are_found_again_and_no_others(self, mongo_application):
         with mongo_application.test_request_context():
             repository = app.player_repository()
             repository.record({"discord_id": DWARF_PLAYER, "nickname": "Vorgtd", "avatar": None})
             assert repository.by_discord_id(DWARF_PLAYER)["nickname"] == "Vorgtd"
+            assert repository.by_discord_id("999") is None
 
     def test_a_second_login_updates_the_nickname_without_creating_a_player(self, mongo_application):
         with mongo_application.test_request_context():
@@ -327,11 +324,6 @@ class TestPersistedSeats:
             assert Player.objects.count() == 1
             assert repository.by_discord_id(DWARF_PLAYER)["nickname"] == "Vorgtd le Grand"
 
-    def test_an_unknown_player_is_not_found(self, mongo_application):
-        with mongo_application.test_request_context():
-            assert app.player_repository().by_discord_id("999") is None
-
-
 class TestPersistedTilts:
     """The angle each counter lies at is part of the saved game.
 
@@ -339,14 +331,12 @@ class TestPersistedTilts:
     pieces would spin at every page reload. It only changes on a move.
     """
 
-    def test_the_tilts_are_written_with_the_game(self, mongo_client, games):
+    def test_the_tilts_are_written_with_the_game_and_resumed_with_it(self, mongo_client, games):
         mongo_client.get("/")
         tilts = dict(games.objects.first().tilts)
         assert set(tilts) == set(app.SCENARIO.placement)
         assert tilts == app.BOARD.tilts
 
-    def test_the_tilts_are_resumed_after_a_restart(self, mongo_client, games):
-        mongo_client.get("/")
         before = app.BOARD.tilts
 
         # The server restarts: memory is empty, only the base knows how the pieces were lying.
@@ -409,8 +399,8 @@ class TestPersistedGameAgainstTheAI:
     """The AI's seat travels in the seats dict, under its sentinel: nothing more to save, nothing
     more to resume."""
 
-    def test_the_ais_seat_is_written_with_the_game(self, mongo_application, seat_the_player,
-                                                   games):
+    def test_the_ais_seat_is_written_with_the_game_and_resumed_with_it(self, mongo_application,
+                                                                       seat_the_player, games):
         from tenebrae.engine import ai
 
         client = mongo_application.test_client()
@@ -418,13 +408,6 @@ class TestPersistedGameAgainstTheAI:
         answer = client.post("/game/new", json={"against_ai": True})
         assert answer.status_code == 200
         assert dict(games.objects.first().seats)["tenebres"] == ai.AI_PLAYER
-
-    def test_the_ais_seat_is_resumed_after_a_restart(self, mongo_application, seat_the_player):
-        from tenebrae.engine import ai
-
-        client = mongo_application.test_client()
-        seat_the_player(mongo_application, client, sides=["alliance"])
-        client.post("/game/new", json={"against_ai": True})
 
         # The server restarts: the table in memory is lifted, only the base knows it.
         app.SEATS.clear()

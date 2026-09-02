@@ -35,42 +35,34 @@ def corner():
 
 
 class TestStrengthRatio:
-    def test_the_booklets_example(self):
-        # "10/4 counts as 2 against 1": rounded in the defender's favour.
-        assert combat.COLUMNS[combat.ratio_column(10, 4)] == (2, 1)
-
-    def test_the_defender_prevails(self):
-        assert combat.COLUMNS[combat.ratio_column(4, 10)] == (1, 3)
-
-    def test_equal_strengths(self):
-        assert combat.COLUMNS[combat.ratio_column(8, 8)] == (1, 1)
-
-    def test_the_bounds(self):
-        assert combat.COLUMNS[combat.ratio_column(100, 1)] == (6, 1)
-        assert combat.COLUMNS[combat.ratio_column(1, 100)] == (1, 5)
+    def test_the_column_the_strengths_fall_into(self):
+        """The booklet's own example first - "10/4 counts as 2 against 1", rounded in the
+        defender's favour - then the even case, the defender's side of the table, and the two ends
+        beyond which the table does not go."""
+        for attack, defence, column in ((10, 4, (2, 1)),
+                                        (8, 8, (1, 1)),
+                                        (4, 10, (1, 3)),
+                                        (100, 1, (6, 1)),
+                                        (1, 100, (1, 5))):
+            assert combat.COLUMNS[combat.ratio_column(attack, defence)] == column, (attack, defence)
 
 
 class TestTerrainModifiers:
-    def test_the_plain_changes_nothing(self):
-        plain = well_surrounded_plain()
-        assert combat.defence_multiplier(plain, piece(ORC)) == 1
-        assert combat.terrain_die_bonus(plain) == 0
-
-    def test_the_fort_triples_the_defence(self):
+    def test_what_the_ground_multiplies_the_defence_by(self):
+        """The plain changes nothing, walls do; and the woods are the booklet's one exception -
+        they shelter the elves, and nobody else."""
+        assert combat.defence_multiplier(well_surrounded_plain(), piece(ORC)) == 1
         assert combat.defence_multiplier(hexagon_of_terrain("fort"), piece(ORC)) == 3
-
-    def test_the_ruins_double_the_defence(self):
         assert combat.defence_multiplier(hexagon_of_terrain("ruines"), piece(ORC)) == 2
 
-    def test_the_woods_only_protect_the_elves(self):
         woods = hexagon_of_terrain("bois")
         assert combat.defence_multiplier(woods, piece(ELF)) == 2
         assert combat.defence_multiplier(woods, piece(ORC)) == 1
 
-    def test_the_hill_gives_two_to_the_die(self):
+    def test_what_the_ground_adds_to_the_die(self):
+        """Height and cover, two points each; open ground, nothing."""
+        assert combat.terrain_die_bonus(well_surrounded_plain()) == 0
         assert combat.terrain_die_bonus(hexagon_of_terrain("colline")) == 2
-
-    def test_the_woods_give_two_to_the_die(self):
         assert combat.terrain_die_bonus(hexagon_of_terrain("bois")) == 2
 
 
@@ -91,14 +83,11 @@ class TestRange:
 class TestFiresMissiles:
     """Who fires, in the engine's sense: a counter carrying a fire strength **and** a range."""
 
-    def test_the_archer_fires(self):
+    def test_who_fires_and_who_does_not(self):
+        """The archer carries both values, the infantry neither - and an empty square carries no
+        piece at all, which `fight` hands over as it comes: no exception here."""
         assert combat.fires_missiles(piece(ARCHER))
-
-    def test_the_infantry_does_not_fire(self):
         assert not combat.fires_missiles(piece(DWARF))
-
-    def test_an_empty_square_does_not_fire(self):
-        """`fight` queries the board, which may return nothing: no exception here."""
         assert not combat.fires_missiles(None)
 
     def test_the_combat_range_follows_the_same_split(self):

@@ -31,11 +31,6 @@ def read_hidden_field(page, identifier):
     return json.loads(contents)
 
 
-def test_the_page_answers(client):
-    answer = client.get("/")
-    assert answer.status_code == 200
-
-
 def test_the_page_carries_both_armies_of_the_scenario(client):
     """Scenario no. 4 puts 18 dwarves against 30 orcs: the page carries them all."""
     pieces = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
@@ -46,38 +41,20 @@ def test_the_page_carries_both_armies_of_the_scenario(client):
 
 
 def test_the_page_places_each_piece_on_the_scenarios_square(client):
-    """The server invents nothing: it serves the placement fixed in `tenebrae/scenarios/`."""
+    """The server invents nothing: it serves the placement fixed in `tenebrae/scenarios/`.
+
+    The equality carries more than the squares. A key names one and only one piece, so two units
+    landing on the same hexagon would collapse the dict and the comparison would fail - which is
+    why no separate test counts the distinct squares. That the squares exist at all is the
+    scenario's business, and `tests/engine/test_scenario.py` checks it there; what belongs here is
+    that the server decomposes each key into a **cube** triple, since it is that triple, and not
+    the key, that the browser places.
+    """
     pieces = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
     placed = {f"{piece['q']},{piece['r']},{piece['s']}": piece["key"] for piece in pieces}
     assert placed == app.SCENARIO.placement
-
-
-def test_the_pieces_are_on_distinct_hexagons(client):
-    pieces = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
-    positions = {(piece["q"], piece["r"], piece["s"]) for piece in pieces}
-    assert len(positions) == len(pieces)
-
-
-def test_the_coordinates_are_cubic(client):
-    """A grid hexagon satisfies q + r + s = 0 and appears on the map."""
-    pieces = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
     for piece in pieces:
         assert piece["q"] + piece["r"] + piece["s"] == 0
-        assert f"{piece['q']},{piece['r']},{piece['s']}" in MAP
-
-
-def test_each_placed_piece_carries_its_movement(client):
-    """The set-up says which piece is placed and how many points it has."""
-    pieces = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
-    for piece in pieces:
-        assert piece["key"] in CATALOGUE
-        assert piece["movement"] == CATALOGUE[piece["key"]].movement_points
-
-
-def test_each_placed_piece_carries_its_side(client):
-    pieces = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
-    for piece in pieces:
-        assert piece["side"] == CATALOGUE[piece["key"]].side
 
 
 def test_each_placed_piece_carries_its_tilt(client):
@@ -97,11 +74,14 @@ def test_each_placed_piece_carries_its_counter_values(client):
 
     Values absent from the counter go out as `None` - it is the browser that renders them as a
     dash. `movement`, for its part, stays the movement budget, the one the engine uses, and not
-    the raw value that `pions.json` sometimes leaves empty.
+    the raw value that `pions.json` sometimes leaves empty. The side is here too: it is read off
+    the counter's faction like the rest, and has no reason to be walked over separately.
     """
     pieces = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
     for piece in pieces:
+        assert piece["key"] in CATALOGUE
         placed = CATALOGUE[piece["key"]]
+        assert piece["side"] == placed.side
         assert piece["faction"] == placed.faction
         assert piece["symbol"] == placed.symbol
         assert piece["strength"] == placed.strength
@@ -242,22 +222,18 @@ def test_the_moves_describe_the_origin(client):
 
 
 def test_the_moves_are_the_engines(client):
-    """The route adds no rule: it exposes Hex.moves()."""
+    """The route adds no rule: it exposes Hex.moves(), and adds to each square its terrain.
+
+    The equality is the whole check. It says the route invents no square and forgets none - the
+    origin's own absence among them included, which is the engine's rule and is exercised as such
+    in `tests/engine/test_hexagon.py`.
+    """
     expected = {(h.q, h.r, h.s) for h in Hex(**PLAIN).moves()}
-    returned = {(h["q"], h["r"], h["s"])
-                for h in client.get("/moves", query_string=PLAIN).json["hexagons"]}
-    assert returned == expected and returned
-
-
-def test_the_returned_hexagons_carry_their_terrain(client):
-    for hexagon in client.get("/moves", query_string=PLAIN).json["hexagons"]:
+    hexagons = client.get("/moves", query_string=PLAIN).json["hexagons"]
+    assert {(h["q"], h["r"], h["s"]) for h in hexagons} == expected and expected
+    for hexagon in hexagons:
         assert hexagon["q"] + hexagon["r"] + hexagon["s"] == 0
         assert hexagon["terrain"] == MAP[f"{hexagon['q']},{hexagon['r']},{hexagon['s']}"][0]
-
-
-def test_the_origin_is_not_among_its_own_moves(client):
-    hexagons = client.get("/moves", query_string=PLAIN).json["hexagons"]
-    assert PLAIN not in [{"q": h["q"], "r": h["r"], "s": h["s"]} for h in hexagons]
 
 
 def test_the_movement_is_that_of_the_piece(client):
@@ -267,6 +243,8 @@ def test_the_movement_is_that_of_the_piece(client):
         assert answer["piece"] == key
         assert answer["movement"] == expected
         assert len(answer["hexagons"]) == len(Hex(**PLAIN).moves(expected))
+    # The marker's case is the telling one: no budget, hence nowhere to go.
+    assert client.get("/moves", query_string={**PLAIN, "piece": MARKER}).json["hexagons"] == []
 
 
 def test_the_slow_piece_goes_less_far_than_the_fast_one(client):
@@ -275,11 +253,6 @@ def test_the_slow_piece_goes_less_far_than_the_fast_one(client):
     reached = {(h["q"], h["r"], h["s"]) for h in slow["hexagons"]}
     assert 0 < len(reached) < len(fast["hexagons"])
     assert reached < {(h["q"], h["r"], h["s"]) for h in fast["hexagons"]}
-
-
-def test_a_marker_goes_nowhere(client):
-    answer = client.get("/moves", query_string={**PLAIN, "piece": MARKER}).json
-    assert answer["hexagons"] == []
 
 
 def test_an_unknown_piece_is_refused(client):
@@ -390,20 +363,15 @@ def test_a_hexagon_off_the_map_cannot_be_found(client):
     assert client.get("/moves", query_string={"q": 99, "r": 0, "s": -99}).status_code == 404
 
 
-def test_a_move_within_reach_is_allowed(client):
-    answer = client.post("/move", json={"origin": PLAIN, "destination": NEIGHBOUR}).json
-    assert answer["allowed"] is True
-    assert answer["destination"] == {**NEIGHBOUR, "terrain": "plaine"}
+def test_a_move_is_allowed_within_reach_and_nowhere_else(client):
+    """The reach decides, and the square one stands on is not within it."""
+    allowed = client.post("/move", json={"origin": PLAIN, "destination": NEIGHBOUR}).json
+    assert allowed["allowed"] is True
+    assert allowed["destination"] == {**NEIGHBOUR, "terrain": "plaine"}
 
-
-def test_a_move_out_of_reach_is_refused(client):
-    answer = client.post("/move", json={"origin": PLAIN, "destination": DISTANT}).json
-    assert answer["allowed"] is False
-
-
-def test_one_does_not_move_on_the_spot(client):
-    assert client.post("/move",
-                       json={"origin": PLAIN, "destination": PLAIN}).json["allowed"] is False
+    for destination in (DISTANT, PLAIN):
+        refused = client.post("/move", json={"origin": PLAIN, "destination": destination}).json
+        assert refused["allowed"] is False, destination
 
 
 def test_a_move_out_of_the_pieces_reach_is_refused(client):

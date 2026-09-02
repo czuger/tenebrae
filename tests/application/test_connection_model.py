@@ -47,19 +47,17 @@ class TestOpening:
         assert players.by_discord_id(DEFAULT_IDENTITY["discord_id"]) == player
 
     def test_the_session_carries_only_the_identifier(self, connection, session):
-        """No nickname, no avatar, no token: Flask's cookie is signed, not encrypted."""
+        """No nickname, no avatar, no token: Flask's cookie is signed, not encrypted. And the
+        session is permanent, so the account outlives the tab."""
         connection.open(DEFAULT_IDENTITY)
         assert dict(session) == {PLAYER_KEY: DEFAULT_IDENTITY["discord_id"]}
+        assert session.permanent is True
 
     def test_opening_starts_from_a_fresh_session(self, connection, session):
         """Nothing an anonymous visitor may have left in it survives the opening of an account."""
         session["anonymous-trace"] = "to be thrown away"
         connection.open(DEFAULT_IDENTITY)
         assert "anonymous-trace" not in session
-
-    def test_opening_makes_the_session_permanent(self, connection, session):
-        connection.open(DEFAULT_IDENTITY)
-        assert session.permanent is True
 
 
 class TestTheDesignatedPlayer:
@@ -100,11 +98,9 @@ class TestOAuthState:
         assert connection.set_oauth_state() != connection.set_oauth_state()
 
     def test_taking_removes_the_state_from_the_session(self, connection, session):
-        """A replayed return finds nothing left to compare against."""
+        """A replayed return finds nothing left to compare against - the second take, like a take
+        on a session that never carried a state, gives None."""
         state = connection.set_oauth_state()
         assert connection.take_oauth_state() == state
         assert OAUTH_STATE_KEY not in session
-        assert connection.take_oauth_state() is None
-
-    def test_taking_without_a_state_returns_none(self, connection):
         assert connection.take_oauth_state() is None

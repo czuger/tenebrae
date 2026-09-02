@@ -32,23 +32,21 @@ def zone(ring):
 class TestZoneOfControl:
     """The function that says which squares a unit holds under its control."""
 
-    def test_it_is_the_six_surrounding_squares(self, ring):
+    def test_it_is_the_squares_around_the_unit_and_not_its_own(self, ring):
+        """Six in open country, fewer at the map's edge - it is `neighbours` that decides, and
+        `neighbours` never leaves the map."""
         a, *_ = ring
         assert zone_of_control([a]) == {neighbour.key for neighbour in a.neighbours()}
         assert len(zone_of_control([a])) == 6
-
-    def test_the_occupied_square_is_not_part_of_it(self, ring):
-        a, *_ = ring
         assert a.key not in zone_of_control([a])
+
+        corner = Hex(0, 0, 0)
+        assert zone_of_control([corner]) == {neighbour.key for neighbour in corner.neighbours()}
+        assert len(zone_of_control([corner])) < 6
 
     def test_the_zones_of_several_units_join_up(self, ring):
         a, c, *_ = ring
         assert zone_of_control([a, c]) == zone_of_control([a]) | zone_of_control([c])
-
-    def test_it_does_not_spill_off_the_map(self):
-        corner = Hex(0, 0, 0)
-        assert zone_of_control([corner]) == {neighbour.key for neighbour in corner.neighbours()}
-        assert len(zone_of_control([corner])) < 6
 
     def test_without_a_unit_there_is_no_zone(self):
         assert zone_of_control([]) == frozenset()

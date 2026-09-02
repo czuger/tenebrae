@@ -30,22 +30,14 @@ def neighbour_such_that(hexagon, predicate):
 
 
 class TestConstruction:
-    def test_the_three_coordinates(self):
+    def test_the_third_coordinate_is_deduced_from_the_other_two(self):
+        """q + r + s = 0, so two of them settle the third - and giving all three that do not add
+        up, or only one, is not a hexagon at all."""
         assert (Hex(3, -1, -2).q, Hex(3, -1, -2).r, Hex(3, -1, -2).s) == (3, -1, -2)
-
-    def test_two_coordinates_are_enough(self):
         assert Hex(3, -1) == Hex(3, -1, -2)
 
-    def test_an_empty_hexagon(self):
-        empty = Hex()
-        assert empty.is_empty
-        assert repr(empty) == "Hex()"
-
-    def test_inconsistent_coordinates_are_refused(self):
         with pytest.raises(ValueError, match="inconsistent"):
             Hex(3, -1, 5)
-
-    def test_a_single_coordinate_is_refused(self):
         with pytest.raises(ValueError):
             Hex(3)
 
@@ -54,6 +46,10 @@ class TestConstruction:
         assert Hex(13, -4, -9).key == "13,-4,-9"
 
     def test_an_empty_hexagon_has_no_position(self):
+        """It says so, it reads as such - and every question that needs a position refuses it."""
+        empty = Hex()
+        assert empty.is_empty
+        assert repr(empty) == "Hex()"
         for operation in (lambda: Hex().key, lambda: Hex().neighbours(), lambda: Hex().terrain):
             with pytest.raises(ValueError, match="empty"):
                 operation()
@@ -66,10 +62,9 @@ class TestConstruction:
 
 class TestMap:
     def test_the_map_is_read_in_full(self):
+        """57 columns by 40 rows - and a fix changes a terrain, it neither adds nor removes a
+        hexagon, so the played map holds exactly the transcription's."""
         assert len(MAP) == 2280
-
-    def test_the_game_map_has_the_transcription_hexagons(self):
-        """A fix changes a terrain; it neither adds nor removes a hexagon."""
         assert MAP.keys() == TRANSCRIBED_MAP.keys()
 
     def test_the_terrain_leads_the_elements(self):
@@ -82,40 +77,32 @@ class TestMap:
         assert outside.terrain is None
         assert outside.elements == ()
 
-    def test_six_neighbours_at_the_centre_of_the_map(self):
+    def test_six_neighbours_at_the_centre_and_fewer_at_the_edge(self):
+        """`neighbours` never leaves the map: the corner has two, not six with four missing."""
         assert len(PLAIN.neighbours()) == 6
-
-    def test_fewer_neighbours_at_the_edge(self):
         assert len(NORTH_WEST_CORNER.neighbours()) == 2
 
-    def test_the_neighbours_are_all_on_the_map(self):
+    def test_neighbourhood_is_reciprocal_and_stays_on_the_map(self):
         for neighbour in PLAIN.neighbours():
             assert neighbour.is_on_map
-
-    def test_neighbourhood_is_reciprocal(self):
-        for neighbour in PLAIN.neighbours():
             assert PLAIN in neighbour.neighbours()
 
 
 class TestDistance:
     """The distance as the crow flies, which says nothing about the cost of the trip."""
 
-    def test_a_hexagon_is_at_zero_from_itself(self):
+    def test_it_counts_squares_and_nothing_else(self):
+        """Zero from itself, one from a neighbour, and the same read either way round."""
         assert PLAIN.distance(PLAIN) == 0
-
-    def test_the_neighbours_are_one_square_away(self):
         for neighbour in PLAIN.neighbours():
             assert PLAIN.distance(neighbour) == 1
-
-    def test_it_is_symmetric(self):
         assert PLAIN.distance(LAKE) == LAKE.distance(PLAIN)
 
-    def test_it_ignores_the_terrain(self):
-        """The lake is impassable; it is no further away for all that."""
+    def test_it_is_pure_geometry(self):
+        """The lake is impassable and it is no further away for all that; and a hexagon that is
+        not on the map at all is still at a distance from one that is."""
         assert LAKE.distance(PLAIN) == max(abs(LAKE.q - PLAIN.q), abs(LAKE.r - PLAIN.r),
                                            abs(LAKE.s - PLAIN.s))
-
-    def test_it_holds_off_the_map(self):
         assert NORTH_WEST_CORNER.distance(Hex(99, 0, -99)) == 99
 
     def test_an_empty_hexagon_has_no_distance(self):
@@ -130,12 +117,12 @@ class TestCosts:
     def test_the_woods_cost_two_points(self):
         assert WOODS.cost_from(neighbour_such_that(WOODS, lambda n: n.terrain == "plaine")) == 2
 
-    def test_following_a_road_costs_a_third_of_a_point(self):
-        other = neighbour_such_that(ROAD, lambda n: "route" in n.elements)
-        assert other.cost_from(ROAD) == Fraction(1, 3)
+    def test_a_road_is_cheap_to_follow_and_costs_the_terrain_to_join(self):
+        """The booklet: the unit first pays for the terrain separating it from the road, and only
+        then travels it at a third of a point a square."""
+        along = neighbour_such_that(ROAD, lambda n: "route" in n.elements)
+        assert along.cost_from(ROAD) == Fraction(1, 3)
 
-    def test_joining_a_road_is_paid_at_the_terrain_rate(self):
-        """The booklet: the unit first pays for the terrain separating it from the road."""
         off_road = neighbour_such_that(ROAD, lambda n: "route" not in n.elements)
         assert ROAD.cost_from(off_road) == 1
 
@@ -143,11 +130,10 @@ class TestCosts:
         for forbidden in (LAKE, RIFT):
             assert forbidden.cost_from(neighbour_such_that(forbidden, lambda n: True)) is None
 
-    def test_the_mountain_refuses_entry_from_the_plain(self):
+    def test_the_mountain_is_entered_from_the_hill_and_from_nowhere_else(self):
         plain = neighbour_such_that(BARE_MOUNTAIN, lambda n: n.terrain == "plaine")
         assert BARE_MOUNTAIN.cost_from(plain) is None
 
-    def test_the_mountain_is_entered_from_the_hill(self):
         mountain = neighbour_such_that(HILL, lambda n: n.terrain == "montagne")
         assert mountain.cost_from(HILL) == 1
 
@@ -165,9 +151,6 @@ class TestMoves:
         origin = neighbour_such_that(WOODS, lambda n: n.terrain == "plaine")
         assert WOODS not in origin.moves(1)
         assert WOODS in origin.moves(2)
-
-    def test_the_origin_is_not_in_the_result(self):
-        assert PLAIN not in PLAIN.moves()
 
     def test_no_impassable_terrain_is_reached(self):
         for hexagon in PLAIN.moves():
@@ -200,24 +183,23 @@ class TestMoves:
     def test_the_road_carries_further_than_the_plain(self):
         assert len(ROAD.moves()) > len(PLAIN.moves())
 
-    def test_the_returned_hexagons_are_unique_and_on_the_map(self):
+    def test_the_result_is_a_set_of_squares_one_can_reach(self):
+        """Each named once, all on the map, and never the square one is standing on."""
         reached = PLAIN.moves()
         assert len(set(reached)) == len(reached)
         assert all(hexagon.is_on_map for hexagon in reached)
+        assert PLAIN not in reached
 
-    def test_the_default_movement_is_five(self):
+    def test_the_budget_is_five_points_unless_one_is_given(self):
         assert DEFAULT_MOVEMENT == 5
         assert PLAIN.moves() == PLAIN.moves(5)
-
-    def test_a_zero_movement_leads_nowhere(self):
         assert PLAIN.moves(0) == []
 
 
 class TestConversion:
     def test_the_dict_describes_the_hexagon(self):
+        """An empty one keeps the shape and fills it with None: the browser reads one schema."""
         assert PLAIN.to_dict() == {"q": 1, "r": 26, "s": -27, "terrain": "plaine"}
-
-    def test_the_dict_of_an_empty_hexagon(self):
         assert Hex().to_dict() == {"q": None, "r": None, "s": None, "terrain": None}
 
     def test_the_dict_goes_through_json(self):
@@ -248,20 +230,22 @@ class TestFixes:
         game_map = apply_fixes(self.TRANSCRIBED, {"1,-1,0": "chemin"})
         assert game_map["1,-1,0"] == ("chemin",)
 
-    def test_the_unfixed_hexagons_do_not_move(self):
+    def test_the_fix_reaches_nothing_it_was_not_given(self):
+        """The hexagons it does not name keep their elements, a key that is not on the map adds
+        none, and no fix at all gives the transcription back as it stands."""
         game_map = apply_fixes(self.TRANSCRIBED, {"0,0,0": "lac"})
         assert game_map["1,0,-1"] == self.TRANSCRIBED["1,0,-1"]
 
-    def test_a_key_off_the_map_is_ignored(self):
-        game_map = apply_fixes(self.TRANSCRIBED, {"99,0,-99": "lac"})
-        assert game_map.keys() == self.TRANSCRIBED.keys()
+        off_map = apply_fixes(self.TRANSCRIBED, {"99,0,-99": "lac"})
+        assert off_map.keys() == self.TRANSCRIBED.keys()
+
+        assert apply_fixes(self.TRANSCRIBED, {}) == self.TRANSCRIBED
 
     def test_the_transcription_is_not_modified(self):
+        """The overlay builds a new map: `TRANSCRIBED_MAP` must survive it untouched, since the
+        admin page reads it to know what to reset to."""
         apply_fixes(self.TRANSCRIBED, {"0,0,0": "lac"})
         assert self.TRANSCRIBED["0,0,0"] == ("plaine",)
-
-    def test_a_map_without_fixes_is_the_transcription(self):
-        assert apply_fixes(self.TRANSCRIBED, {}) == self.TRANSCRIBED
 
     def test_the_fix_acts_on_movement(self, monkeypatch):
         """A plain fixed into a lake becomes impassable."""
@@ -271,11 +255,11 @@ class TestFixes:
         monkeypatch.setitem(engine_hexagon.MAP, neighbour.key, ("lac",))
         assert neighbour not in PLAIN.moves()
 
-    def test_a_missing_file_fixes_nothing(self, tmp_path, monkeypatch):
+    def test_the_fixes_are_read_from_the_file(self, tmp_path, monkeypatch):
+        """And an absent file is no fix at all, not an error: a fresh clone has none."""
         monkeypatch.setattr(engine_hexagon, "FIXES_PATH", tmp_path / "map_fix.json")
         assert read_fixes() == {}
 
-    def test_the_fixes_are_read_from_the_file(self, tmp_path, monkeypatch):
         path = tmp_path / "map_fix.json"
         path.write_text(json.dumps({"1,26,-27": "lac"}), encoding="utf-8")
         monkeypatch.setattr(engine_hexagon, "FIXES_PATH", path)

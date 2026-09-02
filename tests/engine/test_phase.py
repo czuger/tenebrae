@@ -14,11 +14,9 @@ def turn():
 
 
 class TestPhaseOrder:
-    def test_the_turn_begins_with_the_first_players_movement(self, turn):
-        assert (turn.active_side, turn.phase_type) == ("alliance", MOVEMENT)
+    def test_the_turn_begins_with_the_first_players_movement_and_magic_is_skipped(self, turn):
+        """Movement then combat, each side in turn, and never the magic phase the booklet has."""
         assert turn.number == 1
-
-    def test_magic_is_always_skipped(self, turn):
         seen = [(turn.active_side, turn.phase_type)]
         for _ in range(5):
             turn.advance()
@@ -55,12 +53,12 @@ class TestLabel:
 
 
 class TestPermissions:
-    def test_movement_is_open_only_to_the_active_side_in_its_movement_phase(self, turn):
+    def test_each_phase_opens_to_the_active_side_and_to_nothing_else(self, turn):
+        """Movement, then combat: the side whose phase it is, and only what that phase allows."""
         assert turn.allows_movement("alliance")
         assert not turn.allows_movement("tenebres")
         assert not turn.allows_combat("alliance")
 
-    def test_combat_follows_the_phase(self, turn):
         turn.advance()
         assert turn.allows_combat("alliance")
         assert not turn.allows_combat("tenebres")
@@ -76,7 +74,8 @@ def test_to_dict_carries_the_essentials(turn):
 
 class TestRestore:
     def test_restore_returns_to_the_saved_phase(self, turn):
-        turn.restore("tenebres", COMBAT, 7)
+        """In place, so that the module global the server holds is the one that moves."""
+        assert turn.restore("tenebres", COMBAT, 7) is turn
         assert (turn.active_side, turn.phase_type, turn.number) == ("tenebres", COMBAT, 7)
 
     def test_the_round_trip_through_to_dict_lands_on_the_same_phase(self, turn):
@@ -86,14 +85,10 @@ class TestRestore:
         resumed = Turn(SIDES, NAMES).restore(saved["side"], saved["type"], saved["number"])
         assert resumed.to_dict() == saved
 
-    def test_restore_works_in_place(self, turn):
-        assert turn.restore("alliance", COMBAT, 2) is turn
-
-    def test_magic_is_refused(self, turn):
+    def test_a_phase_the_game_does_not_have_is_refused(self, turn):
+        """Magic, which is never played, and a side that is not at the table."""
         with pytest.raises(ValueError):
             turn.restore("alliance", "magie", 1)
-
-    def test_an_unknown_side_is_refused(self, turn):
         with pytest.raises(ValueError):
             turn.restore("empire", MOVEMENT, 1)
 

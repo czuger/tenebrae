@@ -65,10 +65,16 @@ def texts(lines):
 # --- What the log keeps --------------------------------------------------------------------------
 
 def test_a_logged_line_carries_its_time_and_its_text():
+    """And what is served is a copy: the queue goes on turning while the message travels, and we
+    do not hand out the reference it turns in."""
     app.LOG.info("Phase : %s (tour %s)", "Phase de combat — Nains", 3)
     line = app.log_lines()[-1]
     assert line["text"] == "Phase : Phase de combat — Nains (tour 3)"
     assert len(line["time"].split(":")) == 3
+
+    served = app.log_lines()
+    app.LOG.info("une ligne de plus")
+    assert texts(served)[-1] == "Phase : Phase de combat — Nains (tour 3)"
 
 
 def test_the_log_keeps_only_its_last_lines():
@@ -81,23 +87,15 @@ def test_the_log_keeps_only_its_last_lines():
     assert lines[-1]["text"] == f"line {app.LINES_KEPT + 9}"
 
 
-def test_the_lines_served_are_a_copy():
-    """The queue goes on turning while the message travels: we do not hand out the reference."""
-    app.LOG.info("first")
-    lines = app.log_lines()
-    app.LOG.info("second")
-    assert texts(lines) == ["first"]
-
-
 # --- What the page and the stream carry of it -----------------------------------------------------
 
-def test_the_page_carries_the_log(client):
+def test_the_page_and_the_state_both_carry_the_log(client):
+    """The page carries it so a tab opens with the game already told; `/game/state` carries it so
+    the fallback poll keeps up with it."""
     app.LOG.info("Nouvelle partie : scénario 4")
     carried = read_hidden_field(client.get("/").get_data(as_text=True), "initial-log")
     assert "Nouvelle partie : scénario 4" in texts(carried)
 
-
-def test_the_game_state_carries_the_log(client):
     app.LOG.info("Combat résolu : Défenseur Éliminé — dé 1, rapport 6-1")
     state = client.get("/game/state").json
     assert state["changed"] is True
@@ -123,31 +121,25 @@ def sentence(strengths, target_strength, terrain, multiplier, die_bonus, roll):
         combat.CombatResult(breakdown.outcome, [], breakdown.ratio, breakdown.die, breakdown))
 
 
-def test_the_terrain_is_named_even_when_it_does_nothing():
-    """That is what one came for: the plain is stated, like the mountain."""
-    assert sentence([12], 2, "plaine", 1, 0, 1) \
-        == "Rapport 6-1 : attaque 12 contre défense 2 (plaine) — dé 1"
-
-
-def test_the_terrain_that_multiplies_shows_its_computation():
-    assert sentence([12], 8, "montagne", 3, 0, 4) \
-        == "Rapport 1-2 : attaque 12 contre défense 8 × 3 = 24 (montagne) — dé 4"
-
-
-def test_a_group_of_attackers_shows_its_strengths_one_by_one():
-    assert sentence([12, 8], 8, "montagne", 3, 0, 4) \
-        == "Rapport 1-2 : attaque 12 + 8 = 20 contre défense 8 × 3 = 24 (montagne) — dé 4"
-
-
-def test_the_terrain_that_adds_to_the_die_shows_its_computation():
-    assert sentence([12], 7, "bois", 2, 2, 3) \
-        == "Rapport 1-2 : attaque 12 contre défense 7 × 2 = 14 (bois) — dé 3 + 2 = 5"
-
-
-def test_a_die_outside_the_table_says_it_is_brought_back():
-    """Table I has only six rows: without this, the addition would look wrong."""
-    assert sentence([12], 2, "colline", 1, 2, 6) \
-        == "Rapport 6-1 : attaque 12 contre défense 2 (colline) — dé 6 + 2 = 8, ramené à 6"
+@pytest.mark.parametrize("why, computation, written", [
+    ("the terrain is named even when it changes nothing - that is what one came for",
+     ([12], 2, "plaine", 1, 0, 1),
+     "Rapport 6-1 : attaque 12 contre défense 2 (plaine) — dé 1"),
+    ("a terrain that multiplies shows its multiplication",
+     ([12], 8, "montagne", 3, 0, 4),
+     "Rapport 1-2 : attaque 12 contre défense 8 × 3 = 24 (montagne) — dé 4"),
+    ("a group of attackers shows its strengths one by one",
+     ([12, 8], 8, "montagne", 3, 0, 4),
+     "Rapport 1-2 : attaque 12 + 8 = 20 contre défense 8 × 3 = 24 (montagne) — dé 4"),
+    ("a terrain that helps the die shows its addition",
+     ([12], 7, "bois", 2, 2, 3),
+     "Rapport 1-2 : attaque 12 contre défense 7 × 2 = 14 (bois) — dé 3 + 2 = 5"),
+    ("Table I has only six rows: without saying so, the addition would look wrong",
+     ([12], 2, "colline", 1, 2, 6),
+     "Rapport 6-1 : attaque 12 contre défense 2 (colline) — dé 6 + 2 = 8, ramené à 6"),
+])
+def test_the_sentence_shows_the_whole_computation(why, computation, written):
+    assert sentence(*computation) == written, why
 
 
 # --- Logging before marking the move -------------------------------------------------------------

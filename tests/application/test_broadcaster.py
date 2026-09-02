@@ -15,11 +15,21 @@ INSTANT = 0.05
 PATIENCE = 2.0
 
 
-def test_a_subscriber_receives_what_is_published():
+def test_every_subscriber_receives_what_is_published():
+    """One tab or two: a single move played reaches them all, and `publish` says how many."""
     broadcaster = Broadcaster()
     with broadcaster.subscription() as subscriber:
-        broadcaster.publish({"version": 7})
+        assert broadcaster.publish({"version": 7}) == 1
         assert subscriber.wait(PATIENCE) == {"version": 7}
+
+
+def test_two_subscribers_receive_the_same_publication():
+    """Two players, two tabs: a single move played wakes them both."""
+    broadcaster = Broadcaster()
+    with broadcaster.subscription() as first, broadcaster.subscription() as second:
+        assert broadcaster.publish({"version": 1}) == 2
+        assert first.wait(PATIENCE) == {"version": 1}
+        assert second.wait(PATIENCE) == {"version": 1}
 
 
 def test_an_empty_box_returns_none_after_the_delay():
@@ -27,15 +37,6 @@ def test_an_empty_box_returns_none_after_the_delay():
     broadcaster = Broadcaster()
     with broadcaster.subscription() as subscriber:
         assert subscriber.wait(INSTANT) is None
-
-
-def test_all_subscribers_receive_the_same_publication():
-    """Two players, two tabs: a single move played wakes them both."""
-    broadcaster = Broadcaster()
-    with broadcaster.subscription() as first, broadcaster.subscription() as second:
-        assert broadcaster.publish({"version": 1}) == 2
-        assert first.wait(PATIENCE) == {"version": 1}
-        assert second.wait(PATIENCE) == {"version": 1}
 
 
 def test_the_box_keeps_only_the_last_state():

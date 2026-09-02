@@ -1,11 +1,11 @@
 # Ave Tenebrae's dependencies. Installation: python3 -m pip install -r requirements.txt
 #
 # The engine (engine/) and the application (application/) only run with Flask;
-# everything else serves the tests or the regeneration of the map.
+# everything else serves the engine or the regeneration of the map.
 
 # --- Runtime: the server and the engine ---
 Flask
-Werkzeug        # shipped with Flask; imported directly in application/tests/conftest.py
+Werkzeug        # shipped with Flask; imported directly in application/engine/conftest.py
 
 # Discord authentication adds nothing here, and that is deliberate: the session rests on
 # `flask.session` (a cookie signed by itsdangerous, which Flask already installs) and the two
@@ -20,8 +20,8 @@ python-dotenv   # reads the `.env` where the connection details live
 
 # --- Tests ---
 pytest
-pytest-playwright   # the `page` fixture of the browser tests; then: python3 -m playwright install chromium
-mongomock           # MongoDB in memory: the persistence tests require no server
+pytest-playwright   # the `page` fixture of the browser engine; then: python3 -m playwright install chromium
+mongomock           # MongoDB in memory: the persistence engine require no server
 
 # --- Map regeneration (game_box/extract_map.py, never rerun in practice) ---
 Pillow

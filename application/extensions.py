@@ -1,40 +1,40 @@
-"""L'extension MongoDB de l'application : une seule instance, partagée par tout le projet.
+"""The application's MongoDB extension: a single instance, shared by the whole project.
 
-Le todo demandait Flask-MongoEngine. Sa dernière version publiée (1.0.0, 2022) importe
-`flask.json.JSONEncoder`, retiré de Flask depuis la 2.3 : elle ne s'importe même pas sous le
-Flask 3 de ce dépôt. On garde donc son *interface* — `db = MongoEngine()`, `db.init_app(app)`,
-`MONGODB_SETTINGS` dans la config — au-dessus de `mongoengine` seul, qui est ce que
-Flask-MongoEngine enveloppait de toute façon. Le reste de l'application ne connaît que `db` et les
-Documents : si l'extension redevient un jour installable, ce fichier est le seul à changer.
+The todo asked for Flask-MongoEngine. Its last published version (1.0.0, 2022) imports
+`flask.json.JSONEncoder`, removed from Flask since 2.3: it does not even import under this
+repository's Flask 3. We therefore keep its *interface* - `db = MongoEngine()`, `db.init_app(app)`,
+`MONGODB_SETTINGS` in the config - on top of `mongoengine` alone, which is what Flask-MongoEngine
+wrapped anyway. The rest of the application knows only `db` and the Documents: if the extension
+ever becomes installable again, this file is the only one to change.
 """
 
 import mongoengine
 
 
 class MongoEngine:
-    """Le branchement de mongoengine sur une application Flask.
+    """The wiring of mongoengine onto a Flask application.
 
-    `init_app` lit `MONGODB_SETTINGS` dans la configuration et ouvre la connexion. Mongoengine
-    tient lui-même un registre global de connexions, par alias : réinitialiser deux applications
-    sur le même alias sans déconnecter la première lèverait une erreur — d'où la déconnexion
-    préalable, qui rend l'appel idempotent.
+    `init_app` reads `MONGODB_SETTINGS` from the configuration and opens the connection.
+    Mongoengine keeps a global registry of connections itself, by alias: initialising two
+    applications on the same alias without disconnecting the first would raise an error - hence
+    the preliminary disconnect, which makes the call idempotent.
     """
 
     def __init__(self):
-        self.connexion = None
-        self.reglages = None
+        self.connection = None
+        self.settings = None
 
     def init_app(self, application):
-        self.reglages = dict(application.config.get("MONGODB_SETTINGS") or {})
-        alias = self.reglages.pop("alias", mongoengine.DEFAULT_CONNECTION_NAME)
-        # Sans ce réglage, pymongo avertit qu'il retombe sur sa représentation d'UUID héritée.
-        # Le jeu n'enregistre aucun UUID ; on fixe la valeur moderne pour n'en plus parler.
-        self.reglages.setdefault("uuidRepresentation", "standard")
+        self.settings = dict(application.config.get("MONGODB_SETTINGS") or {})
+        alias = self.settings.pop("alias", mongoengine.DEFAULT_CONNECTION_NAME)
+        # Without this setting, pymongo warns that it falls back on its legacy UUID
+        # representation. The game stores no UUID; we set the modern value to hear no more of it.
+        self.settings.setdefault("uuidRepresentation", "standard")
         mongoengine.disconnect(alias)
-        self.connexion = mongoengine.connect(alias=alias, **self.reglages)
+        self.connection = mongoengine.connect(alias=alias, **self.settings)
         application.extensions["mongoengine"] = self
-        return self.connexion
+        return self.connection
 
 
-# L'instance unique : tout le projet importe celle-ci, jamais une autre.
+# The single instance: the whole project imports this one, never another.
 db = MongoEngine()

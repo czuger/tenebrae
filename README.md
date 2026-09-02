@@ -1,178 +1,185 @@
 # Ave Tenebrae
 
-*Ave Tenebrae* est un wargame fantastique de François Marcela-Froideval, publié par Jeux Descartes
-(2ᵉ édition, 1986) : deux armées, une carte d'hexagones, 127 planches de pions en carton.
+*Ave Tenebrae* is a fantasy wargame by François Marcela-Froideval, published by Jeux Descartes
+(2nd edition, 1986): two armies, a hexagon map, 127 sheets of cardboard counters.
 
-Ce dépôt fait deux choses. Il **archive** le jeu — le fascicule de règles transcrit en Markdown,
-la carte relevée hexagone par hexagone, l'inventaire photographié des pions et les valeurs de leurs
-cartons — et il en **fait un jeu jouable** : un moteur de règles en Python et un serveur Flask où
-deux joueurs, identifiés par Discord, se déplacent et se combattent tour à tour sur la carte du
-navigateur.
+This repository does two things. It **archives** the game — the rules booklet transcribed into
+Markdown, the map recorded hexagon by hexagon, the photographed inventory of the counters and the
+values printed on them — and it **turns it into a playable game**: a rules engine in Python and a
+Flask server where two players, identified through Discord, move and fight each other in turn on
+the map in the browser.
 
-Tout est en français, code compris. Le jeu n'est pas terminé : le mouvement et le combat tournent,
-la magie non.
+The code and documentation are in English; the game content is not. The rules booklet, the map
+vocabulary, the counter data and everything the player reads on screen stay in French — they are
+the 1986 material, and translating them would put a second version of the game between the code
+and its source. The game is not finished: movement and combat work, magic does not.
 
 ## Structure
 
 ```
 tenebrae/
-├── base_material/   les sources brutes — ne pas y puiser
-├── game_box/        le matériel de jeu — la source de vérité
-├── moteur/          les règles, en Python
-├── scenarios/       les mises en place, un JSON par scénario
-├── application/     le serveur Flask et la carte du navigateur
-├── Makefile         lance la suite de tests (et son MongoDB)
-└── .env.example     la configuration à recopier en .env
+├── base_material/   the raw sources — not to be drawn on
+├── game_box/        the game material — the source of truth
+├── engine/          the rules, in Python
+├── scenarios/       the set-ups, one JSON per scenario
+├── application/     the Flask server and the map in the browser
+├── Makefile         runs the test suite (and its MongoDB)
+└── .env.example     the configuration to copy to .env
 ```
 
-### `base_material/` — les sources brutes
+### `base_material/` — the raw sources
 
-Le PDF du fascicule (16 pages scannées), un article de blog archivé qui donne le découpage des
-planches de pions, et 144 photos de la boîte, de la carte et des pions. **On n'y travaille pas** :
-tout ce qui en a été tiré vit dans `game_box/`. On n'y revient que pour vérifier une transcription.
+The PDF of the booklet (16 scanned pages), an archived blog article giving the breakdown of the
+counter sheets, and 144 photographs of the box, the map and the counters. **No work happens
+here**: everything drawn from it lives in `game_box/`. We only come back to check a transcription.
 
-### `game_box/` — le matériel de jeu
+### `game_box/` — the game material
 
-La source de vérité du dépôt. Le code lit ici, et nulle part ailleurs.
+The repository's source of truth. The code reads here, and nowhere else. Its file names and its
+vocabulary are French: this is 1986 material, transcribed as it stands.
 
-| Fichier | Contenu |
+| File | Contents |
 | --- | --- |
-| `ave_tenebrae_regles.md` | le fascicule transcrit : règles, magie, sortilèges, scénarios, tableaux |
-| `map.jpg` | la carte du jeu, scannée |
-| `carte.json` | 2280 hexagones, `"q,r,s"` → un terrain |
-| `carte_details.json` | les mêmes, mais avec **tous** les éléments de chaque case |
-| `map_fix.json` | les corrections de terrain relevées à l'œil, appliquées par le moteur |
-| `carte_controle.jpg` | la carte teintée par terrain, pour vérifier la transcription à l'œil |
-| `carte.md` | comment la carte a été transcrite, et ce qui reste incertain |
-| `extraction_carte.py` | régénère les trois fichiers de carte depuis `map.jpg` (une dizaine de minutes) |
-| `pions/` | 127 photos de pions classées par faction, `pions.json` (les valeurs des cartons) et leur index |
+| `ave_tenebrae_regles.md` | the transcribed booklet: rules, magic, spells, scenarios, tables |
+| `map.jpg` | the game map, scanned |
+| `carte.json` | 2280 hexagons, `"q,r,s"` → one terrain |
+| `carte_details.json` | the same, but with **every** element of each square |
+| `map_fix.json` | the terrain fixes recorded by eye, applied by the engine |
+| `carte_controle.jpg` | the map tinted by terrain, to check the transcription by eye |
+| `map.md` | how the map was transcribed, and what remains uncertain |
+| `extract_map.py` | regenerates the three map files from `map.jpg` (about ten minutes) |
+| `pions/` | 127 counter photographs filed by faction, `pions.json` (the counter values) and their index |
 
-### `moteur/` — les règles et les entités du jeu
+### `engine/` — the rules and the game entities
 
-Du Python sans rien de web : **aucun import de Flask, aucune notion de session ni de requête**.
-Les règles n'ont besoin que de la bibliothèque standard ; seules les deux entités persistées
-(`models/partie.py`, `models/joueur.py`) et leurs dépôts demandent mongoengine. La carte et le
-catalogue des pions sont lus **une fois, à l'import** : le plateau est imprimé, il ne change pas
-en cours de partie.
+Python with nothing of the web in it: **no Flask import, no notion of a session or a request**.
+The rules need only the standard library; only the two persisted entities (`models/game.py`,
+`models/player.py`) and their repositories require mongoengine. The map and the piece catalogue are
+read **once, at import**: the board is printed, it does not change mid-game.
 
-| Module | Contenu |
+| Module | Contents |
 | --- | --- |
-| `hexagone.py` | `Hex` — voisinage, coûts de terrain, déplacements (Dijkstra), zones de contrôle |
-| `pion.py` | `Pion` — les valeurs du carton, et le camp de sa faction |
-| `plateau.py` | `Plateau` — qui occupe quelle case ; le seul objet mutable du moteur |
-| `scenario.py` | `Scenario` — une mise en place lue dans `scenarios/`, et le plateau qu'elle donne |
-| `phase.py` | `Tour` — mouvement → magie → combat, pour chaque joueur, en boucle |
-| `combat.py` | le Tableau I du fascicule, et le registre d'un combat par unité et par phase |
-| `models/` | les entités du jeu, **un fichier par modèle** : `partie.py`, `joueur.py`, `places.py` |
-| `depots/` | l'accès en base à ces entités : `partie.py`, `joueur.py` — MongoDB, et l'homologue sans base |
+| `hexagon.py` | `Hex` — neighbourhood, terrain costs, moves (Dijkstra), zones of control |
+| `piece.py` | `Piece` — the counter's values, and the side of its faction |
+| `board.py` | `Board` — who occupies which square; the engine's only mutable object |
+| `scenario.py` | `Scenario` — a set-up read from `scenarios/`, and the board it yields |
+| `phase.py` | `Turn` — movement → magic → combat, for each player, round and round |
+| `combat.py` | the booklet's Table I, and the register of one combat per unit per phase |
+| `models/` | the game entities, **one file per model**: `game.py`, `player.py`, `seats.py` |
+| `repositories/` | database access to those entities: `game.py`, `player.py` — MongoDB, and the base-less counterpart |
 
-`moteur/README.md` détaille chaque classe, les coûts de terrain, les zones de contrôle, et la
-liste des règles du fascicule qui ne sont pas encore jouées.
+`engine/README.md` details each class, the terrain costs, the zones of control, and the list of
+rules from the booklet that are not played yet.
 
-### `scenarios/` — les mises en place
+### `scenarios/` — the set-ups
 
-Le fascicule dit « l'armée naine se masse au sud du volcan de Toth » et ne dit jamais quel pion va
-sur quelle case. Le passage de la phrase aux hexagones a été fait **une fois, à la main**, et son
-résultat vit ici, un JSON par scénario. Seul le n° 4, « La guerre des nains », est fixé.
+The booklet says "the dwarf army masses south of the volcano of Toth" and never says which counter
+goes on which square. The step from the sentence to the hexagons was taken **once, by hand**, and
+its result lives here, one JSON per scenario. Only no. 4, "La guerre des nains", is fixed.
 
-### `application/` — le serveur
+### `application/` — the server
 
-Une application Flask (`create_app`) qui affiche la carte, y pose le scénario, et sert ce que le
-moteur décide. **Le navigateur ne juge jamais de la légalité d'un coup** : cliquer un pion demande
-au serveur où il peut aller, et le serveur répond d'après `moteur/`.
+A Flask application (`create_app`) that shows the map, lays the scenario out on it, and serves
+whatever the engine decides. **The browser never judges the legality of a move**: clicking a piece
+asks the server where it can go, and the server answers from `engine/`.
 
-- La partie se joue **à deux, un joueur par camp**, identifiés par **Discord OAuth2**. La carte
-  reste visible sans compte ; jouer demande d'être connecté et de tenir le camp actif.
-- Elle est **sauvegardée dans MongoDB** à chaque coup — positions, phase, combats déjà livrés, et
-  qui tient quel camp — et reprise au chargement de `/`.
-- Chaque navigateur suit la partie de l'autre par un **flux d'événements** (`/flux`, du
-  Server-Sent Events, dans `application/flux.py`) : le serveur pousse la partie quand elle change,
-  au lieu qu'on la lui redemande. Les coups du joueur, eux, partent en `POST` comme avant.
-- `/admin/map_fix` sert à corriger la transcription de la carte, réservée aux comptes déclarés
-  dans `ADMIN_DISCORD_IDS`. C'est le seul endroit où l'application écrit dans `game_box/`.
+- The game is played **by two, one player per side**, identified through **Discord OAuth2**. The
+  map stays visible without an account; playing requires being logged in and holding the active
+  side.
+- It is **saved in MongoDB** at every move — positions, phase, combats already fought, and who
+  holds which side — and resumed when `/` is loaded.
+- Each browser follows the other's game through an **event stream** (`/stream`, Server-Sent
+  Events, in `application/stream.py`): the server pushes the game when it changes, instead of
+  being asked for it. The player's moves still leave as `POST`s, as before.
+- `/admin/map_fix` serves to fix the map transcription, reserved to the accounts declared in
+  `ADMIN_DISCORD_IDS`. It is the only place where the application writes into `game_box/`.
 
-Elle ne modélise **que la connexion** (`models/connexion.py`) : le lien entre une session Flask et
-le joueur du moteur, désigné par son identifiant Discord. La partie, le joueur et la table des
-places sont du jeu, et vivent dans `moteur/models/`.
+It models **only the connection** (`models/connection.py`) — the link between a Flask session and
+the engine's player, designated by their Discord identifier — and the **map view**
+(`models/view.py`), the scale and the point each player had at the centre. The game, the player
+and the seating table are part of the game, and live in `engine/models/`.
 
-`application/README.md` détaille les routes, l'affichage, les phases, le combat et la connexion.
+`application/README.md` details the routes, the display, the phases, combat and logging in.
 
-## Les modèles
+## The models
 
-Tout ce que le jeu retient est dans le moteur ; l'application ne garde que la connexion. Un
-fichier par modèle, dans un répertoire `models/` (voir `CLAUDE.md`, « Architecture »).
+Everything the game keeps is in the engine; the application keeps only the connection and the map
+view. One file per model, in a `models/` directory (see `CLAUDE.md`, "Architecture").
 
-| Classe | Module | Collection Mongo | Fichier |
+| Class | Module | Mongo collection | File |
 | --- | --- | --- | --- |
-| `Partie` | moteur | `parties` | `moteur/models/partie.py` |
-| `Joueur` | moteur | `joueurs` | `moteur/models/joueur.py` |
-| `Places` | moteur | — (voyage dans le champ `places` de `Partie`) | `moteur/models/places.py` |
-| `Connexion` | application | — (le cookie de session signé de Flask) | `application/models/connexion.py` |
+| `Game` | engine | `parties` | `engine/models/game.py` |
+| `Player` | engine | `joueurs` | `engine/models/player.py` |
+| `Seats` | engine | — (travels in `Game`'s `places` field) | `engine/models/seats.py` |
+| `Connection` | application | — (Flask's signed session cookie) | `application/models/connection.py` |
+| `View` | application | `vues` | `application/models/view.py` |
 
-`Places` et `Connexion` ne sont pas des documents mongoengine, et n'ont donc pas de collection :
-la table des places est sauvegardée **avec la partie**, dans son champ `places` (camp →
-identifiant Discord), et la connexion n'a d'autre stockage que le cookie signé de Flask, qui vit
-chez le joueur.
+The collection names stay French, as do the stored field names: renaming them would orphan the
+games and accounts already in base. Only the Python side is English — the models pin the old names
+through `db_field`.
 
-`Connexion` désigne le `Joueur` du moteur par son `discord_id`, jamais par une référence Mongo :
-c'est le seul lien entre les deux mondes, et il ne va que dans ce sens — le moteur n'importe rien
-de l'application.
+`Seats` and `Connection` are not mongoengine documents, and therefore have no collection: the
+seating table is saved **with the game**, in its `places` field (side → Discord identifier), and
+the connection has no storage other than Flask's signed cookie, which lives on the player's
+machine.
 
-Leur accès en base passe par un dépôt, jamais par une route : `moteur/depots/partie.py` et
-`moteur/depots/joueur.py`, chacun en deux versions — MongoDB, et son homologue sans base que la
-configuration de test branche.
+`Connection` designates the engine's `Player` by their `discord_id`, never by a Mongo reference:
+it is the only link between the two worlds, and it runs one way only — the engine imports nothing
+from the application.
 
-## Installer
+Database access to them goes through a repository, never through a route:
+`engine/repositories/game.py` and `engine/repositories/player.py`, each in two versions — MongoDB,
+and the base-less counterpart the test configuration plugs in.
+
+## Installing
 
 ```
 python3 -m pip install -r requirements.txt
-cp .env.example .env       # puis renseigner SECRET_KEY et les identifiants Discord
+cp .env.example .env       # then fill in SECRET_KEY and the Discord credentials
 ```
 
-Sans `SECRET_KEY`, l'application refuse de démarrer. Sans MongoDB, mettre `PERSISTANCE=aucune`
-dans le `.env` : la partie repart alors de la mise en place à chaque chargement.
+Without `SECRET_KEY`, the application refuses to start. Without MongoDB, set `PERSISTENCE=none` in
+the `.env`: the game then starts again from the set-up at every load.
 
-## Lancer
+## Running
 
 ```
 cd application && python3 app.py
 ```
 
-Puis <http://127.0.0.1:5000/> pour le plateau, <http://127.0.0.1:5000/admin/map_fix> pour la
-correction de la carte.
+Then <http://127.0.0.1:5000/> for the board, <http://127.0.0.1:5000/admin/map_fix> to fix the map.
 
-## Vérifier
+## Checking
 
-Toute vérification passe par la suite de tests — on ne lance pas le serveur pour voir si ça
-marche.
+Every check goes through the test suite — we do not launch the server to see whether it works.
 
-| Commande | Ce qu'elle fait |
+| Command | What it does |
 | --- | --- |
-| `make test` | monte un MongoDB de test dans Docker, puis lance toute la suite |
-| `make test-rapide` | la même suite sans base : les tests qui en demandent une se sautent |
-| `make test-navigateur` | les seuls tests Chromium (Playwright) |
-| `make navigateur` | installe Chromium pour Playwright |
-| `make mongo-arret` | retire le conteneur de test |
+| `make test` | brings up a test MongoDB in Docker, then runs the whole suite |
+| `make test-fast` | the same suite without a database: the tests that need one skip themselves |
+| `make test-browser` | the Chromium (Playwright) tests only |
+| `make browser` | installs Chromium for Playwright |
+| `make mongo-stop` | removes the test container |
 
-Les tests vivent dans `moteur/tests/` et `application/tests/`, et se lancent depuis la racine.
-Un test suit son sujet : `moteur/tests/test_places.py` éprouve le registre des places,
-`application/tests/test_connexion_modele.py` le modèle de connexion.
+The tests live in `engine/tests/` and `application/tests/`, and are run from the root. A test
+follows its subject: `engine/tests/test_seats.py` exercises the seating register,
+`application/tests/test_connection_model.py` the connection model.
 
-## Où lire ensuite
+## Where to read next
 
-| Fichier | Sujet |
+| File | Subject |
 | --- | --- |
-| `game_box/ave_tenebrae_regles.md` | les règles du jeu |
-| `game_box/carte.md` | comment la carte a été transcrite, et ses réserves |
-| `game_box/pions/README.md` | l'inventaire des 127 pions |
-| `moteur/README.md` | les classes du moteur et l'interprétation des règles |
-| `scenarios/README.md` | le format des mises en place |
-| `application/README.md` | le serveur, l'affichage, les phases, la connexion Discord |
-| `DEPLOIEMENT.md` | ce que le flux d'événements demandera derrière un vrai serveur |
-| `CLAUDE.md` | les conventions de travail du dépôt |
+| `game_box/ave_tenebrae_regles.md` | the game rules (in French) |
+| `game_box/map.md` | how the map was transcribed, and its caveats |
+| `game_box/pions/README.md` | the inventory of the 127 counters |
+| `engine/README.md` | the engine's classes and the interpretation of the rules |
+| `scenarios/README.md` | the format of the set-ups |
+| `application/README.md` | the server, the display, the phases, logging in through Discord |
+| `DEPLOYMENT.md` | what the event stream will require behind a real server |
+| `CLAUDE.md` | the repository's working conventions |
 
 ## Sources
 
-Le matériel d'origine est celui de Jeux Descartes (1986) ; il est archivé ici pour l'étude et
-n'est pas redistribuable. Le découpage des planches de pions vient de l'article « Vintageboard 1 »
-de R-One Chaff (irlboardgames.blogspot.com), conservé dans `base_material/`.
+The original material is Jeux Descartes' (1986); it is archived here for study and is not
+redistributable. The breakdown of the counter sheets comes from the article "Vintageboard 1" by
+R-One Chaff (irlboardgames.blogspot.com), kept in `base_material/`.

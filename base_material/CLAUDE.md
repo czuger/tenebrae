@@ -1,13 +1,10 @@
 # DO NOT USE THE CONTENT OF THIS DIRECTORY
 
-Les **sources brutes** d'*Ave Tenebrae* : le fascicule de règles scanné, l'article de blog
-archivé qui donne le découpage des planches de pions, et les 144 photos de la boîte, de la carte
-et des pions.
+The **raw sources** of the project: the scanned rules booklet, the archived blog article, and the
+144 photographs of the box, the map and the counters. Everything that has been drawn from them
+already lives in `game_box/`, which is the repository's source of truth — that is where both code
+and documentation read.
 
-Tout ce qui en a été tiré vit déjà dans `game_box/`, transcrit et vérifié — c'est là qu'il faut
-lire. On ne revient ici que pour **vérifier ou compléter une transcription**, et alors on met à
-jour le dérivé.
-
-Ces fichiers sont **en lecture seule** : ne rien y renommer, y déplacer ni y retoucher. Les
-copies renommées de pions vivent dans `game_box/pions/`, avec leur provenance notée dans le
-README de ce répertoire.
+We come back here only to **check or complete a transcription**, and then the derived file in
+`game_box/` is updated: it is never the source that is edited, and it is never the source that a
+piece of code reads.

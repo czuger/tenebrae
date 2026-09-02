@@ -1,11 +1,11 @@
-"""La route d'admin qui corrige les terrains de la carte, sans navigateur.
+"""The admin route that fixes the map's terrains, without a browser.
 
-Aucun test n'écrit dans `game_box/` : la fixture `corrections` détourne le chemin du fichier de
-corrections, qui appartient au moteur, vers un fichier temporaire.
+No test writes into `game_box/`: the `fixes` fixture diverts the path of the fixes file, which
+belongs to the engine, to a temporary file.
 
-La page travaille sur la carte **transcrite** — pas sur `CARTE`, que le moteur a déjà recouverte
-des corrections en vigueur : c'est ce qui garde juste le terrain « d'origine » et son bouton
-« Rétablir » après un redémarrage.
+The page works on the **transcribed** map - not on `MAP`, which the engine has already overlaid
+with the fixes in force: that is what keeps the "original" terrain and its "Rétablir" button
+correct after a restart.
 """
 
 import json
@@ -13,148 +13,146 @@ import json
 import pytest
 
 import app
-from moteur import hexagone as moteur_hexagone
-from moteur.hexagone import CARTE_TRANSCRITE
+from engine import hexagon as engine_hexagon
+from engine.hexagon import TRANSCRIBED_MAP
 
-from test_serveur import lire_le_champ_cache
+from test_server import read_hidden_field
 
-# Un hexagone de plaine, et le premier bois venu : de quoi corriger l'un vers l'autre.
-PLAINE = "1,26,-27"
-AUTRE_TERRAIN = "bois"
+# A plain hexagon, and the first woods that come along: enough to fix one into the other.
+PLAIN = "1,26,-27"
+OTHER_TERRAIN = "bois"
 
 
 @pytest.fixture
-def corrections(tmp_path, monkeypatch):
-    """Détourne le fichier de corrections, et rend son chemin."""
-    chemin = tmp_path / "map_fix.json"
-    monkeypatch.setattr(moteur_hexagone, "CHEMIN_DES_CORRECTIONS", chemin)
-    return chemin
+def fixes(tmp_path, monkeypatch):
+    """Diverts the fixes file, and returns its path."""
+    path = tmp_path / "map_fix.json"
+    monkeypatch.setattr(engine_hexagon, "FIXES_PATH", path)
+    return path
 
 
-def relire(chemin):
-    """Le contenu du fichier de corrections ; un dictionnaire vide s'il n'existe pas."""
-    if not chemin.exists():
+def reread(path):
+    """The contents of the fixes file; an empty dict if it does not exist."""
+    if not path.exists():
         return {}
-    return json.loads(chemin.read_text(encoding="utf-8"))
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
-def corriger(client, cle, terrain):
-    q, r, s = (int(valeur) for valeur in cle.split(","))
+def fix(client, key, terrain):
+    q, r, s = (int(value) for value in key.split(","))
     return client.post("/admin/map_fix", json={"q": q, "r": r, "s": s, "terrain": terrain})
 
 
-# --- La page ---
+# --- The page ---
 
 
-def test_la_page_repond(client, corrections):
+def test_the_page_answers(client, fixes):
     assert client.get("/admin/map_fix").status_code == 200
 
 
-def test_la_page_porte_toute_la_carte(client, corrections):
-    """Le todo demande que le navigateur ait tout : il ne doit rien avoir à demander pour survoler."""
-    hexagones = lire_le_champ_cache(client.get("/admin/map_fix").get_data(as_text=True),
-                                    "hexagones")
-    assert len(hexagones) == len(CARTE_TRANSCRITE)
-    assert hexagones[PLAINE] == CARTE_TRANSCRITE[PLAINE][0]
+def test_the_page_carries_the_whole_map(client, fixes):
+    """The todo asks that the browser have everything: it must have nothing to ask to hover."""
+    hexagons = read_hidden_field(client.get("/admin/map_fix").get_data(as_text=True), "hexagons")
+    assert len(hexagons) == len(TRANSCRIBED_MAP)
+    assert hexagons[PLAIN] == TRANSCRIBED_MAP[PLAIN][0]
 
 
-def test_les_terrains_envoyes_sont_ceux_de_la_carte(client, corrections):
-    hexagones = lire_le_champ_cache(client.get("/admin/map_fix").get_data(as_text=True),
-                                    "hexagones")
-    assert set(hexagones.values()) <= set(app.TERRAINS)
+def test_the_terrains_sent_are_those_of_the_map(client, fixes):
+    hexagons = read_hidden_field(client.get("/admin/map_fix").get_data(as_text=True), "hexagons")
+    assert set(hexagons.values()) <= set(app.TERRAINS)
 
 
-def test_la_liste_des_terrains_couvre_la_carte(client, corrections):
-    """`TERRAINS` est le vocabulaire des boutons : il doit valoir exactement celui de la carte."""
-    terrains = lire_le_champ_cache(client.get("/admin/map_fix").get_data(as_text=True), "terrains")
-    assert set(terrains) == {elements[0] for elements in CARTE_TRANSCRITE.values()}
+def test_the_terrain_list_covers_the_map(client, fixes):
+    """`TERRAINS` is the buttons' vocabulary: it must be exactly the map's."""
+    terrains = read_hidden_field(client.get("/admin/map_fix").get_data(as_text=True), "terrains")
+    assert set(terrains) == {elements[0] for elements in TRANSCRIBED_MAP.values()}
     assert len(terrains) == len(set(terrains))
 
 
-def test_la_page_porte_le_calage_de_la_grille(client, corrections):
-    grille = lire_le_champ_cache(client.get("/admin/map_fix").get_data(as_text=True), "grille")
-    assert grille == {"origine": app.GRILLE_ORIGINE, "matrice": app.GRILLE_MATRICE}
+def test_the_page_carries_the_grid_alignment(client, fixes):
+    grid = read_hidden_field(client.get("/admin/map_fix").get_data(as_text=True), "grid")
+    assert grid == {"origin": app.GRID_ORIGIN, "matrix": app.GRID_MATRIX}
 
 
-def test_la_page_est_servie_sans_fichier_de_corrections(client, corrections):
-    assert not corrections.exists()
+def test_the_page_is_served_without_a_fixes_file(client, fixes):
+    assert not fixes.exists()
     page = client.get("/admin/map_fix").get_data(as_text=True)
-    assert lire_le_champ_cache(page, "corrections") == {}
+    assert read_hidden_field(page, "fixes") == {}
 
 
-def test_la_page_rappelle_les_corrections_deja_faites(client, corrections):
-    corrections.write_text(json.dumps({PLAINE: AUTRE_TERRAIN}), encoding="utf-8")
+def test_the_page_recalls_the_fixes_already_made(client, fixes):
+    fixes.write_text(json.dumps({PLAIN: OTHER_TERRAIN}), encoding="utf-8")
     page = client.get("/admin/map_fix").get_data(as_text=True)
-    assert lire_le_champ_cache(page, "corrections") == {PLAINE: AUTRE_TERRAIN}
+    assert read_hidden_field(page, "fixes") == {PLAIN: OTHER_TERRAIN}
 
 
-# --- La correction ---
+# --- The fix ---
 
 
-def test_corriger_ecrit_le_fichier(client, corrections):
-    reponse = corriger(client, PLAINE, AUTRE_TERRAIN)
-    assert reponse.status_code == 200
-    assert reponse.get_json() == {"cle": PLAINE, "terrain": AUTRE_TERRAIN,
-                                  "origine": CARTE_TRANSCRITE[PLAINE][0], "corrige": True}
-    assert relire(corrections) == {PLAINE: AUTRE_TERRAIN}
+def test_fixing_writes_the_file(client, fixes):
+    answer = fix(client, PLAIN, OTHER_TERRAIN)
+    assert answer.status_code == 200
+    assert answer.get_json() == {"key": PLAIN, "terrain": OTHER_TERRAIN,
+                                 "original": TRANSCRIBED_MAP[PLAIN][0], "fixed": True}
+    assert reread(fixes) == {PLAIN: OTHER_TERRAIN}
 
 
-def test_les_corrections_s_accumulent(client, corrections):
-    corriger(client, PLAINE, AUTRE_TERRAIN)
-    voisine = "1,27,-28"
-    corriger(client, voisine, "colline")
-    assert relire(corrections) == {PLAINE: AUTRE_TERRAIN, voisine: "colline"}
+def test_the_fixes_accumulate(client, fixes):
+    fix(client, PLAIN, OTHER_TERRAIN)
+    neighbour = "1,27,-28"
+    fix(client, neighbour, "colline")
+    assert reread(fixes) == {PLAIN: OTHER_TERRAIN, neighbour: "colline"}
 
 
-def test_corriger_deux_fois_le_meme_hexagone_remplace(client, corrections):
-    corriger(client, PLAINE, AUTRE_TERRAIN)
-    corriger(client, PLAINE, "colline")
-    assert relire(corrections) == {PLAINE: "colline"}
+def test_fixing_the_same_hexagon_twice_replaces(client, fixes):
+    fix(client, PLAIN, OTHER_TERRAIN)
+    fix(client, PLAIN, "colline")
+    assert reread(fixes) == {PLAIN: "colline"}
 
 
-def test_choisir_le_terrain_de_la_carte_retire_la_correction(client, corrections):
-    corriger(client, PLAINE, AUTRE_TERRAIN)
-    reponse = corriger(client, PLAINE, CARTE_TRANSCRITE[PLAINE][0])
-    assert reponse.get_json()["corrige"] is False
-    assert relire(corrections) == {}
+def test_choosing_the_maps_terrain_removes_the_fix(client, fixes):
+    fix(client, PLAIN, OTHER_TERRAIN)
+    answer = fix(client, PLAIN, TRANSCRIBED_MAP[PLAIN][0])
+    assert answer.get_json()["fixed"] is False
+    assert reread(fixes) == {}
 
 
-def test_la_carte_transcrite_reste_intacte(client, corrections):
-    """Le fichier de corrections est à part : la transcription ne bouge pas."""
-    avant = CARTE_TRANSCRITE[PLAINE]
-    corriger(client, PLAINE, AUTRE_TERRAIN)
-    assert CARTE_TRANSCRITE[PLAINE] == avant
+def test_the_transcribed_map_stays_intact(client, fixes):
+    """The fixes file is separate: the transcription does not budge."""
+    before = TRANSCRIBED_MAP[PLAIN]
+    fix(client, PLAIN, OTHER_TERRAIN)
+    assert TRANSCRIBED_MAP[PLAIN] == before
 
 
-def test_la_page_montre_la_transcription_meme_corrigee(client, corrections):
-    """Ce que la page appelle « la carte », c'est le scan — sinon on ne peut plus rétablir."""
-    corriger(client, PLAINE, AUTRE_TERRAIN)
+def test_the_page_shows_the_transcription_even_once_fixed(client, fixes):
+    """What the page calls "the map" is the scan - otherwise nothing can be reset."""
+    fix(client, PLAIN, OTHER_TERRAIN)
     page = client.get("/admin/map_fix").get_data(as_text=True)
-    assert lire_le_champ_cache(page, "hexagones")[PLAINE] == CARTE_TRANSCRITE[PLAINE][0]
-    assert lire_le_champ_cache(page, "corrections")[PLAINE] == AUTRE_TERRAIN
+    assert read_hidden_field(page, "hexagons")[PLAIN] == TRANSCRIBED_MAP[PLAIN][0]
+    assert read_hidden_field(page, "fixes")[PLAIN] == OTHER_TERRAIN
 
 
-def test_la_page_dit_ce_que_le_moteur_a_deja_applique(client, corrections, monkeypatch):
-    """Le champ « appliquées » sert à savoir si le serveur doit être relancé."""
-    monkeypatch.setattr(moteur_hexagone, "CORRECTIONS_APPLIQUEES", {PLAINE: AUTRE_TERRAIN})
+def test_the_page_says_what_the_engine_has_already_applied(client, fixes, monkeypatch):
+    """The "applied" field serves to know whether the server must be restarted."""
+    monkeypatch.setattr(engine_hexagon, "APPLIED_FIXES", {PLAIN: OTHER_TERRAIN})
     page = client.get("/admin/map_fix").get_data(as_text=True)
-    assert lire_le_champ_cache(page, "appliquees") == {PLAINE: AUTRE_TERRAIN}
+    assert read_hidden_field(page, "applied") == {PLAIN: OTHER_TERRAIN}
 
 
-def test_un_terrain_inconnu_est_refuse(client, corrections):
-    assert corriger(client, PLAINE, "marecage").status_code == 400
-    assert not corrections.exists()
+def test_an_unknown_terrain_is_refused(client, fixes):
+    assert fix(client, PLAIN, "marecage").status_code == 400
+    assert not fixes.exists()
 
 
-def test_un_terrain_absent_est_refuse(client, corrections):
+def test_a_missing_terrain_is_refused(client, fixes):
     assert client.post("/admin/map_fix", json={"q": 1, "r": 26, "s": -27}).status_code == 400
 
 
-def test_des_coordonnees_illisibles_sont_refusees(client, corrections):
+def test_unreadable_coordinates_are_refused(client, fixes):
     assert client.post("/admin/map_fix",
                        json={"q": 1, "r": 26, "s": 0, "terrain": "bois"}).status_code == 400
     assert client.post("/admin/map_fix", json={"terrain": "bois"}).status_code == 400
 
 
-def test_un_hexagone_hors_carte_est_refuse(client, corrections):
-    assert corriger(client, "-1,0,1", "bois").status_code == 404
+def test_a_hexagon_off_the_map_is_refused(client, fixes):
+    assert fix(client, "-1,0,1", "bois").status_code == 404

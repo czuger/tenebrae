@@ -1,211 +1,213 @@
-// Corriger à l'œil les terrains de la carte.
+// Fixing the map's terrains by eye.
 //
-// Le serveur a passé toute la carte dans un champ caché : le survol lit dedans, sans rien lui
-// demander. Seul le choix d'un terrain fait un aller-retour, pour aller s'écrire dans
-// game_box/map_fix.json. La carte transcrite, elle, n'est jamais touchée.
+// The server has passed the whole map in a hidden field: hovering reads inside it, without asking
+// the server anything. Only choosing a terrain makes a round trip, to go and write itself into
+// game_box/map_fix.json. The transcribed map itself is never touched.
+//
+// Everything the administrator reads stays in French, terrain names included: they are the
+// vocabulary of the data files.
 
-const ECART_INFOBULLE = 16; // pixels entre le pointeur et l'encadré
+const TOOLTIP_GAP = 16; // pixels between the pointer and the box
 
-const cadre = document.getElementById("cadre");
-const toile = document.getElementById("toile");
-const plateau = document.getElementById("plateau");
-const carte = document.getElementById("carte");
-const surlignage = document.getElementById("surlignage");
-const infobulle = document.getElementById("infobulle");
-const compteur = document.getElementById("compteur");
-const redemarrage = document.getElementById("redemarrage");
-const affichageEchelle = document.getElementById("echelle");
+const frame = document.getElementById("frame");
+const canvas = document.getElementById("canvas");
+const board = document.getElementById("board");
+const map = document.getElementById("map");
+const highlight = document.getElementById("highlight");
+const tooltip = document.getElementById("tooltip");
+const counter = document.getElementById("counter");
+const restart = document.getElementById("restart");
+const scaleDisplay = document.getElementById("scale");
 
-const choix = document.getElementById("choix");
-const choixTitre = document.getElementById("choix-titre");
-const choixEtat = document.getElementById("choix-etat");
-const choixTerrains = document.getElementById("choix-terrains");
-const choixRetablir = document.getElementById("choix-retablir");
+const choice = document.getElementById("choice");
+const choiceTitle = document.getElementById("choice-title");
+const choiceState = document.getElementById("choice-state");
+const choiceTerrains = document.getElementById("choice-terrains");
+const choiceReset = document.getElementById("choice-reset");
 
-const hexagones = JSON.parse(document.getElementById("hexagones").value);
-const corrections = JSON.parse(document.getElementById("corrections").value);
-// Les corrections que le moteur a fusionnées à son démarrage : la carte du jeu s'arrête là.
-const appliquees = JSON.parse(document.getElementById("appliquees").value);
+const hexagons = JSON.parse(document.getElementById("hexagons").value);
+const fixes = JSON.parse(document.getElementById("fixes").value);
+// The fixes the engine merged at start-up: the game's map stops there.
+const applied = JSON.parse(document.getElementById("applied").value);
 const terrains = JSON.parse(document.getElementById("terrains").value);
-const grille = JSON.parse(document.getElementById("grille").value);
-const { hexagoneDuPixel, sommets } = calage(grille);
+const grid = JSON.parse(document.getElementById("grid").value);
+const { hexagonOfPixel, vertices } = alignment(grid);
 
-let vise = null; // l'hexagone sous le pointeur
-let enCoursDeCorrection = null; // celui dont le dialogue est ouvert
+let aimed = null; // the hexagon under the pointer
+let beingFixed = null; // the one whose dialog is open
 
-// --- La carte, lue en mémoire ---
+// --- The map, read from memory ---
 
-function terrainDeLaCarte(clef) {
-  return hexagones[clef] ?? null;
+function mapTerrain(id) {
+  return hexagons[id] ?? null;
 }
 
-function terrainActuel(clef) {
-  return corrections[clef] ?? hexagones[clef] ?? null;
+function currentTerrain(id) {
+  return fixes[id] ?? hexagons[id] ?? null;
 }
 
-// --- Surlignage ---
+// --- Highlighting ---
 
-function polygone(hexagone, classe) {
-  const forme = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-  forme.setAttribute("points",
-    sommets(hexagone.q, hexagone.r).map(({ x, y }) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" "));
-  forme.setAttribute("class", classe);
-  return forme;
+function polygon(hexagon, className) {
+  const shape = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+  shape.setAttribute("points",
+    vertices(hexagon.q, hexagon.r).map(({ x, y }) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" "));
+  shape.setAttribute("class", className);
+  return shape;
 }
 
-function dessinerLesCorrections() {
-  surlignage.replaceChildren();
-  for (const clef of Object.keys(corrections)) {
-    const [q, r, s] = clef.split(",").map(Number);
-    surlignage.appendChild(polygone({ q, r, s }, "corrige"));
+function drawTheFixes() {
+  highlight.replaceChildren();
+  for (const id of Object.keys(fixes)) {
+    const [q, r, s] = id.split(",").map(Number);
+    highlight.appendChild(polygon({ q, r, s }, "fixed"));
   }
-  if (vise) surlignage.appendChild(polygone(vise, "vise"));
+  if (aimed) highlight.appendChild(polygon(aimed, "aimed"));
 }
 
-function dimensionnerLeSurlignage() {
-  surlignage.setAttribute("width", carte.naturalWidth);
-  surlignage.setAttribute("height", carte.naturalHeight);
-  surlignage.setAttribute("viewBox", `0 0 ${carte.naturalWidth} ${carte.naturalHeight}`);
+function sizeTheHighlight() {
+  highlight.setAttribute("width", map.naturalWidth);
+  highlight.setAttribute("height", map.naturalHeight);
+  highlight.setAttribute("viewBox", `0 0 ${map.naturalWidth} ${map.naturalHeight}`);
 }
 
-// --- Survol ---
+// --- Hovering ---
 
-function montrerLInfobulle(clef, clientX, clientY) {
-  const origine = terrainDeLaCarte(clef);
-  const correction = corrections[clef];
-  infobulle.textContent = `${clef} — ${origine}`;
-  if (correction) {
-    const fleche = document.createElement("span");
-    fleche.className = "correction";
-    fleche.textContent = ` → ${correction}`;
-    infobulle.appendChild(fleche);
+function showTheTooltip(id, clientX, clientY) {
+  const original = mapTerrain(id);
+  const fix = fixes[id];
+  tooltip.textContent = `${id} — ${original}`;
+  if (fix) {
+    const arrow = document.createElement("span");
+    arrow.className = "fix";
+    arrow.textContent = ` → ${fix}`;
+    tooltip.appendChild(arrow);
   }
-  infobulle.hidden = false;
+  tooltip.hidden = false;
 
-  // L'encadré se range de l'autre côté du pointeur quand il déborderait de la fenêtre.
-  const taille = infobulle.getBoundingClientRect();
-  const x = clientX + ECART_INFOBULLE + taille.width > window.innerWidth
-    ? clientX - ECART_INFOBULLE - taille.width : clientX + ECART_INFOBULLE;
-  const y = clientY + ECART_INFOBULLE + taille.height > window.innerHeight
-    ? clientY - ECART_INFOBULLE - taille.height : clientY + ECART_INFOBULLE;
-  infobulle.style.left = `${x}px`;
-  infobulle.style.top = `${y}px`;
+  // The box moves to the other side of the pointer when it would overflow the window.
+  const size = tooltip.getBoundingClientRect();
+  const x = clientX + TOOLTIP_GAP + size.width > window.innerWidth
+    ? clientX - TOOLTIP_GAP - size.width : clientX + TOOLTIP_GAP;
+  const y = clientY + TOOLTIP_GAP + size.height > window.innerHeight
+    ? clientY - TOOLTIP_GAP - size.height : clientY + TOOLTIP_GAP;
+  tooltip.style.left = `${x}px`;
+  tooltip.style.top = `${y}px`;
 }
 
-function cacherLInfobulle() {
-  infobulle.hidden = true;
-  vise = null;
-  dessinerLesCorrections();
+function hideTheTooltip() {
+  tooltip.hidden = true;
+  aimed = null;
+  drawTheFixes();
 }
 
-function auSurvol(evenement) {
-  const { x, y } = pixelDuPointeur(evenement, carte);
-  const hexagone = hexagoneDuPixel(x, y);
-  const clef = cle(hexagone);
-  if (!terrainDeLaCarte(clef)) {
-    cacherLInfobulle();
+function onHover(event) {
+  const { x, y } = pixelOfPointer(event, map);
+  const hexagon = hexagonOfPixel(x, y);
+  const id = key(hexagon);
+  if (!mapTerrain(id)) {
+    hideTheTooltip();
     return;
   }
 
-  if (!vise || cle(vise) !== clef) {
-    vise = hexagone;
-    dessinerLesCorrections();
+  if (!aimed || key(aimed) !== id) {
+    aimed = hexagon;
+    drawTheFixes();
   }
-  montrerLInfobulle(clef, evenement.clientX, evenement.clientY);
+  showTheTooltip(id, event.clientX, event.clientY);
 }
 
-// --- Le dialogue de correction ---
+// --- The fixing dialog ---
 
-function construireLesBoutons() {
+function buildTheButtons() {
   for (const terrain of terrains) {
-    const bouton = document.createElement("button");
-    bouton.type = "button";
-    bouton.dataset.terrain = terrain;
-    bouton.textContent = terrain;
-    bouton.addEventListener("click", () => corriger(terrain));
-    choixTerrains.appendChild(bouton);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.terrain = terrain;
+    button.textContent = terrain;
+    button.addEventListener("click", () => fix(terrain));
+    choiceTerrains.appendChild(button);
   }
 }
 
-function ouvrirLeChoix(hexagone) {
-  const clef = cle(hexagone);
-  const origine = terrainDeLaCarte(clef);
-  if (!origine) return;
+function openTheChoice(hexagon) {
+  const id = key(hexagon);
+  const original = mapTerrain(id);
+  if (!original) return;
 
-  enCoursDeCorrection = hexagone;
-  const actuel = terrainActuel(clef);
-  choixTitre.textContent = `Hexagone ${clef}`;
-  choixEtat.textContent = corrections[clef]
-    ? `carte : ${origine} — corrigé en ${corrections[clef]}`
-    : `carte : ${origine}`;
-  for (const bouton of choixTerrains.children) {
-    bouton.classList.toggle("actuel", bouton.dataset.terrain === actuel);
+  beingFixed = hexagon;
+  const current = currentTerrain(id);
+  choiceTitle.textContent = `Hexagone ${id}`;
+  choiceState.textContent = fixes[id]
+    ? `carte : ${original} — corrigé en ${fixes[id]}`
+    : `carte : ${original}`;
+  for (const button of choiceTerrains.children) {
+    button.classList.toggle("current", button.dataset.terrain === current);
   }
-  choixRetablir.hidden = !corrections[clef];
-  choixRetablir.textContent = `Rétablir (${origine})`;
-  choix.showModal();
+  choiceReset.hidden = !fixes[id];
+  choiceReset.textContent = `Rétablir (${original})`;
+  choice.showModal();
 }
 
-async function corriger(terrain) {
-  const hexagone = enCoursDeCorrection;
-  if (!hexagone) return;
+async function fix(terrain) {
+  const hexagon = beingFixed;
+  if (!hexagon) return;
 
-  const reponse = await fetch("/admin/map_fix", {
+  const answer = await fetch("/admin/map_fix", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ q: hexagone.q, r: hexagone.r, s: hexagone.s, terrain }),
+    body: JSON.stringify({ q: hexagon.q, r: hexagon.r, s: hexagon.s, terrain }),
   });
-  // Le serveur seul décide : tant qu'il n'a pas répondu, rien ne bouge ici.
-  if (!reponse.ok) return;
-  const { cle: clef, terrain: retenu, corrige } = await reponse.json();
+  // The server alone decides: as long as it has not answered, nothing moves here.
+  if (!answer.ok) return;
+  const { key: id, terrain: retained, fixed } = await answer.json();
 
-  if (corrige) corrections[clef] = retenu;
-  else delete corrections[clef];
+  if (fixed) fixes[id] = retained;
+  else delete fixes[id];
 
-  dessinerLesCorrections();
-  compter();
-  choix.close();
+  drawTheFixes();
+  count();
+  choice.close();
 }
 
-function memesCorrections(unes, autres) {
-  // Comparaison de contenu : l'ordre des clés n'a pas de sens ici.
-  const clefs = Object.keys(unes);
-  return clefs.length === Object.keys(autres).length
-    && clefs.every((clef) => unes[clef] === autres[clef]);
+function sameFixes(ones, others) {
+  // Content comparison: the order of the keys means nothing here.
+  const ids = Object.keys(ones);
+  return ids.length === Object.keys(others).length
+    && ids.every((id) => ones[id] === others[id]);
 }
 
-function compter() {
-  const nombre = Object.keys(corrections).length;
-  compteur.textContent = nombre === 0 ? "aucune correction"
-    : nombre === 1 ? "1 correction" : `${nombre} corrections`;
-  // Le moteur a fusionné la carte à son démarrage : tout écart demande de le relancer.
-  redemarrage.hidden = memesCorrections(corrections, appliquees);
+function count() {
+  const number = Object.keys(fixes).length;
+  counter.textContent = number === 0 ? "aucune correction"
+    : number === 1 ? "1 correction" : `${number} corrections`;
+  // The engine merged the map at start-up: any difference calls for restarting it.
+  restart.hidden = sameFixes(fixes, applied);
 }
 
-// --- Démarrage ---
+// --- Start-up ---
 
-function demarrer() {
-  dimensionnerLeSurlignage();
-  construireLesBoutons();
-  dessinerLesCorrections();
-  compter();
-  // La molette, les boutons « + », « − » et « ajuster » : la mécanique est dans zoom.js.
-  zoom({ cadre, toile, plateau, carte, affichage: affichageEchelle }).ajuster();
+function start() {
+  sizeTheHighlight();
+  buildTheButtons();
+  drawTheFixes();
+  count();
+  // The wheel, the "+", "-" and "ajuster" buttons: the mechanics are in zoom.js.
+  zoom({ frame, canvas, board, map, display: scaleDisplay }).fit();
 
-  plateau.addEventListener("mousemove", auSurvol);
-  plateau.addEventListener("mouseleave", cacherLInfobulle);
-  plateau.addEventListener("click", (evenement) => {
-    const { x, y } = pixelDuPointeur(evenement, carte);
-    ouvrirLeChoix(hexagoneDuPixel(x, y));
+  board.addEventListener("mousemove", onHover);
+  board.addEventListener("mouseleave", hideTheTooltip);
+  board.addEventListener("click", (event) => {
+    const { x, y } = pixelOfPointer(event, map);
+    openTheChoice(hexagonOfPixel(x, y));
   });
 
-  choixRetablir.addEventListener("click",
-    () => corriger(terrainDeLaCarte(cle(enCoursDeCorrection))));
-  document.getElementById("choix-annuler").addEventListener("click", () => choix.close());
+  choiceReset.addEventListener("click", () => fix(mapTerrain(key(beingFixed))));
+  document.getElementById("choice-cancel").addEventListener("click", () => choice.close());
 }
 
-if (carte.complete) {
-  demarrer();
+if (map.complete) {
+  start();
 } else {
-  carte.addEventListener("load", demarrer);
+  map.addEventListener("load", start);
 }

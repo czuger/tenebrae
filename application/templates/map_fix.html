@@ -8,47 +8,47 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='map_fix.css') }}">
 </head>
 <body>
-  <!-- Toute la carte part d'un coup dans ces champs cachés : le survol n'interroge jamais le
-       serveur, seule une correction lui est envoyée. -->
-  <input type="hidden" id="hexagones" value="{{ carte }}">
-  <input type="hidden" id="corrections" value="{{ corrections }}">
-  <!-- Celles que le moteur a fusionnées à son démarrage : le jeu ne connaît que celles-là. -->
-  <input type="hidden" id="appliquees" value="{{ appliquees }}">
+  <!-- The whole map goes out at once in these hidden fields: hovering never queries the server,
+       only a fix is sent to it. -->
+  <input type="hidden" id="hexagons" value="{{ map }}">
+  <input type="hidden" id="fixes" value="{{ fixes }}">
+  <!-- Those the engine merged at start-up: the game knows only these. -->
+  <input type="hidden" id="applied" value="{{ applied }}">
   <input type="hidden" id="terrains" value="{{ terrains }}">
-  <input type="hidden" id="grille" value="{{ grille }}">
+  <input type="hidden" id="grid" value="{{ grid }}">
 
-  <div id="cadre">
-    <div id="toile">
-      <div id="plateau">
-        <img id="carte" src="{{ url_for('jeu.image_de_la_carte') }}" alt="Carte d'Ave Tenebrae">
-        <!-- Le surlignage de l'hexagone visé et la marque des cases déjà corrigées. -->
-        <svg id="surlignage" xmlns="http://www.w3.org/2000/svg"></svg>
+  <div id="frame">
+    <div id="canvas">
+      <div id="board">
+        <img id="map" src="{{ url_for('game.map_image') }}" alt="Carte d'Ave Tenebrae">
+        <!-- The highlight of the aimed hexagon and the mark of already fixed squares. -->
+        <svg id="highlight" xmlns="http://www.w3.org/2000/svg"></svg>
       </div>
     </div>
   </div>
 
-  <div id="outils">
-    <button type="button" id="dezoomer" title="Reculer">−</button>
-    <span id="echelle">—</span>
-    <button type="button" id="zoomer" title="Approcher">+</button>
-    <button type="button" id="ajuster">ajuster</button>
-    <span id="compteur">aucune correction</span>
-    <span id="redemarrage" hidden>redémarrer le serveur pour jouer dessus</span>
+  <div id="toolbar">
+    <button type="button" id="zoom-out" title="Reculer">−</button>
+    <span id="scale">—</span>
+    <button type="button" id="zoom-in" title="Approcher">+</button>
+    <button type="button" id="fit">ajuster</button>
+    <span id="counter">aucune correction</span>
+    <span id="restart" hidden>redémarrer le serveur pour jouer dessus</span>
   </div>
 
-  <div id="infobulle" hidden></div>
+  <div id="tooltip" hidden></div>
 
-  <dialog id="choix">
-    <p id="choix-titre"></p>
-    <p id="choix-etat"></p>
-    <div id="choix-terrains"></div>
-    <div id="choix-pied">
-      <button type="button" id="choix-retablir" hidden></button>
-      <button type="button" id="choix-annuler">Annuler</button>
+  <dialog id="choice">
+    <p id="choice-title"></p>
+    <p id="choice-state"></p>
+    <div id="choice-terrains"></div>
+    <div id="choice-footer">
+      <button type="button" id="choice-reset" hidden></button>
+      <button type="button" id="choice-cancel">Annuler</button>
     </div>
   </dialog>
 
-  <script src="{{ url_for('static', filename='geometrie.js') }}"></script>
+  <script src="{{ url_for('static', filename='geometry.js') }}"></script>
   <script src="{{ url_for('static', filename='zoom.js') }}"></script>
   <script src="{{ url_for('static', filename='map_fix.js') }}"></script>
 </body>

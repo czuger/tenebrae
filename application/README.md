@@ -1,500 +1,498 @@
-# `application/` — la carte affichée dans le navigateur
+# `application/` — the map displayed in the browser
 
-Une application Flask qui sert `game_box/map.jpg`, y **met en place un scénario** — le n° 4,
-« La guerre des nains », 18 nains face à 30 orques — et laisse le navigateur faire la géométrie.
-Cliquer un pion montre en **fantômes** les cases où il peut aller ; cliquer un fantôme l'y
-déplace. Le survoler ouvre sa **fiche** : sa photo agrandie et tout ce que son carton porte.
+A Flask application that serves `game_box/map.jpg`, **lays a scenario out on it** — no. 4,
+"La guerre des nains", 18 dwarves against 30 orcs — and lets the browser do the geometry. Clicking
+a piece shows as **ghosts** the squares it can go to; clicking a ghost moves it there. Hovering it
+opens its **card**: its photograph enlarged and everything its counter carries.
 
-Le jeu suit un **tour** : mouvement puis combat, pour les Nains puis pour les Orques, en boucle
-(la magie est sautée). Le bouton « Phase suivante » avance ; le libellé de la barre d'outils dit
-où l'on en est. En **phase de combat**, un clic sur une unité adverse la prend pour cible (rouge),
-un clic sur ses propres unités à portée les désigne comme attaquants (or), et « Attaquer » résout
-d'après le Tableau I du fascicule. **Une unité ne combat qu'une fois par phase** : celles qui ont
-donné sont grisées et refusent le clic jusqu'à la phase suivante.
+The game follows a **turn**: movement then combat, for the Dwarves then for the Orcs, round and
+round (magic is skipped). The "Phase suivante" button advances; the toolbar's label says where one
+stands. In the **combat phase**, a click on an opposing unit takes it as the target (red), a click
+on one's own units within range designates them as attackers (gold), and "Attaquer" resolves after
+the booklet's Table I. **A unit fights only once per phase**: those that have had their turn are
+greyed out and refuse the click until the next phase.
 
-Les règles ne sont pas ici : les déplacements viennent de `moteur/`, l'application ne fait que les
-servir. Le JavaScript ne décide jamais de la légalité d'un mouvement. **Chaque pion se déplace du
-nombre de points imprimé sur son carton** — de 1 à 20 selon l'unité, lu dans
-`game_box/pions/pions.json` par `moteur.pion` — et **s'arrête au contact des adversaires**, dont
-les zones de contrôle couvrent les six cases qui les environnent.
+The rules are not here: moves come from `engine/`, the application only serves them. The JavaScript
+never decides the legality of a move. **Each piece moves by the number of points printed on its
+counter** — from 1 to 20 depending on the unit, read from `game_box/pions/pions.json` by
+`engine.piece` — and **stops on contact with opponents**, whose zones of control cover the six
+squares surrounding them.
 
-La partie se joue **à deux, un joueur par camp**, chacun identifié par son compte Discord : le
-serveur refuse un coup joué par celui dont ce n'est pas le tour, et chaque navigateur voit avancer
-la partie de l'autre sans rien recharger — par un **flux d'événements** que le serveur pousse quand
-la partie change, et non plus en redemandant toutes les trois secondes. La carte, elle, reste visible sans compte (voir « Deux
-joueurs, deux camps » et « Se connecter par Discord »).
+The game is played **by two, one player per side**, each identified by their Discord account: the
+server refuses a move played by whoever's turn it is not, and each browser sees the other's game
+advance without reloading anything — through an **event stream** the server pushes when the game
+changes, and no longer by asking again every three seconds. The map itself stays visible without an
+account (see "Two players, two sides" and "Logging in through Discord").
 
-Une seconde page, `/admin/map_fix`, sert à corriger la transcription de la carte : c'est le seul
-endroit où l'application écrit dans `game_box/`, et seulement dans un fichier à elle. Le moteur
-applique ces corrections à son démarrage — le plateau se joue donc sur la carte corrigée. Elle est
-réservée aux comptes déclarés dans `ADMIN_DISCORD_IDS`.
+A second page, `/admin/map_fix`, serves to fix the map transcription: it is the only place where
+the application writes into `game_box/`, and only into a file of its own. The engine applies those
+fixes at start-up — so the board is played on the fixed map. It is reserved to the accounts
+declared in `ADMIN_DISCORD_IDS`.
 
-## Lancer
+The code is English; everything the player reads on screen is French, and so is the game data the
+application serves.
 
-Depuis ce répertoire, avec le virtualenv pyenv `tenebrae` :
+## Running
+
+From this directory, with the pyenv virtualenv `tenebrae`:
 
 ```
 python3 app.py
 ```
 
-puis <http://127.0.0.1:5000/> pour le plateau, <http://127.0.0.1:5000/admin/map_fix> pour la
-correction de la carte. Le plateau **reprend la partie là où on l'a laissée** (voir « Persistance
-de la partie ») ; `POST /partie/nouvelle` la recommence.
+then <http://127.0.0.1:5000/> for the board, <http://127.0.0.1:5000/admin/map_fix> to fix the map.
+The board **resumes the game where it was left** (see "Game persistence"); `POST /game/new` starts
+it over.
 
-Il faut un `.env` à la racine du dépôt (voir `.env.example`) : sans `SECRET_KEY`, l'application
-refuse de démarrer, et sans les identifiants Discord personne ne pourra se connecter.
+A `.env` at the repository root is required (see `.env.example`): without `SECRET_KEY`, the
+application refuses to start, and without the Discord credentials nobody can log in.
 
-Dépendances : `Flask`, `mongoengine` et `python-dotenv` (plus `pytest`, `pytest-playwright` et
-`mongomock` pour les tests). **L'authentification n'en ajoute aucune** : la session tient sur
-`flask.session`, et les deux appels à Discord sur `urllib` de la bibliothèque standard.
+Dependencies: `Flask`, `mongoengine` and `python-dotenv` (plus `pytest`, `pytest-playwright` and
+`mongomock` for the tests). **Authentication adds none**: the session rests on `flask.session`, and
+the two calls to Discord on `urllib` from the standard library.
 
-## Persistance de la partie
+## Game persistence
 
-La partie est enregistrée dans **MongoDB** à chaque coup joué — déplacement, combat, changement de
-phase —, et `GET /` la reprend. Seul l'état de jeu y va : les positions, l'angle sous lequel
-chaque carton est couché, la phase courante, ce que la phase de combat a déjà consommé, et **qui
-tient quel camp** — savoir qui joue l'Alliance fait partie de la partie, et un redémarrage ne doit
-pas vider la table. À côté d'elle, deux autres
-collections : les **joueurs** connus (`joueurs`), et la **vue de la carte** de chacun (`vues`,
-voir « Retrouver sa vue de la carte ») — la seule qui ne soit pas du jeu. La carte, le catalogue des pions et les
-scénarios restent des fichiers de `game_box/` et `scenarios/`, qui sont la source de vérité du
-dépôt.
+The game is recorded in **MongoDB** at every move played — a move, a combat, a phase change — and
+`GET /` resumes it. Only the game state goes there: the positions, the angle each counter lies at,
+the current phase, what the combat phase has already consumed, and **who holds which side** —
+knowing who plays the Alliance is part of the game, and a restart must not empty the table. Beside
+it, two other collections: the known **players** (`joueurs`), and each one's **map view** (`vues`,
+see "Finding one's map view again") — the only one that is not part of the game. The map, the piece
+catalogue and the scenarios stay as files in `game_box/` and `scenarios/`, which are the
+repository's source of truth.
 
-Les places voyagent dans le dict d'état, avec le reste, et non dans des méthodes de dépôt à part :
-`_remplir()` réécrit toute la partie à chaque coup, et des places tenues à côté seraient effacées
-à chaque sauvegarde. Une partie enregistrée avant les joueurs n'a pas de champ `places` : elle
-reste reprenable, la table est simplement vide. Il en va de même du champ `inclinaisons`, venu
-plus tard : les pions d'une vieille sauvegarde se recouchent une fois à la reprise, et le premier
-coup joué fige leurs angles.
+The Mongo collection names and the stored field names are French, and stay so: renaming a stored
+field would orphan the games already saved. The models pin them through `db_field`.
 
-**Lancer un MongoDB local**, par Docker :
+The seats travel in the state dict, with the rest, and not through separate repository methods:
+`_fill()` rewrites the whole game at every move, and seats held on the side would be erased at
+every save. A game recorded before players existed has no `places` field: it stays resumable, the
+table is simply empty. The same holds for the `inclinaisons` field, which came later: the pieces of
+an old save lie down once when it is resumed, and the first move played freezes their angles.
+
+**Running a local MongoDB**, through Docker:
 
 ```
 docker run -d --name tenebrae-mongo -p 27017:27017 mongo:7
 ```
 
-ou par Homebrew (`brew install mongodb-community && brew services start mongodb-community`).
+or through Homebrew (`brew install mongodb-community && brew services start mongodb-community`).
 
-**Configurer**, depuis la racine du dépôt :
+**Configuring**, from the repository root:
 
 ```
 cp .env.example .env
 ```
 
-`.env` n'est pas versionné : c'est le seul endroit où vivent les informations de connexion et les
-secrets, et `application/config.py` les y lit une fois au démarrage. `MONGODB_URI` et
-`PERSISTANCE` pour la base ; `SECRET_KEY`, les trois `DISCORD_*`, `ADMIN_DISCORD_IDS` et
-`COOKIE_SECURISE` pour les joueurs (voir « Se connecter par Discord »).
+`.env` is not versioned: it is the only place where the connection details and the secrets live,
+and `application/config.py` reads them there once at start-up. `MONGODB_URI` and `PERSISTENCE` for
+the database; `SECRET_KEY`, the three `DISCORD_*`, `ADMIN_DISCORD_IDS` and `SECURE_COOKIE` for the
+players (see "Logging in through Discord").
 
-**Jouer sans MongoDB** : `PERSISTANCE=aucune` dans `.env`. Le serveur branche alors un dépôt qui ne
-retient rien, et l'application se comporte comme avant la persistance — chaque chargement de `/`
-repose la mise en place du scénario. C'est aussi ce que fait la configuration de test, ce qui
-permet à toute la suite de tourner sans base.
+**Playing without MongoDB**: `PERSISTENCE=none` in `.env`. The server then plugs in a repository
+that keeps nothing, and the application behaves as it did before persistence — every load of `/`
+lays the scenario's set-up out again. That is also what the test configuration does, which lets the
+whole suite run without a database.
 
-Le dépôt de **joueurs**, lui, retient alors **en mémoire** au lieu de ne rien retenir. La nuance
-compte : l'état de jeu a déjà un domicile dans les module-globaux d'`app.py`, un joueur n'en a
-aucun, et un dépôt qui ne garderait rien n'appauvrirait pas le service — il l'interdirait, personne
-ne pouvant plus ouvrir de session, donc prendre place, donc jouer. La promesse de
-`PERSISTANCE=aucune` est tenue de la même façon : rien ne survit au serveur.
+The **player** repository, on the other hand, then keeps **in memory** instead of keeping nothing.
+The nuance matters: the game state already has a home in `app.py`'s module globals, a player has
+none, and a repository keeping nothing would not impoverish the service — it would forbid it,
+nobody being able to open a session any more, hence take a seat, hence play. The promise of
+`PERSISTENCE=none` is kept in the same way: nothing outlives the server.
 
-| Route | Effet |
+| Route | Effect |
 | --- | --- |
-| `GET /` | reprend la dernière partie ; à défaut — base vide, ou sauvegarde d'un autre scénario — repose le scénario et en ouvre une |
-| `POST /partie/nouvelle` | repose le scénario et ouvre une nouvelle partie, **sans lever la table** ; avec le corps `{"contre_ia": true}`, confie le camp adverse à l'IA (voir « Jouer contre l'IA ») ; rend `{"pions": […], "phase": {…}}` et la table |
-| `POST /vue` — corps `{echelle, x, y, ajustee}` | retient où ce joueur en est sur la carte, et le rend tel quel ; **connexion requise, place non** ; ce n'est pas un coup joué (voir « Retrouver sa vue de la carte ») |
+| `GET /` | resumes the last game; failing that — an empty base, or a save of another scenario — lays the scenario out again and opens one |
+| `POST /game/new` | lays the scenario out again and opens a new game, **without lifting the table**; with the body `{"against_ai": true}`, entrusts the opposing side to the AI (see "Playing against the AI"); returns `{"pieces": […], "phase": {…}}` and the table |
+| `POST /view` — body `{scale, x, y, fitted}` | keeps where this player is on the map, and returns it as it stands; **login required, a seat not**; it is not a move played (see "Finding one's map view again") |
 
-Les parties précédentes restent en base : `POST /partie/nouvelle` n'efface rien, il ouvre un
-document de plus, et c'est le plus récent que `/` reprend.
+The previous games stay in base: `POST /game/new` erases nothing, it opens one more document, and
+it is the most recent that `/` resumes.
 
-**Les routes ne connaissent pas MongoDB.** Elles passent par un *dépôt* (`moteur/depots/`) que la
-factory `create_app` accroche à l'application, et n'échangent avec lui que des dicts d'état ; le
-document et les requêtes sont dans `moteur/depots/partie.py` et `moteur/models/partie.py`, nulle
-part ailleurs. La sérialisation, elle, est dans le moteur (`Plateau.en_dict`/`restaurer`,
-`Tour.restaurer`, `SuiviDeCombat.en_dict`/`restaurer`) et ne dépend d'aucune base.
+**The routes do not know MongoDB.** They go through a *repository* (`engine/repositories/`) that
+the `create_app` factory hooks onto the application, and exchange only state dicts with it; the
+document and the queries are in `engine/repositories/game.py` and `engine/models/game.py`, nowhere
+else. Serialisation, for its part, is in the engine (`Board.to_dict`/`restore`, `Turn.restore`,
+`CombatRegister.to_dict`/`restore`) and depends on no database.
 
-**La partie n'est pas un modèle de l'application** : c'est du jeu, et le jeu est dans le moteur.
-L'application n'en garde que l'orchestration — quand charger, quand sauvegarder, et ce qu'on en
-montre au navigateur. Voir « Les modèles » plus bas, et la section « Architecture » du `CLAUDE.md`
-de la racine.
+**The game is not a model of the application**: it is part of the game, and the game is in the
+engine. The application keeps only the orchestration — when to load, when to save, and what is
+shown of it to the browser. See "The models" below, and the "Architecture" section of the root
+`CLAUDE.md`.
 
-Un mot sur l'extension : le todo demandait Flask-MongoEngine, dont la dernière version (1.0.0,
-2022) importe `flask.json.JSONEncoder`, retiré de Flask depuis la 2.3 — elle ne s'importe pas sous
-le Flask 3 de ce dépôt. `application/extensions.py` en reprend l'interface (`db = MongoEngine()`,
-`db.init_app(app)`, `MONGODB_SETTINGS` dans la config) au-dessus de `mongoengine` seul. Si
-l'extension redevient installable, ce fichier est le seul à changer.
+A word on the extension: the todo asked for Flask-MongoEngine, whose last version (1.0.0, 2022)
+imports `flask.json.JSONEncoder`, removed from Flask since 2.3 — it does not import under this
+repository's Flask 3. `application/extensions.py` takes over its interface (`db = MongoEngine()`,
+`db.init_app(app)`, `MONGODB_SETTINGS` in the config) on top of `mongoengine` alone. If the
+extension becomes installable again, this file is the only one to change.
 
-## Les modèles
+## The models
 
-L'application ne modélise que **ce qui n'est pas du jeu** : la connexion, et la vue de la carte.
-Tout le reste vit dans `moteur/models/` — un fichier par modèle, de part et d'autre, et un dépôt
-par sujet à côté (`application/depots/`, `moteur/depots/`).
+The application models only **what is not the game**: the connection, and the map view. Everything
+else lives in `engine/models/` — one file per model, on both sides, and one repository per subject
+beside it (`application/repositories/`, `engine/repositories/`).
 
-| Classe | Module | Collection Mongo | Fichier |
+| Class | Module | Mongo collection | File |
 | --- | --- | --- | --- |
-| `Connexion` | application | — (le cookie signé de Flask) | `models/connexion.py` |
-| `Vue` | application | `vues` | `models/vue.py` |
-| `Partie` | moteur | `parties` | `moteur/models/partie.py` |
-| `Joueur` | moteur | `joueurs` | `moteur/models/joueur.py` |
-| `Places` | moteur | — (champ `places` de `Partie`) | `moteur/models/places.py` |
+| `Connection` | application | — (Flask's signed cookie) | `models/connection.py` |
+| `View` | application | `vues` | `models/view.py` |
+| `Game` | engine | `parties` | `engine/models/game.py` |
+| `Player` | engine | `joueurs` | `engine/models/player.py` |
+| `Seats` | engine | — (`Game`'s `places` field) | `engine/models/seats.py` |
 
-**Pourquoi `Vue` est ici et non dans le moteur** : le moteur ne sait pas qu'il existe une image,
-des pixels ou une fenêtre — une partie se joue depuis un interpréteur, où le zoom ne veut rien
-dire. L'inclinaison d'un pion, elle, *est* du plateau : le carton est vraiment posé de travers, et
-les deux joueurs le voient pareil ; une vue de la carte n'appartient qu'à une paire d'yeux.
+**Why `View` is here and not in the engine**: the engine does not know that an image, pixels or a
+window exist — a game can be played from an interpreter, where zoom means nothing. A piece's tilt,
+on the other hand, *is* part of the board: the counter really does lie askew, and both players see
+it the same way; a map view belongs to one pair of eyes.
 
-`Connexion` est le lien entre une session Flask et le joueur du moteur. Elle ne double rien de ce
-que `Joueur` sait : elle ne retient qu'un **identifiant Discord**, celui que la session porte, et
-va relire le joueur au dépôt chaque fois qu'on le lui demande — c'est ce qui fait qu'un changement
-de pseudo se voit dès la requête suivante. Elle n'est pas persistée : le cookie signé de Flask
-*est* son stockage, et il vit chez le joueur.
+`Connection` is the link between a Flask session and the engine's player. It duplicates nothing of
+what `Player` knows: it keeps only a **Discord identifier**, the one the session carries, and goes
+and re-reads the player from the repository each time it is asked — that is what makes a nickname
+change visible from the very next request. It is not persisted: Flask's signed cookie *is* its
+storage, and it lives on the player's machine.
 
 ```python
-connexion = la_connexion()          # Connexion(session, le_depot_de_joueurs())
-connexion.poser_un_etat_oauth()     # avant de partir chez Discord
-connexion.reprendre_l_etat_oauth()  # au retour : l'état est retiré de la session
-connexion.ouvrir(identite)          # enregistre le joueur du moteur, ouvre la session
-connexion.joueur()                  # le dict du joueur, relu au dépôt — ou None
-connexion.fermer()                  # déconnexion
+connection = the_connection()       # Connection(session, player_repository())
+connection.set_oauth_state()        # before leaving for Discord
+connection.take_oauth_state()       # on the return: the state is removed from the session
+connection.open(identity)           # records the engine's player, opens the session
+connection.player()                 # the player's dict, re-read from the repository — or None
+connection.close()                  # log out
 ```
 
-Les routes ne touchent donc plus à `session` : elles demandent `la_connexion()`, et le savoir de
-ce que la session porte — quelles clés, dans quel ordre, avec quelle précaution — tient en un seul
-fichier. La dépendance ne va que dans un sens : `models/connexion.py` connaît le moteur, le moteur
-ne connaît rien de Flask.
+The routes therefore no longer touch `session`: they ask for `the_connection()`, and the knowledge
+of what the session carries — which keys, in which order, with what precaution — sits in a single
+file. The session key names stay French (`joueur`, `etat_oauth`): they are already in browsers'
+cookies. The dependency runs one way only: `models/connection.py` knows the engine, the engine
+knows nothing of Flask.
 
-## Comment ça marche
+## How it works
 
-Le serveur ne dessine rien : il passe deux JSON au gabarit, dans des champs cachés
-(`#pions` et `#grille`), et `static/carte.js` s'en sert. Deux morceaux sont partagés avec la page
-de correction : la géométrie — cubique ↔ pixels — dans `static/geometrie.js`, et le zoom —
-molette, boutons, défilement — dans `static/zoom.js` et `static/zoom.css`.
+The server draws nothing: it passes two pieces of JSON to the template, in hidden fields
+(`#pieces` and `#grid`), and `static/map.js` uses them. Two pieces are shared with the map-fixing
+page: the geometry — cube ↔ pixels — in `static/geometry.js`, and the zoom — wheel, buttons,
+scrolling — in `static/zoom.js` and `static/zoom.css`.
 
-| Champ caché | Contenu |
+| Hidden field | Contents |
 | --- | --- |
-| `#pions` | une entrée par unité du scénario : `{q, r, s}` sa case, `inclinaison` l'angle sous lequel elle est couchée, `{cle, image, nom}` le pion posé, `{mouvement, camp}` ce dont le déplacement se sert, et les valeurs de son carton (voir « Survoler une unité ») |
-| `#grille` | `origine`, `matrice` et `taille_pion` : le calage de la grille sur `map.jpg` |
-| `#phase` | la phase courante : `{camp, type, armee, libelle, numero, indisponibles}` (voir « Phases et combat ») |
-| `#table` | qui regarde et qui tient quel camp : `{connecte, pseudo, avatar, administrateur, camps, armees, places}` (voir « Deux joueurs, deux camps ») |
-| `#version` | le numéro de version de la partie, à quoi le navigateur voit que l'adversaire a joué |
-| `#vue` | où ce joueur-ci en était sur la carte : `{echelle, x, y, ajustee}`, ou `null` (voir « Retrouver sa vue de la carte ») |
-| `#journal-initial` | le journal de la partie à l'ouverture : `[{heure, texte}, …]`, de la plus ancienne ligne à la plus récente (voir « La colonne du journal ») |
+| `#pieces` | one entry per unit of the scenario: `{q, r, s}` its square, `tilt` the angle it lies at, `{key, image, name}` the piece placed, `{movement, side}` what movement uses, and the values of its counter (see "Hovering a unit") |
+| `#grid` | `origin`, `matrix` and `piece_size`: the alignment of the grid on `map.jpg` |
+| `#phase` | the current phase: `{side, type, army, label, number, unavailable}` (see "Phases and combat") |
+| `#table` | who is watching and who holds which side: `{connected, nickname, avatar, administrator, sides, armies, seats}` (see "Two players, two sides") |
+| `#version` | the game's version number, by which the browser sees that the opponent has played |
+| `#view` | where this player was on the map: `{scale, x, y, fitted}`, or `null` (see "Finding one's map view again") |
+| `#initial-log` | the game log when the page opens: `[{time, text}, …]`, from the oldest line to the most recent (see "The log column") |
 
-## Le plateau du serveur
+## The server's board
 
-Les zones de contrôle demandent de savoir **qui occupe quelle case et dans quel camp** : le
-serveur tient donc un `moteur.plateau.Plateau`, refait à chaque chargement de `/` et mis à jour
-par `/deplacer`. Sans lui, les zones se calculeraient sur des positions périmées dès le premier
-déplacement.
+Zones of control require knowing **who occupies which square and on which side**: the server
+therefore holds an `engine.board.Board`, rebuilt at every load of `/` and updated by `/move`.
+Without it, the zones would be computed on stale positions from the first move on.
 
-À côté du plateau, le serveur tient un `moteur.phase.Tour` — le module-global `TOUR` — : quel
-camp joue, et à quoi. Plateau et tour sont **repris de la sauvegarde** à chaque chargement de `/`,
-ou refaits depuis le scénario s'il n'y en a pas (voir « Persistance de la partie »). Il n'y a
-qu'**une partie courante par processus** : deux onglets ouverts sur `/` se partagent le même
-plateau et le même tour — ce qui tombe bien, puisque les deux joueurs jouent la même partie.
+Beside the board, the server holds an `engine.phase.Turn` — the module global `TURN`: which side
+plays, and at what. Board and turn are **resumed from the saved game** at every load of `/`, or
+rebuilt from the scenario if there is none (see "Game persistence"). There is only **one current
+game per process**: two tabs open on `/` share the same board and the same turn — which suits,
+since both players play the same game.
 
-À côté d'eux, le module-global `PLACES` (`moteur/models/places.py`) retient qui tient quel camp.
-Contrairement au plateau et au tour, il n'est **pas** refait à chaque chargement de `/` :
-recommencer une partie ne renvoie personne de sa place.
+Beside them, the module global `SEATS` (`engine/models/seats.py`) keeps who holds which side.
+Unlike the board and the turn, it is **not** rebuilt at every load of `/`: starting a game over
+sends nobody away from their seat.
 
-Le JavaScript convertit chaque hexagone en pixels avec la formule relevée dans
-`game_box/carte.md` :
+The JavaScript converts each hexagon into pixels with the formula recorded in `game_box/map.md`:
 
 ```
-centre(q, r) = origine + matrice · (q, r)
+centre(q, r) = origin + matrix . (q, r)
 ```
 
-Le pion est ensuite **centré** sur ce point (`translate(-50%, -50%)`) puis **incliné de quelques
-degrés**, pour que le plateau n'ait pas l'air posé à la règle. Cet angle n'est **pas** tiré par la
-page : il vient du serveur, avec le pion, parce qu'il est de l'état de partie — le plateau du
-moteur le tire à la pose et le garde (`moteur/plateau.py`), la sauvegarde l'emporte, et il ne
-change que lorsque le pion est déplacé. Une page qui le retirait à chaque fois faisait pivoter les
-cinquante-deux cartons à chaque scène reposée. La page n'en tire un que pour les
-**fantômes**, qui ne sont posés nulle part. Les positions sont exprimées en pixels de `map.jpg` :
-la carte est portée à sa taille naturelle par `#plateau`, que le JavaScript met ensuite à
-l'échelle.
+The piece is then **centred** on that point (`translate(-50%, -50%)`) then **tilted by a few
+degrees**, so that the board does not look laid out with a ruler. That angle is **not** drawn by
+the page: it comes from the server, with the piece, because it is part of the game state — the
+engine's board draws it when placing and keeps it (`engine/board.py`), the save carries it, and it
+changes only when the piece is moved. A page that redrew it every time made all the counters spin
+at every scene laid out again. The page draws one only for the **ghosts**, which are placed
+nowhere. The positions are expressed in pixels of `map.jpg`: the map is carried at its natural size
+by `#board`, which the JavaScript then scales.
 
-## Approcher et reculer
+## Zooming in and out
 
-La carte fait 6173 × 5102 px et s'ouvre **ajustée à la fenêtre** — un pion y fait une quinzaine
-de pixels, on n'y lit rien. Le plateau se zoome donc comme la page de correction, et par le même
-code (`static/zoom.js`) :
+The map is 6173 × 5102 px and opens **fitted to the window** — a piece is about fifteen pixels
+there, nothing can be read. The board is therefore zoomed like the map-fixing page, and by the same
+code (`static/zoom.js`):
 
-- la **molette** approche en gardant sous le curseur le point qu'il désignait ; les boutons `+`,
-  `−` et « ajuster » de la barre d'outils font la même chose depuis le centre de la fenêtre — la
-  fiche du pion survolé se pose sous cette barre (voir « Survoler une unité ») ;
-- l'échelle va de 5 % à 100 % — au-delà du scan, il n'y a plus rien à voir ;
-- **le zoom ne touche à rien d'autre.** Tout ce qui est posé sur la carte — pions, fantômes,
-  surlignage — est exprimé en pixels de `map.jpg`, dans le repère de `#plateau` : le mettre à
-  l'échelle emporte le tout, et le clic repasse par la même conversion. Il n'y a donc aucune
-  position à recalculer, et viser un hexagone marche à toute échelle ;
-- redimensionner la fenêtre **réajuste** la carte, tant qu'on n'a pas réglé l'échelle soi-même —
-  sans quoi le zoom qu'on vient de choisir serait défait.
+- the **wheel** zooms in keeping under the cursor the point it was designating; the `+`, `−` and
+  "ajuster" buttons of the toolbar do the same from the centre of the window — the card of the
+  hovered piece sits under that bar (see "Hovering a unit");
+- the scale runs from 5 % to 100 % — beyond the scan there is nothing more to see;
+- **the zoom touches nothing else.** Everything placed on the map — pieces, ghosts, highlight — is
+  expressed in pixels of `map.jpg`, in the frame of `#board`: scaling it carries the lot, and the
+  click goes back through the same conversion. There is therefore no position to recompute, and
+  aiming at a hexagon works at any scale;
+- resizing the window **refits** the map, as long as one has not set the scale oneself — without
+  which the zoom one has just chosen would be undone.
 
-`zoom()` ne retient rien d'un chargement à l'autre : il expose de quoi relever une vue
-(`echelle()`, `centreVu()`) et de quoi la reposer (`regler()`, `centrer()`), et laisse la page
-décider où la ranger. `carte.js` l'envoie au serveur (voir la section suivante) ; `map_fix.html`,
-qui charge le même zoom, n'en fait rien.
+`zoom()` keeps nothing from one load to the next: it exposes the means to read a view (`scale()`,
+`viewedCentre()`) and the means to restore it (`set()`, `centreOn()`), and leaves the page to
+decide where to store it. `map.js` sends it to the server (see the next section);
+`map_fix.html`, which loads the same zoom, does nothing with it.
 
-## Retrouver sa vue de la carte
+## Finding one's map view again
 
-Sur une carte de 6173 × 5102 px, on joue approché : chaque rechargement de la page ramenait le
-joueur à l'ajustement, la carte entière dans la fenêtre, et il fallait refaire son zoom puis
-retrouver son coin de front. Le serveur retient donc, **par joueur**, ce qu'il regardait.
+On a map of 6173 × 5102 px, one plays zoomed in: every page reload brought the player back to the
+fit, the whole map in the window, and one had to redo one's zoom then find one's corner of the
+front. The server therefore keeps, **per player**, what they were looking at.
 
 | | |
 | --- | --- |
-| Ce qui est rangé | `{echelle, x, y, ajustee}` |
-| Où | la collection `vues`, un document par joueur, écrasé à chaque réglage |
-| Par qui | `POST /vue` → `depots/vue.py` → `models/vue.py` |
-| Rendu | dans le champ caché `#vue` de `GET /`, ou `null` |
+| What is stored | `{scale, x, y, fitted}` |
+| Where | the `vues` collection, one document per player, overwritten at each adjustment |
+| By whom | `POST /view` → `repositories/view.py` → `models/view.py` |
+| Returned | in the hidden field `#view` of `GET /`, or `null` |
 
-`x` et `y` ne sont **pas le défilement** : c'est le point de `map.jpg`, en pixels de l'image, qui
-se trouvait au centre de la fenêtre. Un `scrollLeft` en pixels d'écran ne voudrait plus rien dire
-à une autre échelle, ni sur un autre écran ; ce point-là, si. Et `ajustee` dit que la carte était
-encore réglée à la fenêtre : on ne fige alors aucune échelle, on réajuste — une fenêtre de taille
-différente retrouve son propre ajustement au lieu d'hériter du zoom d'un autre écran.
+`x` and `y` are **not the scroll**: they are the point of `map.jpg`, in pixels of the image, that
+was at the centre of the window. A `scrollLeft` in screen pixels would mean nothing at another
+scale, nor on another screen; that point does. And `fitted` says the map was still set to the
+window: no scale is then frozen, we refit — a window of a different size finds its own fit instead
+of inheriting another screen's zoom.
 
-Le navigateur envoie après **un demi-seconde de calme** (`DELAI_DE_LA_VUE`), et seulement si la
-vue a changé de ce que le serveur a déjà : un geste de molette vaut une requête, pas cent, et
-reposer au chargement la vue qu'on vient de recevoir n'en vaut aucune.
+The browser sends after **half a second of quiet** (`VIEW_DELAY`), and only if the view has changed
+from what the server already has: one wheel gesture is worth one request, not a hundred, and
+restoring on load the view one has just received is worth none.
 
-Ce n'est **ni un coup joué, ni un état partagé** : la version ne monte pas, rien n'est poussé au
-flux, et `/partie/etat` n'en dit rien — la vue de l'un ne doit pas faire sauter la carte de
-l'autre. `POST /vue` demande une connexion mais **pas de place** : on retient la vue d'un
-spectateur connecté comme celle d'un joueur assis. Un anonyme, lui, n'a nulle part où la ranger,
-et la carte s'ouvre ajustée comme elle l'a toujours fait.
+It is **neither a move played nor shared state**: the version does not rise, nothing is pushed to
+the stream, and `/game/state` says nothing of it — one player's view must not make the other's map
+jump. `POST /view` requires a login but **no seat**: we keep the view of a logged-in spectator as
+of a seated player. An anonymous visitor has nowhere to store it, and the map opens fitted as it
+always has.
 
-## Cliquer, montrer, déplacer
+## Clicking, showing, moving
 
-Un clic est d'abord ramené en coordonnées cubiques : la même matrice, **inversée**, puis un
-arrondi cubique donne l'hexagone visé. C'est la seule chose que le navigateur calcule — la suite
-est un aller-retour avec le serveur.
+A click is first brought back into cube coordinates: the same matrix, **inverted**, then cube
+rounding gives the hexagon aimed at. That is the only thing the browser computes — the rest is a
+round trip with the server.
 
-| Route | Réponse |
+| Route | Response |
 | --- | --- |
-| `GET /deplacements?q=&r=&s=&pion=` | `{"depart": {…}, "pion": "cle", "camp": "alliance", "mouvement": 8, "hexagones": [{q, r, s, terrain}, …]}` |
-| `POST /deplacer` — corps `{"depart": {…}, "arrivee": {…}, "pion": "cle"}` | `{"autorise": bool, "depart": {…}, "arrivee": {…}, "inclinaison": -3.52, "pion": "cle", "camp": "alliance", "mouvement": 8}` |
+| `GET /moves?q=&r=&s=&piece=` | `{"origin": {…}, "piece": "key", "side": "alliance", "movement": 8, "hexagons": [{q, r, s, terrain}, …]}` |
+| `POST /move` — body `{"origin": {…}, "destination": {…}, "piece": "key"}` | `{"allowed": bool, "origin": {…}, "destination": {…}, "tilt": -3.52, "piece": "key", "side": "alliance", "movement": 8}` |
 
-Coordonnées illisibles ou de somme non nulle → 400 ; hexagone hors carte → 404 ; pion inconnu du
+Unreadable coordinates or a non-zero sum → 400; a hexagon off the map → 404; a piece unknown to the
 catalogue → 400.
 
-`/deplacements` reste en lecture seule et n'est jamais bloqué. `/deplacer`, lui, **refuse
-(`autorise: false`, sans toucher au plateau) tout déplacement hors de la phase de mouvement du
-camp du pion** : c'est le seul endroit où le tour pèse sur le mouvement.
+`/moves` stays read-only and is never blocked. `/move`, on the other hand, **refuses
+(`allowed: false`, without touching the board) any move outside the movement phase of the piece's
+side**: that is the only place where the turn weighs on movement.
 
-**C'est le plateau du serveur qui dit quel pion se tient sur la case de départ**, dans quel camp,
-et quels adversaires lui opposent leurs zones de contrôle. Le paramètre `pion` — la clé de
-`pions.json`, `reissland-02-8-cavaleries` — ne sert qu'à interroger une **case vide** : le pion
-posé, lui, l'emporte toujours. Le navigateur ne dit donc jamais de combien de points il dispose,
-et un `mouvement` glissé dans la requête n'a aucun effet. Sans `pion` sur une case vide, le forfait
-de 5 points s'applique et la carte est réputée sans adversaire.
+**It is the server's board that says which piece stands on the origin square**, on which side, and
+which opponents oppose their zones of control to it. The `piece` parameter — the key from
+`pions.json`, `reissland-02-8-cavaleries` — serves only to question an **empty square**: the placed
+piece always prevails. The browser therefore never says how many points it has, and a `movement`
+slipped into the request has no effect. With no `piece` on an empty square, the flat 5 points apply
+and the map is held to be free of opponents.
 
-1. clic sur un pion → `/deplacements` → un fantôme par hexagone rendu : la même image, à 50 %
-   d'opacité, sous les pions posés, centrée et inclinée comme eux. Une cavalerie de Reissland
-   (8 points) en couvre plus de deux cents en plaine, le bélier d'Yzent (2 points) une vingtaine,
-   un marqueur aucun — et un adversaire proche les fait s'arrêter à son contact ;
-2. clic sur un fantôme → `/deplacer` → le pion se repose sur la case, de travers autrement — c'est
-   le serveur qui a tiré ce nouvel angle et qui le rend, dans `inclinaison` —, et il **change de
-   case sur le plateau du serveur** : les zones du coup d'après en tiennent compte ;
-3. clic ailleurs, ou de nouveau sur le pion sélectionné → les fantômes s'effacent.
+1. a click on a piece → `/moves` → one ghost per hexagon returned: the same image, at 50 % opacity,
+   under the placed pieces, centred and tilted like them. A Reissland cavalry (8 points) covers
+   more than two hundred on the plain, the Yzent ram (2 points) about twenty, a marker none — and a
+   nearby opponent makes them stop at its contact;
+2. a click on a ghost → `/move` → the piece lies down again on the square, askew differently — it
+   is the server that drew that new angle and returns it, in `tilt` — and it **changes square on
+   the server's board**: the next move's zones take account of it;
+3. a click elsewhere, or again on the selected piece → the ghosts disappear.
 
-`/deplacer` recalcule la portée côté serveur au lieu de croire le navigateur.
+`/move` recomputes the reach on the server side instead of believing the browser.
 
-En **phase de combat**, le clic ne sert plus à déplacer : il désigne une cible puis des attaquants
-(voir « Phases et combat »).
+In the **combat phase**, the click no longer serves to move: it designates a target and then
+attackers (see "Phases and combat").
 
-## Phases et combat
+## Phases and combat
 
-Le serveur tient la phase courante dans `TOUR` (`moteur.phase.Tour`) et la passe au gabarit dans
-`#phase`. Le fascicule enchaîne, pour chaque camp, **mouvement → magie → combat** ; la magie n'est
-pas implémentée, `Tour.suivante()` la saute — elle n'est jamais courante.
+The server holds the current phase in `TURN` (`engine.phase.Turn`) and passes it to the template in
+`#phase`. The booklet chains, for each side, **movement → magic → combat**; magic is not
+implemented, `Turn.advance()` skips it — it is never the current one.
 
-| Route | Réponse |
+| Route | Response |
 | --- | --- |
-| `GET /phase` | `{camp, type, armee, libelle, numero, indisponibles}` — pour rafraîchir le navigateur |
-| `POST /phase/suivante` | la phase suivante, même forme ; journalisée |
-| `GET /combat/portee?cq=&cr=&cs=&aq=&ar=&as=` | `{"a_portee": bool, "disponible": bool, "message": str\|null}` ; un refus part au journal |
-| `GET /combat/cible?cq=&cr=&cs=` | `{"disponible": bool, "message": str\|null}` ; un refus part au journal |
-| `POST /combat` — corps `{"cible": {q,r,s}, "attaquants": [{q,r,s}, …]}` | voir plus bas |
+| `GET /phase` | `{side, type, army, label, number, unavailable}` — to refresh the browser |
+| `POST /phase/next` | the next phase, same shape; logged |
+| `GET /combat/range?cq=&cr=&cs=&aq=&ar=&as=` | `{"in_range": bool, "available": bool, "message": str\|null}`; a refusal goes to the log |
+| `GET /combat/target?cq=&cr=&cs=` | `{"available": bool, "message": str\|null}`; a refusal goes to the log |
+| `POST /combat` — body `{"target": {q,r,s}, "attackers": [{q,r,s}, …]}` | see below |
 
-`GET /` porte `#phase` ; le JavaScript en tire le libellé de la barre d'outils et **ce qu'un clic
-fait** : en phase de mouvement, seul le camp actif montre ses fantômes ; en phase de combat,
+`GET /` carries `#phase`; the JavaScript takes from it the toolbar's label and **what a click
+does**: in the movement phase, only the active side shows its ghosts; in the combat phase,
 
-1. clic sur une unité **adverse** → le serveur (`/combat/cible`) dit si elle peut encore être
-   prise ; si oui, elle devient la cible, surlignée en **rouge** ;
-2. clic sur une de ses **propres** unités → le serveur (`/combat/portee`) dit si elle est à portée
-   (distance ≤ 1, ou ≤ sa portée de tir) et si elle n'a pas déjà attaqué ; si oui, elle rejoint les
-   attaquants, surlignée en **or** ; si non, rien ne bouge et le refus est au journal ;
-3. « Attaquer » (visible dès qu'il y a une cible et un attaquant) → `POST /combat` ;
-4. « Annuler », ou un nouveau clic sur la cible → la sélection se vide et les surlignages tombent.
+1. a click on an **opposing** unit → the server (`/combat/target`) says whether it can still be
+   taken; if so, it becomes the target, highlighted in **red**;
+2. a click on one of one's **own** units → the server (`/combat/range`) says whether it is in range
+   (distance ≤ 1, or ≤ its firing range) and whether it has not already attacked; if so, it joins
+   the attackers, highlighted in **gold**; if not, nothing moves and the refusal is in the log;
+3. "Attaquer" (visible as soon as there is a target and an attacker) → `POST /combat`;
+4. "Annuler", or a new click on the target → the selection empties and the highlights fall away.
 
-`POST /combat` revalide tout côté serveur — phase, camp de la cible, portée de chaque attaquant,
-et le registre de la phase —, lance le dé (`app.lancer_le_de`, isolé pour les tests), résout via
-`moteur.combat.livrer_combat` et applique le résultat :
+`POST /combat` revalidates everything on the server side — phase, the target's side, each
+attacker's range, and the phase register — rolls the die (`app.roll_the_die`, isolated for the
+tests), resolves through `engine.combat.fight` and applies the result:
 
 ```json
-{"resolu": true, "resultat": "DE", "message": "Combat résolu : Défenseur Éliminé",
- "elimines": [{"q": 1, "r": 26, "s": -27, "terrain": "plaine"}], "jet": 4, "de": 4, "rapport": [3, 1],
- "indisponibles": {"attaquants": [{"q": 0, "r": 26, "s": -26, "terrain": "plaine"}], "cibles": []}}
+{"resolved": true, "outcome": "DE", "message": "Combat résolu : Défenseur Éliminé",
+ "eliminated": [{"q": 1, "r": 26, "s": -27, "terrain": "plaine"}], "roll": 4, "die": 4, "ratio": [3, 1],
+ "unavailable": {"attackers": [{"q": 0, "r": 26, "s": -26, "terrain": "plaine"}], "targets": []}}
 ```
 
-Seules les issues `AE`, `DE` et `EX` retirent des pions ; les reculs (`AR`, `DR`) ne changent rien.
-`{"resolu": false, "message": …}` quand ce n'est pas la phase de combat, que la cible n'est pas
-adverse, qu'elle a déjà été attaquée, ou qu'aucun attaquant n'est valide.
+Only the outcomes `AE`, `DE` and `EX` remove pieces; the retreats (`AR`, `DR`) change nothing.
+`{"resolved": false, "message": …}` when it is not the combat phase, when the target is not an
+opponent, when it has already been attacked, or when no attacker is valid.
 
-### Un seul combat par unité et par phase
+### One combat per unit and per phase
 
-Le fascicule limite chaque unité à une attaque par phase, et chaque cible à une attaque par phase
-même par des attaquants différents. Le compte est tenu **côté serveur** par le module-global
-`SUIVI` (`moteur.combat.SuiviDeCombat`), à côté de `PLATEAU` et de `TOUR` :
+The booklet limits each unit to one attack per phase, and each target to one attack per phase even
+by different attackers. The count is kept **on the server side** by the module global `REGISTER`
+(`engine.combat.CombatRegister`), beside `BOARD` and `TURN`:
 
-- il est **vidé à chaque changement de phase** (`POST /phase/suivante`) — donc entre la phase de
-  combat des Nains et celle des Orques, et au tour suivant. `GET /` le reprend de la sauvegarde,
-  ou le vide s'il repose le scénario ;
-- un combat **livré** y inscrit tous ses attaquants et sa cible, **quelle que soit son issue** : un
-  recul, que le moteur laisse sans effet, a tout de même engagé ses unités ;
-- un combat **refusé** (aucun attaquant valide) n'y inscrit rien.
+- it is **emptied at every phase change** (`POST /phase/next`) — so between the Dwarves' combat
+  phase and the Orcs', and at the next turn. `GET /` resumes it from the save, or empties it if it
+  lays the scenario out again;
+- a combat **fought** enters all its attackers and its target in it, **whatever its outcome**: a
+  retreat, which the engine leaves without effect, has engaged its units all the same;
+- a combat **refused** (no valid attacker) enters nothing.
 
-`indisponibles` — porté par `#phase`, `GET`/`POST /phase…` et la réponse de `POST /combat` — donne
-les **cases** de ce registre qui portent encore un pion, pour que la page grise ces unités
-(`.pion.indisponible`). Le registre désigne les unités par leur case et non par leur carton : voir
-`moteur/README.md` § « Un seul combat par unité et par phase » pour ce que cela suppose.
+`unavailable` — carried by `#phase`, `GET`/`POST /phase…` and the response of `POST /combat` —
+gives the **squares** of that register that still carry a piece, so that the page can grey those
+units out (`.piece.unavailable`). The register designates units by their square and not by their
+counter: see `engine/README.md` § "One combat per unit and per phase" for what that assumes.
 
-**Le journal est écrit à deux endroits à la fois** — une ligne par événement : changement de
-phase, place prise, unité hors de portée, résultat de combat en français, coups de l'IA.
+**The log is written in two places at once** — one line per event: a phase change, a seat taken, a
+unit out of range, a combat result in French, the AI's moves.
 
-Un combat en écrit **deux** : le calcul du rapport, puis son issue.
+A combat writes **two**: the ratio computation, then its outcome.
 
 ```
 Rapport 2-1 : attaque 12 + 8 = 20 contre défense 8 × 3 = 24 (montagne) — dé 4
 Combat résolu : Défenseur Éliminé
 ```
 
-Le calcul d'abord, l'issue ensuite — la colonne du navigateur se lisant à l'envers du fichier,
-c'est ce qui met l'issue en tête et son détail juste dessous. La phrase est composée par
-`detailler_le_rapport`, à partir des nombres que `combat.DetailDuRapport` a retenus (voir
-`moteur/README.md` § « Le détail du calcul ») : le moteur ne fabrique pas de phrase, et
-l'application ne recalcule rien. Le **terrain du défenseur est toujours nommé**, y compris quand
-il ne multiplie rien — c'est ce qu'on est venu chercher ; les trois termes, eux, ne s'écrivent en
-détail que lorsqu'il y a un détail à écrire (un attaquant seul, un terrain neutre et un dé que
-rien n'augmente s'écrivent d'un seul nombre).
+The computation first, the outcome next — the browser's column reading the other way round from
+the file, that is what puts the outcome at the top and its breakdown just below. The sentence is
+composed by `describe_the_ratio`, from the numbers `combat.RatioBreakdown` kept (see
+`engine/README.md` § "The breakdown of the computation"): the engine builds no sentence, and the
+application recomputes nothing. The **defender's terrain is always named**, including when it
+multiplies nothing — it is what one came for; the three terms, for their part, are only spelled out
+when there is a detail to spell out (a lone attacker, a neutral terrain and a die that nothing
+raises are written as a single number).
 
-- `logs/journal_de_combat.log`, **le fichier**, à la racine du dépôt. C'est le deuxième endroit
-  où l'application écrit sur le disque, après `/admin/map_fix` ; tout `logs/` est ignoré par git.
-  Il est **rotatif** : au bout de `LIGNES_PAR_FICHIER` lignes (mille) il est mis de côté en
-  `journal_de_combat.log.1`, les archives se décalant derrière lui jusqu'à `JOURNAUX_GARDES`
-  (trois) — soit au plus quatre mille lignes gardées, la plus vieille archive s'effaçant ensuite.
-  Le seuil se compte en **lignes** et non en octets (`JournalRotatif`, qui redéfinit le
-  `shouldRollover` de `RotatingFileHandler`) : c'est en lignes que ce journal se lit, une par
-  événement de la partie. Le compteur repart de ce que le fichier porte déjà, pour qu'un serveur
-  relancé dix fois dans la journée n'écrive pas dix fois mille lignes dans le même fichier ;
-- une **file bornée en mémoire** (`JournalEnMemoire`, `LIGNES_RETENUES` lignes), dont le
-  navigateur fait sa colonne. C'est un *handler* branché sur le même logger, et non un appel
-  ajouté à côté de chaque `JOURNAL.info` : il n'y a qu'un point d'écriture, et la colonne ne peut
-  pas dire autre chose que le fichier.
+- `logs/battle_log.log`, **the file**, at the repository root. It is the second place where the
+  application writes to disk, after `/admin/map_fix`; the whole of `logs/` is ignored by git. It is
+  **rotating**: after `LINES_PER_FILE` lines (a thousand) it is set aside as `battle_log.log.1`,
+  the archives shifting behind it up to `LOGS_KEPT` (three) — that is at most four thousand lines
+  kept, the oldest archive being erased next. The threshold is counted in **lines** and not in
+  bytes (`RotatingLog`, which redefines `RotatingFileHandler`'s `shouldRollover`): it is in lines
+  that this log is read, one per game event. The counter picks up from what the file already
+  carries, so that a server restarted ten times in a day does not write ten times a thousand lines
+  into the same file;
+- a **bounded in-memory queue** (`InMemoryLog`, `LINES_KEPT` lines), which the browser turns into
+  its column. It is a *handler* plugged onto the same logger, and not a call added beside each
+  `LOG.info`: there is only one point of writing, and the column cannot say anything other than the
+  file.
 
-Les lignes retenues partent avec la partie : `instantane_partage` les porte, donc le flux SSE et
-`GET /partie/etat` aussi, et `GET /` les donne d'entrée dans `#journal-initial`. D'où la règle que
-suivent les routes : **journaliser avant de marquer le coup**. `marquer_un_coup` photographie la
-partie, journal compris ; une route qui journaliserait après avoir sauvegardé pousserait aux
-navigateurs un compte rendu en retard d'un coup. `application/tests/test_journal.py` le vérifie
-route par route.
+The lines kept leave with the game: `shared_snapshot` carries them, so the SSE stream and
+`GET /game/state` do too, and `GET /` gives them straight away in `#initial-log`. Hence the rule
+the routes follow: **log before marking the move**. `mark_a_move` photographs the game, log
+included; a route that logged after saving would push the browsers an account one move behind.
+`application/tests/test_log.py` checks it route by route.
 
-## La colonne du journal
+## The log column
 
-Le journal se lit **en colonne sous la fiche**, dans le même panneau (`#panneau`) et à la même
-enseigne que la barre et la fiche : même encadré, même fond, même taille de police. Rien ne se
-déplace — le panneau grandit vers le bas, la barre ne bouge pas.
+The log reads **in a column under the card**, in the same panel (`#panel`) and of the same make as
+the bar and the card: same box, same background, same font size. Nothing moves — the panel grows
+downwards, the bar does not budge.
 
-Elle se lit **à l'envers du fichier** : le serveur donne ses lignes de la plus ancienne à la plus
-récente, la colonne montre la dernière en haut, là où l'œil revient. On voit donc ce qui vient de
-se passer sans rien faire, et rien ne fait défiler quoi que ce soit à la place du joueur ;
-l'ascenseur (`max-height: 40vh`) est pour l'histoire ancienne. Vide, la colonne ne paraît pas.
+It reads **the other way round from the file**: the server gives its lines from the oldest to the
+most recent, the column shows the last one at the top, where the eye returns. One therefore sees
+what has just happened without doing anything, and nothing scrolls anything in the player's stead;
+the scrollbar (`max-height: 40vh`) is for ancient history. Empty, the column does not appear.
 
-Elle arrive **par le flux**, et par lui seul : `rafraichirLeJournal` n'est appelée qu'au démarrage
-et depuis `reprendreLaPartie`. Un coup joué est publié à tous les abonnés, y compris à l'onglet
-qui vient de le jouer — sa propre ligne lui revient donc par le même chemin que celles de l'autre
-joueur, et aucune réponse de route n'a à la porter.
+It arrives **through the stream**, and through it alone: `refreshTheLog` is called only at start-up
+and from `resumeTheGame`. A move played is published to every subscriber, including the tab that
+has just played it — its own line therefore comes back to it by the same path as the other
+player's, and no route's response has to carry it.
 
-Ce que la colonne **ne dit pas** : un déplacement joué à la main. Le serveur ne journalise pas
-`POST /deplacer` — il ne l'a jamais fait —, quand il journalise ceux de l'IA. Le combat, lui, est
-raconté des deux côtés.
+What the column **does not say**: a move played by hand. The server does not log `POST /move` — it
+never has — whereas it logs the AI's. Combat, for its part, is told on both sides.
 
-## Survoler une unité
+## Hovering a unit
 
-La carte s'ouvre ajustée à la fenêtre, où un pion fait une quinzaine de pixels : on n'y lit ni son
-dessin ni ses chiffres. **Survoler une unité remplit sa fiche**, un encadré qui n'est pas posé
-n'importe où sur la carte mais **sous la barre des boutons de zoom**, dans le même panneau
-(`#panneau`) et aligné sur son bord gauche. La fiche paraît et disparaît sous la barre ; ni l'une
-ni l'autre ne se déplace.
+The map opens fitted to the window, where a piece is about fifteen pixels: neither its drawing nor
+its figures can be read there. **Hovering a unit fills its card**, a box that is not placed
+anywhere on the map but **under the bar of zoom buttons**, in the same panel (`#panel`) and aligned
+on its left edge. The card appears and disappears under the bar; neither of them moves.
 
-- **Le survol n'interroge jamais le serveur.** Tout ce que la fiche montre est déjà dans le champ
-  caché `#pions`, valeurs du carton comprises ; c'est le même parti que la page de correction, où
-  les 2280 terrains partent d'un coup.
-- **La barre garde la taille de référence que `carte.css` documente**, et que la fiche ne peut plus
-  toucher. La fiche a d'abord été *dans* la barre, à la suite des boutons ; il lui fallait pour
-  cela un corps de 0.1875 rem — trois pixels — pour ne pas l'allonger, ce qui la rendait illisible.
-  Descendue d'un cran, elle **reprend le corps de la barre** (0.85 rem) et une vignette de 48 px.
-- **Le rapport de taille de la barre ne se modifie pas.** `zoom.css` le fixe — corps 0.85 rem,
-  garniture 0.4/0.7 rem, boutons 0.15/0.6 rem, ancrage à 0.6 rem du coin —, `carte.css` le
-  documente en tête de sa section et se garde de le redéfinir. `#panneau` reprend l'ancrage à
-  l'identique et la barre y passe simplement en `position: static`.
-- **Un élément par ligne** : le nom, puis le camp et la case, puis le symbole, puis les six
-  valeurs chiffrées, puis les remarques — empilés à côté de la vignette, qui reste à gauche. Les
-  six valeurs tiennent sur une ligne et **passent à la ligne sur une fenêtre étroite** : la fiche
-  grandit alors vers le bas, ce qu'elle ne pouvait pas se permettre dans la barre.
-- **La vignette sert à reconnaître le pion, pas à le lire** : ses chiffres sont écrits en toutes
-  lettres à côté.
-- **Ce que le carton ne porte pas est rendu par un tiret**, jamais par un zéro : un pion sans tir
-  ne tire pas, il ne tire pas « à 0 ». Les remarques, elles, ne sont pas une valeur du carton mais
-  ce que la photo laisse en suspens — un nom illisible, un cadrage incomplet : **leur mention ne
-  paraît que s'il y a quelque chose à dire**.
-- « Mouvement » est le budget dont le moteur se sert — le mouvement au sol, à défaut celui de vol,
-  0 pour un marqueur (voir `moteur/README.md`) —, et non la valeur brute que `pions.json` laisse
-  parfois vide.
-- **Le panneau est hors de `#plateau`** : le zoom ne l'atteint pas, la fiche garde sa taille à
-  toute échelle. Et il est **en place fixe**, hors du flux : d'un pion à l'autre rien ne bouge, et
-  la carte occupe la fenêtre comme s'il n'existait pas.
-- **La fiche laisse passer les clics** (`pointer-events: none`) là où les boutons, eux, les
-  prennent : sans quoi elle rendrait injouable la bande de carte qu'elle recouvre.
-- **Les fantômes n'ont pas de fiche** : ils répètent l'unité déjà sélectionnée, et couvrir la
-  carte de survols qui disent tous la même chose n'apprendrait rien.
+- **Hovering never queries the server.** Everything the card shows is already in the hidden field
+  `#pieces`, counter values included; it is the same stance as the map-fixing page, where the 2280
+  terrains go out at once.
+- **The bar keeps the reference size that `map.css` documents**, and which the card can no longer
+  touch. The card was at first *in* the bar, following the buttons; for that it needed a body of
+  0.1875 rem — three pixels — so as not to lengthen it, which made it illegible. Moved down a
+  notch, it **takes the bar's body** (0.85 rem) and a 48 px thumbnail.
+- **The bar's size ratio is not to be modified.** `zoom.css` fixes it — body 0.85 rem, padding
+  0.4/0.7 rem, buttons 0.15/0.6 rem, anchored 0.6 rem from the corner — and `map.css` documents it
+  at the head of its section and takes care not to redefine it. `#panel` takes the anchoring over
+  identically and the bar inside it simply becomes `position: static`.
+- **One element per line**: the name, then the side and the square, then the symbol, then the six
+  numeric values, then the remarks — stacked beside the thumbnail, which stays on the left. The six
+  values fit on one line and **wrap on a narrow window**: the card then grows downwards, which it
+  could not afford inside the bar.
+- **The thumbnail serves to recognise the piece, not to read it**: its figures are spelled out
+  beside it.
+- **What the counter does not carry is rendered as a dash**, never as a zero: a piece with no fire
+  does not fire, it does not fire "at 0". The remarks, for their part, are not a counter value but
+  what the photograph leaves open — an illegible name, an incomplete framing: **their mention
+  appears only if there is something to say**.
+- "Mouvement" is the budget the engine uses — the ground movement, failing that the flight one, 0
+  for a marker (see `engine/README.md`) — and not the raw value `pions.json` sometimes leaves
+  empty.
+- **The panel is outside `#board`**: the zoom does not reach it, the card keeps its size at any
+  scale. And it is **fixed in place**, out of the flow: nothing moves from one piece to another,
+  and the map occupies the window as if it did not exist.
+- **The card lets clicks through** (`pointer-events: none`) where the buttons take them: without
+  which it would make the strip of map it covers unplayable.
+- **The ghosts have no card**: they repeat the already selected unit, and covering the map with
+  hovers all saying the same thing would teach nothing.
 
-## Corriger la carte — `/admin/map_fix`
+## Fixing the map — `/admin/map_fix`
 
-L'implémentation des déplacements a montré que la carte transcrite comporte des erreurs, et elles
-ne se voient qu'à l'œil. Cette page affiche `map.jpg`, dit le terrain sous le pointeur, et le
-corrige d'un clic.
+Implementing movement showed that the transcribed map contains errors, and they only show to the
+eye. This page displays `map.jpg`, states the terrain under the pointer, and fixes it with a click.
 
-**Toute la carte part au navigateur d'un coup**, dans les champs cachés — 2280 hexagones, une
-cinquantaine de kilo-octets. Le survol ne demande donc rien au serveur : il lit dans l'objet reçu.
-Seul le choix d'un terrain fait un aller-retour.
+**The whole map goes out to the browser at once**, in the hidden fields — 2280 hexagons, some fifty
+kilobytes. Hovering therefore asks the server nothing: it reads from the object received. Only
+choosing a terrain makes a round trip.
 
-| Champ caché | Contenu |
+| Hidden field | Contents |
 | --- | --- |
-| `#hexagones` | `« q,r,s » → terrain` pour les 2280 hexagones, le terrain principal seul |
-| `#corrections` | les corrections déjà relevées, lues dans `map_fix.json` |
-| `#appliquees` | celles que le moteur a chargées à son démarrage — l'écart appelle un redémarrage |
-| `#terrains` | les 16 terrains, dans l'ordre de priorité de `game_box/carte.md` |
-| `#grille` | le même calage que le plateau, sans `taille_pion` |
+| `#hexagons` | `"q,r,s" → terrain` for the 2280 hexagons, the main terrain alone |
+| `#fixes` | the fixes already recorded, read from `map_fix.json` |
+| `#applied` | those the engine loaded at start-up — a difference calls for a restart |
+| `#terrains` | the 16 terrains, in the priority order of `game_box/map.md` |
+| `#grid` | the same alignment as the board, without `piece_size` |
 
-- **Zoom** : le même que celui du plateau (voir plus haut) — la carte s'ouvre ajustée à la
-  fenêtre, où un hexagone fait 25 px : on ne juge pas un bois à cette taille.
-- **Survol** : l'hexagone visé est surligné et un encadré donne `q,r,s — terrain`, suivi de
-  `→ terrain corrigé` si la case a déjà été reprise.
-- **Clic** : une boîte de dialogue donne le terrain de la carte et seize boutons. Choisir celui que
-  la carte porte déjà **retire** la correction — c'est le retour en arrière.
-- Les cases corrigées restent marquées en rouge sur la carte, et la barre d'outils les compte.
+- **Zoom**: the same as the board's (see above) — the map opens fitted to the window, where a
+  hexagon is 25 px: one does not judge a wood at that size.
+- **Hovering**: the hexagon aimed at is highlighted and a box gives `q,r,s — terrain`, followed by
+  `→ fixed terrain` if the square has already been taken up.
+- **Clicking**: a dialog gives the map's terrain and sixteen buttons. Choosing the one the map
+  already carries **removes** the fix — that is the way back.
+- The fixed squares stay marked in red on the map, and the toolbar counts them.
 
-| Route | Réponse |
+| Route | Response |
 | --- | --- |
-| `GET /admin/map_fix` | la page |
-| `POST /admin/map_fix` — corps `{q, r, s, terrain}` | `{"cle", "terrain", "origine", "corrige": bool}` |
+| `GET /admin/map_fix` | the page |
+| `POST /admin/map_fix` — body `{q, r, s, terrain}` | `{"key", "terrain", "original", "fixed": bool}` |
 
-Terrain inconnu ou coordonnées illisibles → 400 ; hexagone hors carte → 404.
+An unknown terrain or unreadable coordinates → 400; a hexagon off the map → 404.
 
-Chaque correction est écrite aussitôt dans **`game_box/map_fix.json`**, qui ne contient que les
-cases reprises :
+Every fix is written straight away into **`game_box/map_fix.json`**, which contains only the
+squares taken up:
 
 ```json
 {
@@ -502,435 +500,427 @@ cases reprises :
 }
 ```
 
-`carte.json` et `carte_details.json` **ne sont jamais touchés** : ils sont produits par
-`game_box/extraction_carte.py` et doivent le rester (voir `game_box/carte.md`).
+`carte.json` and `carte_details.json` are **never touched**: they are produced by
+`game_box/extract_map.py` and must stay that way (see `game_box/map.md`).
 
-**Le moteur lit ce fichier et le pose par-dessus la transcription**, une fois, à son démarrage
-(voir `moteur/README.md`) : le plateau de `/` et les déplacements se calculent sur la carte
-corrigée. Comme le recouvrement n'a lieu qu'au démarrage, la barre d'outils annonce
-« redémarrer le serveur pour jouer dessus » dès que les corrections relevées s'écartent de celles
-que le moteur a chargées.
+**The engine reads that file and lays it over the transcription**, once, at start-up (see
+`engine/README.md`): the board of `/` and the moves are computed on the fixed map. Since the
+overlay happens only at start-up, the toolbar announces "redémarrer le serveur pour jouer dessus"
+as soon as the recorded fixes differ from those the engine loaded.
 
-Cette page, elle, travaille toujours sur la carte **transcrite** : `#hexagones` porte ce que le
-scan a donné, les corrections viennent à part, et le terrain « d'origine » du dialogue reste celui
-du scan. Sans quoi, après un redémarrage, « Rétablir » proposerait de rétablir la correction
-elle-même.
+This page, for its part, always works on the **transcribed** map: `#hexagons` carries what the scan
+gave, the fixes come separately, and the "original" terrain in the dialog stays the scan's. Without
+that, after a restart, "Rétablir" would offer to reset the fix itself.
 
-**La route est réservée** aux comptes Discord énumérés dans `ADMIN_DISCORD_IDS` (voir
-`.env.example`). Une liste vide n'admet personne, et le refus le dit : une variable de sécurité
-dont l'absence ouvrirait tout serait un piège. Un visiteur sans compte reçoit 401, un joueur
-ordinaire 403.
+**The route is reserved** to the Discord accounts listed in `ADMIN_DISCORD_IDS` (see
+`.env.example`). An empty list admits nobody, and the refusal says so: a security variable whose
+absence would open everything would be a trap. A visitor with no account gets 401, an ordinary
+player 403.
 
-## Deux joueurs, deux camps
+## Two players, two sides
 
-Une partie réunit **deux comptes Discord, un par camp** : l'un tient les Nains (l'Alliance),
-l'autre les Orques (les Ténèbres). Le serveur refuse un coup joué par celui dont ce n'est pas le
-tour — c'est le décorateur `camp_actif_requis` —, et le navigateur éteint d'avance les boutons
-qu'un refus attendrait.
+A game brings together **two Discord accounts, one per side**: one holds the Dwarves (the
+Alliance), the other the Orcs (the Darkness). The server refuses a move played by whoever's turn it
+is not — that is the `active_side_required` decorator — and the browser turns off in advance the
+buttons a refusal would await.
 
-La table est un registre à part, `moteur/models/places.py` — c'est du jeu, pas du web —, tenu à
-côté du plateau et du tour dans le module-global `PLACES`. Il ne connaît que des identifiants
-Discord, et ne défend qu'un invariant :
-**un camp a au plus un occupant**, et une place ne se prend pas à qui l'occupe. La règle qui veut
-qu'un joueur ne tienne qu'un camp est ailleurs, dans la route `POST /partie/place` — cette
-séparation est ce qui permet à la suite de tests d'asseoir un seul joueur des deux côtés pour
-jouer une partie à elle seule.
+The table is a separate register, `engine/models/seats.py` — it is part of the game, not of the web
+— held beside the board and the turn in the module global `SEATS`. It knows only Discord
+identifiers, and defends a single invariant: **a side has at most one occupant**, and a seat is not
+taken from whoever occupies it. The rule that a player holds only one side is elsewhere, in the
+`POST /game/seat` route — that separation is what lets the test suite seat a single player on both
+sides to play a game by itself.
 
-| Route | Méthode | Ce qu'elle fait | Qui peut |
+| Route | Method | What it does | Who may |
 | --- | --- | --- | --- |
-| `/partie/place` | POST | s'asseoir au camp du corps `{camp}` | tout compte connecté |
-| `/partie/place/quitter` | POST | rendre sa place ; la partie ne bouge pas | tout compte connecté |
-| `/partie/etat` | GET | où en est la partie — le repli du flux, voir plus bas | tout le monde |
-| `/flux` | GET | le flux d'événements : la partie poussée quand elle change | tout le monde |
+| `/game/seat` | POST | sit down at the side in the body `{side}` | any logged-in account |
+| `/game/seat/leave` | POST | give up one's seat; the game does not budge | any logged-in account |
+| `/game/state` | GET | where the game stands — the stream's fallback, see below | everyone |
+| `/stream` | GET | the event stream: the game pushed when it changes | everyone |
 
-Ce qui est **public** : `/`, la carte, les images de pions, `/deplacements`, `/phase`,
-`/combat/portee`, `/combat/cible`, `/partie/etat` et `/flux`. Un visiteur de passage voit donc la
-partie — et la suit en direct — et
-peut consulter ce qui serait atteignable, comme avant. Ce qui demande une **place au camp actif** :
-`/deplacer`, `/combat`, `/phase/suivante`. `POST /partie/nouvelle` demande seulement d'être assis :
-recommencer n'est pas un coup, et **les places sont conservées** — ce sont les deux mêmes personnes,
-et les vider enfermerait dehors celui-là même qui vient de cliquer.
+What is **public**: `/`, the map, the piece images, `/moves`, `/phase`, `/combat/range`,
+`/combat/target`, `/game/state` and `/stream`. A passing visitor therefore sees the game — and
+follows it live — and can consult what would be reachable, as before. What requires **a seat at the
+active side**: `/move`, `/combat`, `/phase/next`. `POST /game/new` only requires being seated:
+starting over is not a move, and **the seats are kept** — they are the same two people, and
+emptying them would lock out the very person who has just clicked.
 
-Les refus rendent **401** quand personne n'est connecté, **403** quand quelqu'un l'est mais ne
-tient pas ce qu'il faut, avec un `message` en français que la page affiche sous la barre d'outils.
-Le reste des échecs garde le silence qu'il avait, leurs refus partant au journal.
+The refusals return **401** when nobody is logged in, **403** when somebody is but does not hold
+what is needed, with a `message` in French that the page displays under the toolbar. The rest of
+the failures keep the silence they had, their refusals going to the log.
 
-Se déconnecter ne rend pas sa place : on revient s'y asseoir.
+Logging out does not give up one's seat: one comes back to sit in it.
 
-### Jouer contre l'IA
+### Playing against the AI
 
-Le second compte peut être une machine. Le bouton **« Nouvelle partie contre l'IA »** du dialogue
-de la table — visible quand on est assis et que l'autre camp est à donner : libre, ou déjà tenu
-par l'IA — envoie `POST /partie/nouvelle` avec le corps `{"contre_ia": true}` : le scénario est
-reposé, et le camp que le demandeur ne tient pas est confié à l'IA. Un camp tenu par un autre
-humain n'est pas à donner — 409, on ne met personne à la porte, et la mise en place n'est pas
-refaite.
+The second account can be a machine. The **"Nouvelle partie contre l'IA"** button in the table
+dialog — visible when one is seated and the other side is there to give: free, or already held by
+the AI — sends `POST /game/new` with the body `{"against_ai": true}`: the scenario is laid out
+again, and the side the requester does not hold is entrusted to the AI. A side held by another
+human is not there to give — 409, nobody is thrown out, and the set-up is not rebuilt.
 
-L'IA n'a ni session ni compte Discord : elle occupe sa place sous la sentinelle `ia.JOUEUR_IA`
-(`"ia"`, qu'aucun identifiant Discord — des chaînes de chiffres — ne peut porter), qui voyage
-dans le dict des places comme n'importe quel identifiant — rien de plus à sauvegarder, rien de
-plus à reprendre — et que `la_table()` affiche sous le nom « IA ». Un humain ne peut pas s'y
-asseoir — la place est occupée — et `camp_actif_requis` ne peut jamais lui apparier une session.
+The AI has neither a session nor a Discord account: it occupies its seat under the `ai.AI_PLAYER`
+sentinel (`"ia"`, which no Discord identifier — strings of digits — can carry), which travels in
+the seats dict like any other identifier — nothing more to save, nothing more to resume — and which
+`the_table()` displays under the name "IA". A human cannot sit there — the seat is occupied — and
+`active_side_required` can never pair a session with it.
 
-Son tour se joue **côté serveur, dans la requête qui lui rend la main** : `faire_jouer_l_ia()`,
-appelé à la fin de `POST /phase/suivante` — et à la création de la partie, pour le cas où le
-scénario ouvre sur son camp. La stratégie vit dans le moteur (`moteur/ia.py`, voir
-`moteur/README.md`) ; l'application ne fait qu'y passer le dé (`lancer_le_de`), sauvegarder et
-journaliser. Une seule sauvegarde à la fin du tour : la version monte, et le navigateur voit les
-coups de l'IA aussitôt par le flux, comme il verrait ceux d'un adversaire humain. Une
-sauvegarde ne tombe donc jamais sur une phase tenue par l'IA — « / » n'a jamais à la faire jouer.
+Its turn is played **on the server side, within the request that hands it play**:
+`let_the_ai_play()`, called at the end of `POST /phase/next` — and at the creation of the game, in
+case the scenario opens on its side. The strategy lives in the engine (`engine/ai.py`, see
+`engine/README.md`); the application only passes it the die (`roll_the_die`), saves and logs. A
+single save at the end of the turn: the version rises, and the browser sees the AI's moves at once
+through the stream, as it would see a human opponent's. A save therefore never lands on a phase
+held by the AI — "/" never has to make it play.
 
-### Suivre la partie de l'adversaire
+### Following the opponent's game
 
-La page tient un **flux ouvert** vers le serveur — `GET /flux`, du Server-Sent Events — et n'en
-redemande jamais rien. C'est le serveur qui écrit, au moment où la partie change, et à tous ceux
-qui la regardent à la fois. Le navigateur voit donc le coup de l'adversaire en quelques
-millisecondes, là où le sondage d'avant mettait jusqu'à trois secondes et posait vingt questions
-inutiles pour une réponse utile.
+The page holds an **open stream** to the server — `GET /stream`, Server-Sent Events — and never
+asks it for anything again. It is the server that writes, at the moment the game changes, and to
+everyone watching it at once. The browser therefore sees the opponent's move within a few
+milliseconds, where the previous polling took up to three seconds and asked twenty useless
+questions for one useful answer.
 
-Le canal est **à sens unique**, serveur → navigateur, et il le reste : tout ce que le joueur fait
-part en `POST` sur les routes ordinaires, exactement comme avant. Le flux ne sert qu'à porter le
-résultat d'un coup aux **autres**.
+The channel is **one-way**, server → browser, and it stays so: everything the player does leaves as
+a `POST` on the ordinary routes, exactly as before. The stream only serves to carry a move's result
+to the **others**.
 
-**Le mécanisme, en trois pièces** (`application/flux.py`) :
+**The mechanism, in three pieces** (`application/stream.py`):
 
-- un **abonné** par flux ouvert, c'est-à-dire par onglet qui regarde la partie ;
-- une **boîte à une place** par abonné — un `Queue(maxsize=1)` dont le contenu est *remplacé*
-  plutôt qu'empilé. Personne n'a besoin d'un état périmé : une requête qui fait monter la version
-  trois fois (c'est le cas de `/partie/nouvelle`, qui repose le scénario puis laisse l'IA jouer)
-  ne réveille l'abonné qu'une fois, et sur le dernier état ;
-- `marquer_un_coup`, dans `app.py`, qui publie. **C'est le seul point de publication**, et c'est
-  aussi le passage obligé de tout ce qui bouge : aucun coup ne peut être joué sans que les flux
-  ouverts l'apprennent.
+- one **subscriber** per open stream, that is, per tab watching the game;
+- a **one-slot box** per subscriber — a `Queue(maxsize=1)` whose content is *replaced* rather than
+  stacked. Nobody needs a stale state: a request that raises the version three times (that is the
+  case of `/game/new`, which lays the scenario out again then lets the AI play) wakes the
+  subscriber only once, and on the last state;
+- `mark_a_move`, in `app.py`, which publishes. **It is the only point of publication**, and it is
+  also the compulsory passage of everything that moves: no move can be played without the open
+  streams learning of it.
 
-**Pourquoi la photo est prise au moment de publier.** Le plateau, le tour et le registre des
-combats sont des module-globaux, et rien ne les protège. Si le générateur d'un flux allait les
-relire à son réveil, il les lirait depuis le fil qui sert *son* flux, pendant qu'un autre fil est
-peut-être en train de déplacer un pion. On ne lui laisse donc rien à relire : la photo est prise
-une fois, dans le fil qui vient d'écrire, et c'est elle qui voyage.
+**Why the snapshot is taken at the moment of publishing.** The board, the turn and the combat
+register are module globals, and nothing protects them. If a stream's generator went and re-read
+them on waking, it would read them from the thread serving *its* stream, while another thread might
+be moving a piece. So we leave it nothing to re-read: the snapshot is taken once, in the thread
+that has just written, and it is the snapshot that travels.
 
-**Ce qui se compose par destinataire.** Presque tout est partagé — les pions, la phase, le
-journal —, mais pas la **table** : elle dit à chacun s'il est connecté, sous quel pseudo, et
-quels camps il tient. C'est la seule part du message que le flux compose au moment d'écrire, pour un joueur
-qu'il relit au dépôt à chaque fois (jamais mis en cache : quitter sa place se voit au message
-suivant).
+**What is composed per recipient.** Almost everything is shared — the pieces, the phase, the log —
+but not the **table**: it tells each of them whether they are logged in, under what nickname, and
+which sides they hold. It is the only part of the message the stream composes at the moment of
+writing, for a player it re-reads from the repository each time (never cached: leaving one's seat
+shows at the next message).
 
-**Le numéro de version sert deux fois.** Il monte d'un cran à chaque coup joué, et c'est aussi
-l'**identifiant d'événement** du flux — celui que le navigateur renvoie en `Last-Event-ID`
-lorsqu'il se reconnecte. Le serveur sait alors s'il y a du retard à rattraper : si le numéro colle,
-il ouvre le flux sur un simple commentaire ; sinon il envoie toute la partie. C'est ce qui fait
-qu'un serveur redémarré, un réseau coupé ou un portable réveillé se rattrapent tout seuls, sans
-une ligne de code pour cela.
+**The version number serves twice.** It rises by one at every move played, and it is also the
+stream's **event identifier** — the one the browser sends back in `Last-Event-ID` when it
+reconnects. The server then knows whether there is catching up to do: if the number matches, it
+opens the stream on a plain comment; otherwise it sends the whole game. That is what makes a
+restarted server, a cut network or a woken laptop catch up all by themselves, without a line of
+code for it.
 
-**Un battement de cœur** — un commentaire SSE, `: battement` — traverse la connexion toutes les
-20 secondes. Sans lui, un pare-feu, un proxy ou le navigateur finirait par refermer une connexion
-qu'il croit morte.
+**A heartbeat** — an SSE comment, `: battement` — crosses the connection every 20 seconds. Without
+it, a firewall, a proxy or the browser would end up closing a connection it believes dead.
 
-**L'onglet fermé libère sa place.** La page ferme son flux sur `beforeunload` et `pagehide`, et
-l'abonnement est de toute façon radié dès que le générateur est fermé, quoi qu'il arrive. Sans
-cela, chaque page refermée laisserait une boîte à qui le serveur continuerait de déposer chaque
-coup joué.
+**A closed tab frees its place.** The page closes its stream on `beforeunload` and `pagehide`, and
+the subscription is in any case removed as soon as the generator is closed, whatever happens.
+Without that, every closed page would leave a box into which the server would go on depositing
+every move played.
 
-**Le repli est gardé.** Si l'`EventSource` échoue cinq fois de suite — un intermédiaire qui coupe
-le SSE, un proxy d'entreprise —, la page referme le flux et retombe sur l'ancien sondage de
-`GET /partie/etat?version=N`, toutes les trois secondes. Cette route reste servie pour cela : le
-jeu ralentit, il ne casse pas.
+**The fallback is kept.** If the `EventSource` fails five times in a row — an intermediary cutting
+SSE, a corporate proxy — the page closes the stream and falls back on the old polling of
+`GET /game/state?version=N`, every three seconds. That route is still served for this: the game
+slows down, it does not break.
 
-Reposer la scène doit être **sans effet visible** sur ce qui n'a pas bougé : c'est pourquoi
-l'inclinaison de chaque pion voyage avec lui (voir « Poser les pions »). Elle vient du plateau du
-serveur, qui la retient d'un message à l'autre ; seul un pion déplacé se recouche. Pour la même
-raison, le repère du bouton « localiser » est retenu par sa **case** et non par son image : la
-scène reposée détruit toutes les images et les recrée, et le bouton s'éteindrait à chaque coup.
+Laying the scene out again must have **no visible effect** on what has not moved: that is why each
+piece's tilt travels with it (see "Placing the pieces"). It comes from the server's board, which
+keeps it from one message to the next; only a moved piece lies down again. For the same reason, the
+"localiser" button's marker is kept by its **square** and not by its image: the scene laid out
+again destroys every image and recreates them, and the button would go off at every move.
 
-Ce que tout ceci demandera le jour d'une mise en production — serveur WSGI, Nginx, délais
-d'attente, et pourquoi un seul worker — est dans `DEPLOIEMENT.md`, à la racine. Les endroits du
-code concernés portent le marqueur `TODO: PRODUCTION`.
+What all this will require the day it goes into production — a WSGI server, Nginx, timeouts, and
+why a single worker — is in `DEPLOYMENT.md`, at the root. The places in the code concerned carry
+the `TODO: PRODUCTION` marker.
 
-## Se connecter par Discord
+## Logging in through Discord
 
-Le flux OAuth2 tient en quatre temps, et tout ce qui parle à Discord est dans
-`client_discord.py` :
+The OAuth2 flow comes in four steps, and everything that speaks to Discord is in
+`discord_client.py`:
 
-1. `GET /connexion` tire un `state` (`Connexion.poser_un_etat_oauth`), le pose en session et
-   redirige vers Discord ;
-2. le joueur autorise, Discord le renvoie sur `GET /connexion/retour` avec un code et le `state` ;
-3. la route **retire** le `state` de la session (`Connexion.reprendre_l_etat_oauth`) et le compare
-   par `compare_digest` — un retour rejoué ne trouve donc plus rien à quoi se comparer —, puis
-   échange le code contre un jeton et lit `/users/@me` ;
-4. `Connexion.ouvrir` crée ou met à jour le joueur en base et ouvre la session, et l'on revient au
-   plateau.
+1. `GET /login` draws a `state` (`Connection.set_oauth_state`), puts it in the session and
+   redirects to Discord;
+2. the player authorises, Discord sends them back to `GET /login/return` with a code and the
+   `state`;
+3. the route **removes** the `state` from the session (`Connection.take_oauth_state`) and compares
+   it with `compare_digest` — a replayed return therefore finds nothing left to compare against —
+   then exchanges the code for a token and reads `/users/@me`;
+4. `Connection.open` creates or updates the player in base and opens the session, and we come back
+   to the board.
 
-**Quand ça casse, le journal dit pourquoi.** Dès le départ, `GET /connexion` compare l'hôte
-demandé à celui de `DISCORD_REDIRECT_URI` et, s'ils diffèrent — la carte ouverte sur
-`localhost:5000` quand l'URI dit `127.0.0.1:5000` —, écrit que le cookie posé ici ne reviendra
-pas : le navigateur tient ces deux hôtes pour deux sites. Au retour, un `state` qui ne passe pas rend 400, et la ligne
-« Connexion refusée » du journal distingue les trois cas, qui ne se soignent pas pareil : *absent
-de la session* — le cookie posé à l'aller n'est pas revenu : hôte différent entre l'aller et le
-retour (`localhost` contre `127.0.0.1` dans `DISCORD_REDIRECT_URI`), cookie `Secure` sur du http,
-session vidée entre-temps —, *absent de la requête*, ou *différent de celui de la session* (un
-retour rejoué ou forgé). La ligne porte l'hôte demandé et l'état du cookie de session — absent ;
-présent mais **illisible**, c'est-à-dire signé par une autre `SECRET_KEY` (la clé a changé dans
-`.env`, ou deux serveurs se répondent sur le même hôte) ; ou lisible, avec la liste des clés que la
-session porte encore, qui dit d'où venait cette session-là quand une autre requête a réécrit le
-cookie entre l'aller et le retour. Les clés seules, jamais les valeurs ni les états eux-mêmes. Les deux échanges avec Discord, eux, **ne sont pas rattrapés** : une
-`ErreurDiscord` remonte telle quelle, avec le statut et le corps de la réponse — c'est là que
-Discord écrit `invalid_grant` ou `invalid_client` —, et Flask en trace la pile. Un 502 muet qui
-disait « Discord n'a pas répondu » ne laissait rien à lire.
+**When it breaks, the log says why.** From the start, `GET /login` compares the host requested with
+that of `DISCORD_REDIRECT_URI` and, if they differ — the map opened on `localhost:5000` when the
+URI says `127.0.0.1:5000` — writes that the cookie set here will not come back: the browser holds
+those two hosts to be two sites. On the return, a `state` that does not pass returns 400, and the
+log's "Connexion refusée" line distinguishes the three cases, which are not cured the same way:
+*absent from the session* — the cookie set on the way out did not come back: a different host
+between the outward and return trips (`localhost` against `127.0.0.1` in `DISCORD_REDIRECT_URI`), a
+`Secure` cookie over http, a session emptied meanwhile —, *absent from the request*, or *different
+from the session's* (a replayed or forged return). The line carries the host requested and the
+state of the session cookie — absent; present but **unreadable**, that is signed by another
+`SECRET_KEY` (the key changed in `.env`, or two servers answer on the same host); or readable, with
+the list of keys the session still carries, which says where that session came from when another
+request rewrote the cookie between the outward and return trips. The keys alone, never the values
+nor the states themselves. The two exchanges with Discord, for their part, are **not caught**: a
+`DiscordError` comes back up as it is, with the status and the body of the response — that is where
+Discord writes `invalid_grant` or `invalid_client` — and Flask traces its stack. A mute 502 saying
+"Discord did not answer" left nothing to read.
 
-`POST /deconnexion` ferme la session. Elle est en POST comme tout ce qui change quelque chose ici :
-un lien ou une image d'un autre site ne doit pas pouvoir déconnecter le joueur.
+`POST /logout` closes the session. It is a POST like everything that changes something here: a link
+or an image from another site must not be able to log the player out.
 
-**Ce que la session porte** — et c'est `models/connexion.py` qui en décide, seul : l'identifiant
-Discord, et le `state` le temps d'un aller-retour. Rien d'autre, et surtout pas le jeton d'accès —
-le cookie de session de Flask est *signé, pas chiffré*, et son contenu se lit à qui le tient. Le
-pseudo et l'avatar se relisent au dépôt à chaque requête, ce qui les tient à jour dès qu'ils
-changent chez Discord.
+**What the session carries** — and it is `models/connection.py` that decides, alone: the Discord
+identifier, and the `state` for the length of one round trip. Nothing else, and above all not the
+access token — Flask's session cookie is *signed, not encrypted*, and its contents can be read by
+whoever holds it. The stored key names stay French (`joueur`, `etat_oauth`): they are already in
+browsers' cookies. The nickname and the avatar are re-read from the repository at every request,
+which keeps them up to date as soon as they change at Discord.
 
-Le cookie est `HttpOnly`, `SameSite=Lax` et `Secure` derrière HTTPS (`COOKIE_SECURISE=oui`).
-**`Lax` et non `Strict`** : le retour de Discord est une navigation de premier niveau venue d'un
-autre site, et `Strict` retiendrait le cookie — la session paraîtrait vide, le `state` serait
-introuvable, et le flux ne pourrait jamais aboutir.
+The cookie is `HttpOnly`, `SameSite=Lax` and `Secure` behind HTTPS (`SECURE_COOKIE=yes`). **`Lax`
+and not `Strict`**: the return from Discord is a top-level navigation coming from another site, and
+`Strict` would withhold the cookie — the session would look empty, the `state` would be nowhere to
+be found, and the flow could never complete.
 
-**Le cookie n'est réécrit que par les réponses qui modifient la session** — ouvrir, fermer,
-poser ou reprendre le `state` — et non à chaque réponse comme Flask le fait d'office dès que la
-session est permanente (`SESSION_REFRESH_EACH_REQUEST = False`). C'est un bogue vécu : une
-requête partie avec l'ancienne session avant `/connexion` — un sondage de repli, une reconnexion
-du flux depuis un autre onglet — répondait après, et son cookie, sans le `state`, écrasait celui
-que `/connexion` venait de poser ; le retour de Discord ne trouvait plus rien à quoi se comparer.
-Le journal le disait ainsi : « état absent de la session, cookie lisible, session portant
-_permanent, joueur ». Ce qu'on y perd tient en une ligne : l'expiration du cookie (31 jours)
-court depuis la connexion et non depuis la dernière visite.
+**The cookie is only rewritten by responses that modify the session** — opening, closing, setting
+or taking back the `state` — and not at every response as Flask does by default as soon as the
+session is permanent (`SESSION_REFRESH_EACH_REQUEST = False`). This is a bug lived through: a
+request that left with the old session before `/login` — a fallback poll, a stream reconnection
+from another tab — answered afterwards, and its cookie, without the `state`, overwrote the one
+`/login` had just set; the return from Discord then found nothing left to compare against. The log
+put it thus: "état absent de la session, cookie lisible, session portant _permanent, joueur". What
+is lost by it fits in one line: the cookie's expiry (31 days) runs from the login and not from the
+last visit.
 
-La portée demandée est `identify` seule. Pas `email` : le jeu n'en ferait rien, et une portée de
-moins est un consentement de moins à demander. Le champ `courriel` de `moteur.models.joueur`
-attend, au cas où.
+The scope requested is `identify` alone. Not `email`: the game would do nothing with it, and one
+scope fewer is one consent fewer to ask for. The `email` field of `engine.models.player` waits,
+just in case.
 
-**Aucune dépendance n'a été ajoutée pour tout cela**, et c'est le même parti que pour
-`extensions.py`, qui a réécrit l'interface de Flask-MongoEngine plutôt que d'installer une
-extension morte : `flask.session` suffit à la session, `urllib.request` aux deux appels HTTP.
+**No dependency was added for any of this**, and it is the same stance as for `extensions.py`,
+which rewrote Flask-MongoEngine's interface rather than install a dead extension:
+`flask.session` is enough for the session, `urllib.request` for the two HTTP calls.
 
-### La couture qui rend le flux éprouvable
+### The seam that makes the flow testable
 
-`create_app` accroche un **client d'identité** aux extensions de l'application, exactement comme
-elle y accroche le dépôt : `ClientDiscord` en jeu, `ClientDiscordFactice` sous la configuration de
-test. Le factice ne court-circuite rien — il rend une URL d'autorisation qui pointe vers **notre
-propre route de retour**. Le navigateur la suit, revient avec un code et un état, et le vrai code
-se déroule alors du début à la fin. C'est ce qui permet d'éprouver la connexion dans Chromium sans
-qu'aucun paquet ne parte vers discord.com.
+`create_app` hooks an **identity client** onto the application's extensions, exactly as it hooks
+the repository: `DiscordClient` in play, `FakeDiscordClient` under the test configuration. The fake
+one short-circuits nothing — it returns an authorization URL pointing at **our own return route**.
+The browser follows it, comes back with a code and a state, and the real code then runs from
+beginning to end. That is what makes it possible to exercise logging in inside Chromium without a
+single packet leaving for discord.com.
 
-`AUTHENTIFICATION` n'est **pas** lu dans l'environnement, délibérément : une variable de `.env` qui
-débranche l'authentification est une porte ouverte qu'une faute de frappe suffit à laisser béante.
-Seule `ConfigDeTest` pose « factice ».
+`AUTHENTICATION` is **not** read from the environment, deliberately: a `.env` variable that unplugs
+authentication is an open door that a typo is enough to leave gaping. Only `TestingConfig` sets
+"fake".
 
-### Configurer une application Discord
+### Setting up a Discord application
 
-1. Ouvrir le [Developer Portal](https://discord.com/developers/applications) et **New
-   Application** ; lui donner un nom.
-2. Onglet **OAuth2** : relever le **Client ID**, puis **Reset Secret** pour obtenir le **Client
-   Secret** (il ne se réaffiche jamais — le copier tout de suite).
-3. Toujours dans **OAuth2**, section **Redirects**, ajouter l'URI de retour **au caractère près** :
-   `http://127.0.0.1:5000/connexion/retour` en développement. Discord la compare exactement :
-   `localhost` n'y est pas `127.0.0.1`, et un `/` final de trop suffit à faire échouer l'échange.
-4. Reporter les trois valeurs dans `.env` (`DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`,
-   `DISCORD_REDIRECT_URI`), et y ajouter une `SECRET_KEY`.
-5. Pour s'autoriser la correction de la carte : activer le mode développeur dans Discord
-   (Paramètres › Avancés), copier son propre identifiant depuis son profil, et le poser dans
-   `ADMIN_DISCORD_IDS`.
+1. Open the [Developer Portal](https://discord.com/developers/applications) and **New
+   Application**; give it a name.
+2. **OAuth2** tab: note the **Client ID**, then **Reset Secret** to obtain the **Client Secret**
+   (it is never shown again — copy it straight away).
+3. Still in **OAuth2**, section **Redirects**, add the return URI **to the character**:
+   `http://127.0.0.1:5000/login/return` in development. Discord compares it exactly: `localhost` is
+   not `127.0.0.1` there, and one trailing `/` too many is enough to make the exchange fail.
+4. Carry the three values over into `.env` (`DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`,
+   `DISCORD_REDIRECT_URI`), and add a `SECRET_KEY`.
+5. To allow oneself to fix the map: enable developer mode in Discord (Settings › Advanced), copy
+   one's own identifier from one's profile, and put it in `ADMIN_DISCORD_IDS`.
 
-Le portail ne demande **aucune portée à cocher** : elle est réclamée par l'URL d'autorisation, et
-c'est `identify`.
+The portal asks for **no scope to tick**: it is claimed by the authorization URL, and it is
+`identify`.
 
-## La mise en place
+## The set-up
 
-Le serveur ne tire plus rien au hasard : il lit la mise en place du scénario `NUMERO_DU_SCENARIO`
-(4) dans `scenarios/` par `moteur.scenario`, une fois au démarrage, et la repose au premier
-chargement de `/` — ou à chacun, si la persistance est débranchée.
+The server no longer draws anything at random: it reads the set-up of scenario `SCENARIO_NUMBER`
+(4) from `scenarios/` through `engine.scenario`, once at start-up, and lays it out again at the
+first load of `/` — or at each, if persistence is unplugged.
 
-- **Le placement vient du fichier, pas du serveur.** `scenarios/scenario-04-la-guerre-des-nains.json`
-  donne « case → clé de pion » ; l'application n'y ajoute que ce qu'il faut pour l'affichage —
-  l'image, le nom lisible, le mouvement et le camp, tous repris au catalogue de
-  `game_box/pions/`. Le détail du déploiement et ses réserves sont dans `scenarios/README.md`.
-- **La position de départ est reproductible.** Une partie neuve remet toujours les 48 unités aux
-  mêmes cases : c'est ce qui permet d'éprouver un déplacement deux fois de suite et d'obtenir le
-  même résultat. `POST /partie/nouvelle` — et, sans persistance, le simple rechargement — y
-  ramène.
-- **Le mouvement est celui du carton** : chaque pion emporte ses points, lus sur la photo et
-  rangés dans `game_box/pions/pions.json`. La **force** sert maintenant au combat ; le tir et la
-  portée n'y servent que pour la distance d'engagement d'un archer.
-- **Le camp vient de la faction** (voir `moteur/README.md`) : il décide qui gêne qui. Ici, les
-  nains sont l'alliance et les orques les ténèbres, et les deux masses se font face à 3 cases.
-- Les vues d'ensemble ne sont toujours pas servies : les 4 photos de `21-vues-d-ensemble/` et les
-  2 planchettes de suivi de `19-magiciens/` ne montrent pas un pion isolé, et `/pions/…` les
-  refuse. Le scénario ne les nomme pas non plus.
-- Une case n'accueille qu'un pion. Ce que le plateau garde d'un rechargement à l'autre dépend de
-  la persistance (voir plus haut).
+- **The placement comes from the file, not from the server.**
+  `scenarios/scenario-04-la-guerre-des-nains.json` gives "square → piece key"; the application adds
+  to it only what the display needs — the image, the readable name, the movement and the side, all
+  taken from the catalogue in `game_box/pions/`. The detail of the deployment and its caveats are
+  in `scenarios/README.md`.
+- **The starting position is reproducible.** A fresh game always puts the 48 units back on the same
+  squares: that is what makes it possible to exercise a move twice in a row and get the same
+  result. `POST /game/new` — and, without persistence, a simple reload — brings it back.
+- **The movement is the counter's**: each piece carries its points, read off the photograph and
+  stored in `game_box/pions/pions.json`. The **strength** now serves in combat; fire and range serve
+  only for an archer's engagement distance.
+- **The side comes from the faction** (see `engine/README.md`): it decides who hinders whom. Here
+  the dwarves are the alliance and the orcs the darkness, and the two masses face each other 3
+  squares apart.
+- The overviews are still not served: the 4 photographs in `21-vues-d-ensemble/` and the 2 record
+  sheets in `19-magiciens/` do not show a single counter, and `/pieces/…` refuses them. The
+  scenario does not name them either.
+- A square takes only one piece. What the board keeps from one reload to the next depends on
+  persistence (see above).
 
 ## Tests
 
-Depuis la **racine du dépôt**, pour couvrir aussi le moteur :
+From the **repository root**, so as to cover the engine too:
 
 ```
 make test
 ```
 
-`make test` monte lui-même un MongoDB de test dans un conteneur — port 27018, base
-`tenebrae_test`, à part de celui du jeu —, attend qu'il réponde, puis lance toute la suite en le
-lui désignant. Sans Docker, `make test-rapide` lance la même suite sans base : les tests qui
-demandent un vrai MongoDB se sautent d'eux-mêmes. `make mongo-arret` retire le conteneur, qui
-reste sinon allumé d'une série à l'autre. `ARGS` passe des arguments à pytest :
-`make test ARGS="-k persistance -v"`.
+`make test` brings up a test MongoDB in a container itself — port 27018, database `tenebrae_test`,
+separate from the game's — waits for it to answer, then runs the whole suite pointing it at it.
+Without Docker, `make test-fast` runs the same suite without a base: the tests requiring a real
+MongoDB skip themselves. `make mongo-stop` removes the container, which otherwise stays up from one
+series to the next. `ARGS` passes arguments to pytest: `make test ARGS="-k persistence -v"`.
 
-**Rien ne se vérifie à la main** : ni serveur lancé pour aller voir, ni `curl`. Ce qu'on veut
-éprouver s'écrit en test, et ce qui se voit dans une page s'éprouve dans Chromium par Playwright.
+**Nothing is checked by hand**: no server launched to go and look, no `curl`. What we want to
+exercise is written as a test, and what shows in a page is exercised in Chromium through Playwright.
 
-`tests/test_diffuseur.py`, `tests/test_flux.py` et `tests/test_flux_navigateur.py` couvrent le
-**flux SSE**, en trois couches. Le premier prend le diffuseur seul, sans Flask ni navigateur :
-boîte à une place, coalescence de trois publications en un réveil, fan-out à plusieurs abonnés, et
-radiation garantie — sur une sortie normale, sur une erreur, et sur un générateur abandonné, qui
-est ce qui arrive quand un onglet se ferme. Le deuxième prend la route `/flux` par le client
-Flask : mimetype et en-têtes (`Cache-Control`, `X-Accel-Buffering`), le commentaire d'ouverture à
-qui est à jour et toute la partie à qui ne l'est pas, le `Last-Event-ID` qui prime sur `?version`
-et le serveur redémarré qu'il rattrape, le coup poussé sans que personne ait rien demandé, le
-battement, la **table composée par destinataire** — un joueur assis et un visiteur anonyme
-reçoivent la même partie et deux tables différentes —, le joueur relu à chaque message, et dix
-flux ouverts puis refermés qui ne laissent rien derrière eux. Le troisième ouvre Chromium : la
-page tient bien un `EventSource`, elle ne sonde **plus jamais** `/partie/etat`, elle n'appelle
-plus rien du tout au repos, un coup joué dehors — par un client HTTP indépendant du navigateur —
-arrive en moins d'une seconde et demie, deux onglets le voient ensemble, un visiteur sans compte
-le voit aussi, le repère de « localiser » survit à la scène reposée, le repli sur le sondage
-s'installe quand `/flux` est coupé, la page se reconnecte et rattrape ce qu'elle a manqué, et un
-onglet fermé libère son abonnement.
+`tests/test_broadcaster.py`, `tests/test_stream.py` and `tests/test_stream_browser.py` cover the
+**SSE stream**, in three layers. The first takes the broadcaster alone, without Flask or a browser:
+the one-slot box, three publications coalescing into one wake-up, fan-out to several subscribers,
+and guaranteed removal — on a normal exit, on an error, and on an abandoned generator, which is
+what happens when a tab closes. The second takes the `/stream` route through the Flask client:
+mimetype and headers (`Cache-Control`, `X-Accel-Buffering`), the opening comment to whoever is up
+to date and the whole game to whoever is not, the `Last-Event-ID` prevailing over `?version` and
+the restarted server it catches up with, the move pushed without anyone having asked for anything,
+the heartbeat, the **table composed per recipient** — a seated player and an anonymous visitor
+receive the same game and two different tables — the player re-read at every message, and ten
+streams opened then closed leaving nothing behind them. The third opens Chromium: the page really
+holds an `EventSource`, it **never again** polls `/game/state`, it calls nothing at all at rest, a
+move played outside — by an HTTP client independent of the browser — arrives in less than a second
+and a half, two tabs see it together, a visitor without an account sees it too, the "localiser"
+marker survives the scene being laid out again, the fallback to polling settles in when `/stream`
+is cut, the page reconnects and catches up on what it missed, and a closed tab frees its
+subscription.
 
-Le serveur des tests de navigateur est **concurrent** (`threaded=True` dans `tests/conftest.py` et
-`tests/test_reprise_navigateur.py`) : depuis le flux, une page ouverte tient une requête en cours
-tant qu'elle vit, et un serveur mono-thread ne servirait plus rien d'autre.
+The browser tests' server is **concurrent** (`threaded=True` in `tests/conftest.py` and
+`tests/test_resume_browser.py`): since the stream, an open page holds a request in progress as long
+as it lives, and a single-threaded server would serve nothing else.
 
-`tests/test_map_fix.py` et `tests/test_map_fix_navigateur.py` couvrent la page de correction —
-le second dans Chromium : survol, dialogue, enregistrement, boutons de zoom. Tous deux
-détournent le chemin du fichier de corrections vers un répertoire temporaire : **aucun test
-n'écrit dans `game_box/`**.
+`tests/test_map_fix.py` and `tests/test_map_fix_browser.py` cover the map-fixing page — the second
+in Chromium: hovering, dialog, recording, zoom buttons. Both divert the path of the fixes file to a
+temporary directory: **no test writes into `game_box/`**.
 
-`tests/test_serveur.py` interroge Flask sans navigateur : contenu des champs cachés — dont les
-valeurs du carton que la fiche du survol y lit —, cohérence des coordonnées, fichiers servis, la
-mise en place servie case par case — elle doit être celle du
-scénario, et la même d'un chargement à l'autre —, et les deux routes de déplacement, dont la
-vérification qu'elles n'ajoutent rien aux règles du moteur, que la portée suit le carton du pion
-posé, qu'un adversaire au contact la réduit, qu'un ami ne la réduit pas, et qu'un déplacement
-accepté change vraiment le plateau du serveur. Il couvre aussi le **tour** : `#phase` dans la
-page, `/phase/suivante` qui saute la magie et alterne les joueurs, `/deplacer` refusé hors de la
-phase de mouvement, `/combat/portee` selon la distance, et `/combat` qui retire le bon pion sur un
-`DE` (dé fixé par `monkeypatch` de `app.lancer_le_de`) et ne touche à rien sur un recul. La règle
-du **combat unique par phase** y a sa section : un attaquant et une cible refusés au second
-combat, tout un groupe d'attaquants marqué d'un coup, deux unités du même carton suivies à part,
-les listes `indisponibles` servies au navigateur, et la remise à zéro d'une phase de combat à la
-suivante puis au tour d'après. Chaque test y part d'une **carte déserte** — la fixture
-`carte_deserte` vide le plateau, ramène le tour à sa première phase et vide le registre des
-combats, tous trois étant partagés d'une requête à la suivante. Ce que
-contient le scénario lui-même est éprouvé à part, dans `moteur/tests/test_scenario.py` ; la
-résolution des combats, dans `moteur/tests/test_combat.py` et `test_phase.py`.
+`tests/test_server.py` queries Flask without a browser: the contents of the hidden fields — including
+the counter values the hover card reads there — the consistency of the coordinates, the files
+served, the set-up served square by square — it must be the scenario's, and the same from one load
+to the next — and the two movement routes, including the check that they add nothing to the
+engine's rules, that the reach follows the placed piece's counter, that an opponent in contact
+reduces it, that a friend does not, and that an accepted move really changes the server's board. It
+also covers the **turn**: `#phase` in the page, `/phase/next` which skips magic and alternates the
+players, `/move` refused outside the movement phase, `/combat/range` by distance, and `/combat`
+which removes the right piece on a `DE` (die fixed by `monkeypatch` of `app.roll_the_die`) and
+touches nothing on a retreat. The rule of **one combat per phase** has its own section there: an
+attacker and a target refused at the second combat, a whole group of attackers marked at once, two
+units of the same counter tracked apart, the `unavailable` lists served to the browser, and the
+reset from one combat phase to the next then to the following turn. Every test there starts from a
+**deserted map** — the `deserted_map` fixture clears the board, brings the turn back to its first
+phase and empties the combat register, all three being shared from one request to the next. What
+the scenario itself contains is exercised separately, in `engine/tests/test_scenario.py`; combat
+resolution, in `engine/tests/test_combat.py` and `test_phase.py`.
 
-`tests/test_plateau.py` ouvre la page dans Chromium avec Playwright : les 48 pions chargés et
-centrés à moins d'un pixel, inclinés de moins de 5° — et **inclinés une fois pour toutes** : un
-coup joué hors de la page fait reposer la scène par le flux, et les angles doivent être les
-mêmes, seul un pion déplacé se recouchant —, carte qui reste à l'échelle après
-redimensionnement, le zoom — boutons, molette qui garde son point sous le pointeur, pions qui
-restent sur leur hexagone une fois approchés, échelle réglée à la main qu'un redimensionnement ne
-défait pas —, la fiche du survol — les valeurs du carton des cinquante-deux unités comparées au
-catalogue du moteur, la mention de remarques qui ne paraît qu'à bon escient, la photo, la case
-d'un pion qu'on vient de déplacer, la fiche qui se referme en quittant le pion, qui ne paraît pas
-sur un fantôme, dont les éléments s'empilent un par ligne, qui se pose **sous** la barre d'outils
-et alignée sur son bord gauche, qui se lit **au corps de la barre**, qui ne fait pas grandir la
-barre — à la fenêtre étroite comme à la large — et qui ne capte pas les clics —, la mise en page
-elle-même — le panneau qui ne déborde ni de la fenêtre ni en défilement latéral à 1400, 800 et
-480 px, et la carte qu'il ne déplace ni ne rétrécit —, puis le cycle complet clic → fantômes →
-déplacement, à l'ajustement comme une fois approché. Les fantômes attendus sont ceux que le
-plateau du serveur calcule — il tourne dans le même processus, on le lit directement — et un test
-pose un adversaire au contact pour vérifier que le clic en montre alors moins. Enfin le **tour et
-le combat** : le libellé de phase, « Phase suivante » qui saute la magie, le mouvement muet en
-phase de combat, la cible surlignée en rouge, le cycle complet — amener un Nain au contact d'une
-Orque, passer en combat, désigner cible et attaquant, « Attaquer », et voir les surlignages
-retomber —, et le **combat unique par phase** : les unités engagées grisées exactement là où le
-registre du serveur les inscrit, le clic qui ne les reprend pas, et le grisage qui tombe à la
-phase suivante.
+`tests/test_board_browser.py` opens the page in Chromium with Playwright: the 48 pieces loaded and
+centred to within a pixel, tilted by less than 5° — and **tilted once and for all**: a move played
+outside the page makes the scene be laid out again through the stream, and the angles must be the
+same, only a moved piece lying down again — a map that stays scaled after a resize, the zoom —
+buttons, the wheel keeping its point under the pointer, pieces staying on their hexagon once zoomed
+in, a hand-set scale that a resize does not undo — the hover card — the counter values of all the
+units compared with the engine's catalogue, the mention of remarks appearing only when warranted,
+the photograph, the square of a piece one has just moved, the card closing on leaving the piece,
+not appearing on a ghost, its elements stacked one per line, sitting **under** the toolbar and
+aligned on its left edge, reading **at the bar's body size**, not making the bar grow — on a narrow
+window as on a wide one — and not capturing clicks — the layout itself — the panel neither
+overflowing the window nor scrolling sideways at 1400, 800 and 480 px, and the map it neither
+displaces nor shrinks — then the full cycle click → ghosts → move, both fitted and zoomed in. The
+expected ghosts are those the server's board computes — it runs in the same process, so it is read
+directly — and one test places an opponent in contact to check that the click then shows fewer.
+Finally the **turn and combat**: the phase label, "Phase suivante" which skips magic, movement
+silent in the combat phase, the target highlighted in red, the full cycle — bring a Dwarf into
+contact with an Orc, move to combat, designate target and attacker, "Attaquer", and see the
+highlights fall away — and **one combat per phase**: the engaged units greyed out exactly where the
+server's register enters them, the click that does not take them up again, and the greying that
+falls at the next phase.
 
-`tests/test_persistance.py` est le seul à brancher la persistance, sur **mongomock** — un MongoDB
-en mémoire : aucun serveur n'est demandé, et le fichier se saute de lui-même si mongomock n'est pas
-installé. Il couvre l'ouverture d'une partie au premier chargement, la reprise après un
-redémarrage simulé (le déplacement retrouvé, la phase retrouvée, le registre des combats retrouvé),
-l'élimination qui ne revient pas, les **inclinaisons** écrites, reprises et réécrites au
-déplacement — et la sauvegarde sans ce champ qui reste reprenable —, la sauvegarde d'un autre
-scénario écartée, `POST
-/partie/nouvelle` qui ouvre un second document sans effacer le premier — y compris quand les deux
-partagent la même date, l'identifiant les départageant —, et l'aller-retour du dépôt seul. Partout
-ailleurs la configuration de test pose le **dépôt nul** : les autres fichiers de tests ne voient
-aucune base, et `GET /` y repose la mise en place comme avant.
+`tests/test_persistence.py` is the only one to plug in persistence, on **mongomock** — an in-memory
+MongoDB: no server is required, and the file skips itself if mongomock is not installed. It covers
+the opening of a game at the first load, resumption after a simulated restart (the move found
+again, the phase found again, the combat register found again), the elimination that does not come
+back, the **tilts** written, resumed and rewritten on a move — and the save without that field that
+stays resumable — a save of another scenario discarded, `POST /game/new` which opens a second
+document without erasing the first — including when both share the same date, the identifier
+breaking the tie — and the repository's round trip alone. Everywhere else the test configuration
+installs the **null repository**: the other test files see no database, and `GET /` there lays the
+set-up out again as before.
 
-`tests/test_reprise_navigateur.py` éprouve la reprise **vue de l'écran**, dans Chromium : déplacer
-un pion puis recharger la page et le retrouver à sa nouvelle case, la phase retrouvée de même,
-`POST /partie/nouvelle` qui repose les 48 unités, et les cartons qu'un rechargement retrouve
-couchés sous le même angle — celui d'avant pour les pions immobiles, le nouveau pour le pion
-déplacé. Chaque test y tourne **deux fois** — sur
-mongomock, et sur le vrai MongoDB dès que `MONGODB_URI_TEST` en désigne un qui répond, ce que
-`make test` fait — de sorte que la chaîne complète est éprouvée telle qu'elle tourne en vrai, sans
-avoir à lancer le serveur soi-même.
+`tests/test_resume_browser.py` exercises resumption **as seen from the screen**, in Chromium: move
+a piece then reload the page and find it at its new square, the phase likewise found again,
+`POST /game/new` which puts the 48 units back, and the counters that a reload finds lying at the
+same angle — the previous one for the motionless pieces, the new one for the moved piece. Each test
+there runs **twice** — on mongomock, and on the real MongoDB as soon as `MONGODB_URI_TEST`
+designates one that answers, which `make test` does — so that the full chain is exercised as it
+really runs, without having to launch the server oneself.
 
-`moteur/tests/test_places.py` éprouve le registre des places seul, sans requête ni base : prendre
-un camp, la place qu'on ne reprend pas à son occupant, l'aller-retour de la sérialisation, et une
-sauvegarde d'avant les joueurs qui laisse simplement la table vide. Il a suivi son sujet dans le
-moteur ; `tests/test_connexion_modele.py` lui répond de ce côté-ci, et éprouve `Connexion` seule :
-ce que la session porte et ce qu'elle ne porte pas, le joueur relu au dépôt à chaque demande, un
-identifiant inconnu qui redevient anonyme, et l'état de l'OAuth2 retiré dès qu'on le reprend.
+`engine/tests/test_seats.py` exercises the seating register alone, with no request and no base:
+taking a side, the seat that is not taken from its occupant, the round trip of serialisation, and a
+save from before players existed which simply leaves the table empty. It followed its subject into
+the engine; `tests/test_connection_model.py` answers it on this side, and exercises `Connection`
+alone: what the session carries and what it does not, the player re-read from the repository at
+every request, an unknown identifier that becomes anonymous again, and the OAuth2 state removed as
+soon as it is taken back.
 
-`tests/test_connexion.py` déroule le flux OAuth2 **en entier** contre le client factice : l'état
-tiré au sort et vérifié, celui qui ne correspond pas et celui qu'on rejoue, le retour sans code,
-le refus du joueur sur la page de Discord, l'erreur de Discord qui remonte entière, le joueur créé puis mis à
-jour, et le jeton d'accès qui n'entre jamais dans la session. Puis ce que le serveur refuse : le
-visiteur anonyme qui voit la carte mais ne déplace rien, le joueur qui ne tient pas le camp actif,
-celui qui n'a pris aucune place, le second camp refusé à qui en tient un, la place qu'on ne reprend
-pas, les deux joueurs qui s'assoient chacun au sien, les places conservées par
-`POST /partie/nouvelle`, et la correction de la carte réservée aux comptes déclarés.
+`tests/test_connection.py` unrolls the OAuth2 flow **in full** against the fake client: the state
+drawn and checked, the one that does not match and the one that is replayed, the return without a
+code, the player's refusal on Discord's page, Discord's error coming back up whole, the player
+created then updated, and the access token that never enters the session. Then what the server
+refuses: the anonymous visitor who sees the map but moves nothing, the player who does not hold the
+active side, the one who has taken no seat, the second side refused to whoever holds one, the seat
+that is not taken over, the two players each sitting at their own, the seats kept by
+`POST /game/new`, and map fixing reserved to the declared accounts.
 
-`tests/test_client_discord.py` éprouve `ClientDiscord` seul, `urlopen` remplacé dans le module :
-le jeton lu dans la réponse, l'erreur HTTP qui reprend le statut, l'URL appelée et le corps de la
-réponse de Discord, le Discord injoignable qui dit lequel et pourquoi, et la réponse sans jeton.
+`tests/test_discord_client.py` exercises `DiscordClient` alone, `urlopen` replaced in the module:
+the token read from the answer, the HTTP error that carries over the status, the URL called and the
+body of Discord's answer, the unreachable Discord that says which and why, and the answer with no
+token.
 
-`tests/test_connexion_navigateur.py` fait la même chose à l'écran : le bouton qui propose de se
-connecter puis montre le pseudo, **la barre d'outils qui ne grandit pas d'un pixel** une fois
-l'avatar posé — c'est ce test qui a fait choisir un avatar dimensionné en `em` —, le pseudo à
-rallonge qui ne pousse pas les boutons hors de vue, le dialogue de la table, le grisage hors de son
-tour, le message qu'un coup refusé affiche, et surtout **deux navigateurs ouverts en même temps** :
-l'un passe sa phase ou prend place, l'autre l'apprend sans rien recharger.
+`tests/test_connection_browser.py` does the same on screen: the button offering to log in then
+showing the nickname, **the toolbar that does not grow by a pixel** once the avatar is in place —
+it is this test that led to an avatar sized in `em` — the very long nickname that does not push the
+buttons out of sight, the table dialog, the greying outside one's turn, the message a refused move
+displays, and above all **two browsers open at the same time**: one passes its phase or takes a
+seat, the other learns of it without reloading anything.
 
-`tests/test_ia.py` éprouve la partie contre l'IA côté serveur : la création refusée à l'anonyme,
-au joueur sans place et quand l'autre camp est tenu par un humain, l'IA assise et montrée « IA »
-à la table, son tour d'ouverture joué dans la foulée quand elle tient l'Alliance, son tour
-déclenché par le `POST /phase/suivante` qui lui rend la main — le dé fixé par `monkeypatch`,
-comme partout —, et sa place que personne ne peut prendre. La stratégie elle-même est éprouvée
-dans le moteur (`moteur/tests/test_adversaire_artificiel.py`) ; la persistance de sa place, dans
-`tests/test_persistance.py`. `tests/test_ia_navigateur.py` refait le tour à l'écran : le bouton
-caché à qui n'est pas assis, le camp adverse confié à l'IA d'un clic, et l'ouverture du scénario
-jouée par elle avant que la main revienne au joueur.
+`tests/test_ai.py` exercises the game against the AI on the server side: creation refused to the
+anonymous visitor, to the player with no seat and when the other side is held by a human, the AI
+seated and shown as "IA" at the table, its opening turn played straight away when it holds the
+Alliance, its turn triggered by the `POST /phase/next` that hands it play — the die fixed by
+`monkeypatch`, as everywhere — and its seat that nobody can take. The strategy itself is exercised
+in the engine (`engine/tests/test_artificial_opponent.py`); the persistence of its seat, in
+`tests/test_persistence.py`. `tests/test_ai_browser.py` goes round again on screen: the button
+hidden from whoever is not seated, the opposing side entrusted to the AI with one click, and the
+opening of the scenario played by it before play comes back to the player.
 
-`tests/test_vue.py` et `tests/test_vue_navigateur.py` couvrent la **vue de la carte**. Le premier
-sans navigateur : `#vue` à `null` pour l'anonyme comme pour qui n'a rien réglé, la vue rangée puis
-rendue, l'anonyme refusé, la place non demandée, six corps illisibles refusés en 400, deux joueurs
-qui ne partagent pas leur vue, le second réglage qui écrase le premier — et surtout ce qu'elle
-n'est **pas** : la version ne monte pas, rien n'est déposé chez un abonné du flux, et
-`/partie/etat` n'en dit rien. Le second, dans Chromium : la carte ouverte ajustée quand rien n'est
-rangé, le zoom et le défilement rangés chacun de leur côté, l'anonyme qui ne range rien, le
-rechargement qui retrouve l'échelle **et** le point qu'on avait au centre, et l'ajustement qui se
-retrouve ajusté — à la taille de la nouvelle fenêtre, et non à l'échelle de l'ancienne. Ce que
-MongoDB en fait est dans `tests/test_persistance.py`.
+`tests/test_view.py` and `tests/test_view_browser.py` cover the **map view**. The first without a
+browser: `#view` at `null` for the anonymous visitor as for whoever has adjusted nothing, the view
+stored then returned, the anonymous visitor refused, no seat required, six unreadable bodies
+refused with a 400, two players who do not share their view, the second adjustment overwriting the
+first — and above all what it is **not**: the version does not rise, nothing is deposited with a
+stream subscriber, and `/game/state` says nothing of it. The second, in Chromium: the map opening
+fitted when nothing is stored, the zoom and the scroll each stored on their own, the anonymous
+visitor storing nothing, the reload finding the scale **and** the point one had at the centre, and
+the fitted view found fitted again — at the size of the new window, and not at the old one's scale.
+What MongoDB makes of it is in `tests/test_persistence.py`.
 
-**Toute la suite joue connectée.** La fixture `client` du `conftest.py` ouvre une session et assied
-le joueur de test **aux deux camps** — c'est ce qui laisse les tests écrits avant les joueurs
-traverser les deux camps dans une même session, sans en réécrire un seul. Les fixtures de page
-Playwright passent, elles, par `/connexion` avant d'ouvrir le plateau : plutôt que de fabriquer un
-cookie, elles déroulent le vrai flux, que le client factice referme sur notre propre route de
-retour. Pour éprouver un visiteur de passage, prendre `client_anonyme`.
+**The whole suite plays logged in.** The `conftest.py`'s `client` fixture opens a session and seats
+the test player **at both sides** — that is what lets the tests written before players existed
+cross both sides within a single session, without rewriting a single one. The Playwright page
+fixtures go through `/login` before opening the board: rather than fabricate a cookie, they unroll
+the real flow, which the fake client closes on our own return route. To exercise a passing visitor,
+take `anonymous_client`.
 
-Les tests de navigateur demandent Chromium :
+The browser tests require Chromium:
 
 ```
-make navigateur
+make browser
 ```

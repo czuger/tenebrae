@@ -1,63 +1,65 @@
-"""Petite application Flask qui affiche la carte d'Ave Tenebrae avec des pions posés dessus.
+"""A small Flask application that shows the Ave Tenebrae map with pieces laid out on it.
 
-Le serveur pose la mise en place d'un scénario — le n° 4, « La guerre des nains » —, lue une
-fois pour toutes dans `scenarios/`, et la passe au gabarit sous forme de JSON (champ caché).
-C'est le JavaScript qui convertit les coordonnées cubiques en pixels et qui pose les pions sur la
-carte.
+The server lays out a scenario's set-up - no. 4, "La guerre des nains" -, read once and for all
+from `scenarios/`, and passes it to the template as JSON (a hidden field). It is the JavaScript
+that converts cube coordinates into pixels and places the pieces on the map.
 
-La partie est **sauvegardée dans MongoDB** : chaque coup joué l'enregistre, et « / » la reprend là
-où on l'a laissée. Les routes ne voient pas la base — elles passent par le dépôt que `create_app`
-accroche à l'application (`moteur/depots/`), et lui parlent en dicts d'état. `POST /partie/nouvelle`
-repart de la mise en place. Sans persistance (`PERSISTANCE=aucune`, et la configuration de test),
-le dépôt ne retient rien : chaque chargement de « / » repose alors les mêmes pions aux mêmes
-cases, comme avant.
+The game is **saved in MongoDB**: every move played records it, and "/" resumes it where it was
+left. The routes do not see the base - they go through the repository that `create_app` hooks onto
+the application (`engine/repositories/`), and speak to it in state dicts. `POST /game/new` starts
+again from the set-up. Without persistence (`PERSISTENCE=none`, and the test configuration), the
+repository keeps nothing: every load of "/" then places the same pieces on the same squares, as
+before.
 
-Les règles, elles, ne sont pas ici : les déplacements possibles et leur validation viennent de
-`moteur.hexagone`, que les routes /deplacements et /deplacer se contentent d'exposer. Chaque pion
-se déplace du nombre de points lu sur son carton (`moteur.pion`) : le navigateur dit **quel** pion
-il a en main, jamais de combien de points il dispose — ce nombre est repris au catalogue.
+The rules are not here: the possible moves and their validation come from `engine.hexagon`, which
+the /moves and /move routes merely expose. Each piece moves by the number of points read off its
+counter (`engine.piece`): the browser says **which** piece it has in hand, never how many points
+it has - that number is taken from the catalogue.
 
-Le serveur tient aussi le **tour** (`moteur.phase.Tour`, le module-global `TOUR`) : les routes
-/phase/suivante, /combat et /combat/portee l'exposent, et /deplacer refuse un mouvement hors de la
-phase de mouvement du camp. La résolution d'un combat est dans `moteur.combat` ; seul le jet de dé
-(`lancer_le_de`) est ici, pour que les tests puissent le fixer. Le journal de la partie s'écrit
-à deux endroits : `logs/journal_de_combat.log` à la racine du dépôt — le second endroit où
-l'application écrit sur le disque, un fichier rotatif de mille lignes, gardé en trois archives
-derrière lui —, et une file bornée en mémoire, dont le navigateur fait une colonne sous la fiche. D'où
-la règle que suivent les routes : **journaliser avant de marquer le coup**, l'instantané poussé
-aux flux portant le journal (voir `instantane_partage`).
+The server also holds the **turn** (`engine.phase.Turn`, the module global `TURN`): the routes
+/phase/next, /combat and /combat/range expose it, and /move refuses a move outside the side's
+movement phase. Combat resolution is in `engine.combat`; only the die roll (`roll_the_die`) is
+here, so that the tests can fix it. The game log is written in two places:
+`logs/battle_log.log` at the root of the repository - the second place where the application
+writes to disk, a rotating file of a thousand lines, kept in three archives behind it -, and a
+bounded in-memory queue, which the browser turns into a column under the unit card. Hence the rule
+the routes follow: **log before marking the move**, since the snapshot pushed to the streams
+carries the log (see `shared_snapshot`).
 
-À côté du tour, le module-global `SUIVI` (`moteur.combat.SuiviDeCombat`) retient ce que la phase
-de combat en cours a déjà consommé : une unité n'attaque qu'une fois, une unité n'est attaquée
-qu'une fois. Il se vide à chaque changement de phase, et /combat/portee comme /combat/cible le
-consultent pour que le navigateur ne surligne pas une unité qui a déjà combattu.
+Beside the turn, the module global `REGISTER` (`engine.combat.CombatRegister`) keeps what the
+current combat phase has already consumed: a unit attacks only once, a unit is attacked only once.
+It is emptied at every phase change, and both /combat/range and /combat/target consult it so that
+the browser does not highlight a unit that has already fought.
 
-La partie se joue **à deux, un joueur par camp**, identifiés par Discord (voir `client_discord.py`
-pour le flux OAuth2, `moteur/models/places.py` pour la table, `models/connexion.py` pour le lien
-entre la session et le joueur du moteur). La carte reste publique — un visiteur de passage
-la voit et consulte les déplacements possibles —, mais tout ce qui change l'état demande d'être
-connecté et d'occuper le camp dont c'est la phase : c'est ce que posent les décorateurs
-`connexion_requise`, `place_requise` et `camp_actif_requis`. Le module-global `PLACES` retient qui
-tient quoi, et `VERSION` monte à chaque coup joué.
+The game is played **by two, one player per side**, identified by Discord (see `discord_client.py`
+for the OAuth2 flow, `engine/models/seats.py` for the table, `models/connection.py` for the link
+between the session and the engine's player). The map stays public - a passing visitor sees it and
+consults the possible moves -, but everything that changes the state requires being logged in and
+holding the side whose phase it is: that is what the `login_required`, `seat_required` and
+`active_side_required` decorators set out. The module global `SEATS` keeps who holds what, and
+`VERSION` rises at every move played.
 
-Chaque navigateur suit la partie de l'autre par un **flux ouvert**, /flux, du Server-Sent Events :
-il ne demande plus rien, le serveur lui pousse la partie quand elle change. Le registre des flux
-ouverts est dans `flux.py` ; le seul point d'où l'on publie est `marquer_un_coup`, par où passe
-tout ce qui bouge. La route /partie/etat, que le navigateur sondait avant, reste servie comme
-**repli** — une page dont l'EventSource ne passe pas y retombe. Voir `DEPLOIEMENT.md` pour ce que
-le flux demandera derrière Nginx.
+Each browser follows the other's game through an **open stream**, /stream, of Server-Sent Events:
+it no longer asks for anything, the server pushes the game to it when it changes. The registry of
+open streams is in `stream.py`; the only point from which anything is published is `mark_a_move`,
+through which everything that moves passes. The /game/state route, which the browser used to poll,
+is still served as a **fallback** - a page whose EventSource does not get through falls back on
+it. See `DEPLOYMENT.md` for what the stream will require behind Nginx.
 
-La route /admin/map_fix est à part : elle sert à corriger à l'œil les erreurs de la transcription
-de la carte, et c'est le seul endroit où l'application écrit dans `game_box/` — dans un fichier à
-elle, `map_fix.json`, jamais dans `carte.json` ni `carte_details.json`. Elle travaille toujours sur
-la carte transcrite, quand le reste de l'application joue sur la carte corrigée que le moteur en
-tire au démarrage. Elle est réservée aux comptes de `ADMIN_DISCORD_IDS`.
+The /admin/map_fix route stands apart: it serves to fix by eye the errors of the map
+transcription, and it is the only place where the application writes into `game_box/` - into a
+file of its own, `map_fix.json`, never into `carte.json` nor `carte_details.json`. It always works
+on the transcribed map, whereas the rest of the application plays on the fixed map the engine
+derives from it at start-up. It is reserved to the accounts in `ADMIN_DISCORD_IDS`.
 
-Lancement (depuis ce répertoire) :
+Everything the player reads - button labels, phase names, log lines - stays in French, as do the
+data files; only the code is English.
+
+Launch (from this directory):
 
     python3 app.py
 
-puis http://127.0.0.1:5000/
+then http://127.0.0.1:5000/
 """
 
 import collections
@@ -76,686 +78,682 @@ from itsdangerous import BadSignature
 from flask import Blueprint, Flask, abort, current_app, g, redirect, render_template, \
     request, send_from_directory, session, url_for
 
-# Le dépôt n'est pas un paquet installé : on l'ajoute à sys.path pour atteindre `moteur`.
+# The repository is not an installed package: we add it to sys.path to reach `engine`.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import Config  # noqa: E402
-from flux import Diffuseur  # noqa: E402
-from models.connexion import Connexion  # noqa: E402
-from moteur import combat  # noqa: E402
-from moteur import hexagone as moteur_hexagone  # noqa: E402
-from moteur import ia  # noqa: E402
-from moteur.hexagone import CARTE_TRANSCRITE, Hex  # noqa: E402
-from moteur.phase import COMBAT, Tour  # noqa: E402
-from moteur.pion import CATALOGUE  # noqa: E402
-from moteur.plateau import Plateau  # noqa: E402
-from moteur.models.places import Places  # noqa: E402
-from moteur.scenario import scenario  # noqa: E402
+from engine import ai  # noqa: E402
+from engine import combat  # noqa: E402
+from engine import hexagon as engine_hexagon  # noqa: E402
+from engine.board import Board  # noqa: E402
+from engine.hexagon import TRANSCRIBED_MAP, Hex  # noqa: E402
+from engine.models.seats import Seats  # noqa: E402
+from engine.phase import COMBAT, Turn  # noqa: E402
+from engine.piece import CATALOGUE  # noqa: E402
+from engine.scenario import scenario  # noqa: E402
+from models.connection import Connection  # noqa: E402
+from stream import Broadcaster  # noqa: E402
 
-BOITE = Path(__file__).resolve().parent.parent / "game_box"
-PIONS = BOITE / "pions"
+BOX = Path(__file__).resolve().parent.parent / "game_box"
+PIECES = BOX / "pions"
 
-# Les 16 terrains de la carte, dans l'ordre de priorité de game_box/carte.md : c'est aussi l'ordre
-# des boutons de correction.
+# The 16 terrains of the map, in the priority order of game_box/map.md: it is also the order of
+# the fix buttons. The names are those of the data files, and stay in French.
 TERRAINS = ("ville", "fort", "chateau", "tour", "ruines", "village", "ile", "lac", "montagne",
             "colline", "bois", "faille", "riviere", "route", "chemin", "plaine")
 
-# Le scénario que le serveur met en place au chargement de « / » : « La guerre des nains »,
-# nains contre orques (voir `scenarios/README.md`).
-NUMERO_DU_SCENARIO = 4
+# The scenario the server lays out when "/" is loaded: "La guerre des nains", dwarves against orcs
+# (see `scenarios/README.md`).
+SCENARIO_NUMBER = 4
 
-# Le journal de la partie : changements de phase, combats déclarés, unités hors de portée,
-# résultats. Il est écrit à deux endroits à la fois — des fichiers, dans `logs/` à la racine du
-# dépôt, et une file bornée en mémoire, dont le navigateur fait sa colonne sous la fiche.
-CHEMIN_DU_JOURNAL = Path(__file__).resolve().parent.parent / "logs" / "journal_de_combat.log"
+# The game log: phase changes, combats declared, units out of range, results. It is written in two
+# places at once - files, in `logs/` at the root of the repository, and a bounded in-memory queue,
+# which the browser turns into its column under the unit card.
+LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "battle_log.log"
 
-# Ce que le fichier courant accepte avant qu'on le mette de côté, et le nombre d'archives gardées
-# derrière lui : `journal_de_combat.log` plus `journal_de_combat.log.1` à `.3`, soit au plus
-# 4 000 lignes de partie sur le disque. Au-delà, la plus vieille archive s'efface — un serveur
-# qui tourne des mois ne doit pas remplir le disque d'un journal que personne ne relit.
-LIGNES_PAR_FICHIER = 1000
-JOURNAUX_GARDES = 3
+# What the current file accepts before it is set aside, and the number of archives kept behind it:
+# `battle_log.log` plus `battle_log.log.1` to `.3`, that is at most 4,000 lines of game on disk.
+# Beyond that the oldest archive is erased - a server running for months must not fill the disk
+# with a log nobody reads.
+LINES_PER_FILE = 1000
+LOGS_KEPT = 3
 
-# Ce que la colonne du navigateur montre : les dernières lignes, et pas plus. Le fichier reste
-# l'archive ; la page, elle, n'a que la place de la fin de la partie, et une file bornée la lui
-# sert sans jamais grossir.
-LIGNES_RETENUES = 60
+# What the browser's column shows: the last lines, and no more. The file remains the archive; the
+# page only has room for the end of the game, and a bounded queue serves it that without ever
+# growing.
+LINES_KEPT = 60
 
-# Ce que le fascicule appelle « le résultat du jet de dé », de 1 à 6. Isolé dans une fonction pour
-# que les tests puissent le fixer sans toucher au hasard du moteur.
-def lancer_le_de():
+
+# What the booklet calls "the die roll result", from 1 to 6. Isolated in a function so that the
+# tests can fix it without touching the engine's randomness.
+def roll_the_die():
     return random.randint(1, 6)
 
 
-# Les trois issues de combat que le todo demande de jouer ; toute autre issue ne change rien.
-MESSAGES_DE_COMBAT = {
+# The three combat outcomes the todo asks to play; any other outcome changes nothing. French, like
+# everything the player reads.
+COMBAT_MESSAGES = {
     "DE": "Combat résolu : Défenseur Éliminé",
     "AE": "Combat résolu : Attaquant Éliminé",
     "EX": "Combat résolu : Échange — la cible est éliminée, avec les attaquants qui ne tirent pas",
 }
 
 
-def detailler_le_rapport(resultat):
-    """Le calcul du rapport de force en une phrase, pour la ligne que le journal lui consacre.
+def describe_the_ratio(result):
+    """The strength ratio computation in one sentence, for the log line devoted to it.
 
-    Ce que le rapport seul ne dit pas, et qui décide pourtant du combat : ce que le groupe
-    d'attaquants totalise, ce que le défenseur oppose **une fois son terrain compté**, et le dé
-    tel que ce même terrain l'a modifié. Un 12 contre un 8 donne un rapport 1-1 en plaine et
-    1-2 en montagne, et rien ne le montrait.
+    What the ratio alone does not say, and which nevertheless decides the combat: what the group
+    of attackers totals, what the defender opposes **once its terrain is counted**, and the die as
+    that same terrain modified it. A 12 against an 8 gives a 1-1 ratio in the plains and 1-2 in
+    the mountains, and nothing showed it.
 
         Rapport 2-1 : attaque 12 + 8 = 20 contre défense 8 × 3 = 24 (montagne) — dé 4
 
-    Les trois termes ne s'écrivent en détail que lorsqu'il y a un détail à écrire : un attaquant
-    seul, un terrain qui ne multiplie rien, un dé que rien n'augmente s'écrivent d'un seul nombre.
-    Le terrain, lui, est **toujours** nommé — c'est ce qu'on est venu chercher, y compris quand il
-    ne fait rien.
+    The three terms are only spelled out when there is a detail to spell out: a lone attacker, a
+    terrain that multiplies nothing, a die that nothing raises are written as a single number. The
+    terrain, however, is **always** named - it is what one came for, including when it does
+    nothing.
 
-    Le moteur ne fabrique pas cette phrase : il rend les nombres (`combat.DetailDuRapport`), et
-    c'est ici qu'ils se mettent en français, comme les issues de `MESSAGES_DE_COMBAT`.
+    The engine does not build this sentence: it returns the numbers (`combat.RatioBreakdown`), and
+    it is here that they are put into French, like the outcomes in `COMBAT_MESSAGES`.
     """
-    detail = resultat.detail
-    attaque = " + ".join(str(force) for force in detail.forces)
-    if len(detail.forces) > 1:
-        attaque += f" = {detail.force_attaquante}"
-    defense = str(detail.force_de_la_cible)
-    if detail.multiplicateur != 1:
-        defense += f" × {detail.multiplicateur} = {detail.force_defensive}"
-    de = str(detail.jet)
-    if detail.bonus_au_de:
-        de += f" + {detail.bonus_au_de} = {detail.jet + detail.bonus_au_de}"
-        # Le Tableau I n'a que six lignes : au-delà, le dé y est ramené, et le dire évite une
-        # addition qui paraîtrait fausse.
-        if detail.jet + detail.bonus_au_de != detail.de:
-            de += f", ramené à {detail.de}"
-    rapport = "-".join(map(str, detail.rapport))
-    return (f"Rapport {rapport} : attaque {attaque} contre défense {defense} "
-            f"({detail.terrain}) — dé {de}")
+    breakdown = result.breakdown
+    attack = " + ".join(str(strength) for strength in breakdown.strengths)
+    if len(breakdown.strengths) > 1:
+        attack += f" = {breakdown.attacking_strength}"
+    defence = str(breakdown.target_strength)
+    if breakdown.multiplier != 1:
+        defence += f" × {breakdown.multiplier} = {breakdown.defending_strength}"
+    die = str(breakdown.roll)
+    if breakdown.die_bonus:
+        die += f" + {breakdown.die_bonus} = {breakdown.roll + breakdown.die_bonus}"
+        # Table I has only six rows: beyond that the die is brought back into it, and saying so
+        # avoids an addition that would look wrong.
+        if breakdown.roll + breakdown.die_bonus != breakdown.die:
+            die += f", ramené à {breakdown.die}"
+    ratio = "-".join(map(str, breakdown.ratio))
+    return (f"Rapport {ratio} : attaque {attack} contre défense {defence} "
+            f"({breakdown.terrain}) — dé {die}")
 
 
-# Les deux refus qu'oppose le registre de la phase de combat. Ils partent au journal, et le
-# navigateur s'en sert pour ne pas surligner une unité qui a déjà donné.
-DEJA_ATTAQUE = "Cette unité a déjà attaqué durant cette phase de combat."
-DEJA_ATTAQUEE = "Cette unité a déjà été attaquée durant cette phase de combat."
+# The two refusals the combat phase register opposes. They go to the log, and the browser uses
+# them so as not to highlight a unit that has already had its turn.
+ALREADY_ATTACKED = "Cette unité a déjà attaqué durant cette phase de combat."
+ALREADY_TARGETED = "Cette unité a déjà été attaquée durant cette phase de combat."
 
-# Ce qui, dans `pions/`, ne montre pas un pion isolé : le répertoire des planches entières,
-# et les photos de planchettes de suivi prises « en vue d'ensemble ».
-REPERTOIRES_EXCLUS = {"21-vues-d-ensemble"}
-SUFFIXE_EXCLU = "-vue-d-ensemble"
+# What, within `pions/`, does not show a single piece: the directory of whole sheets, and the
+# photographs of record sheets taken "as an overview".
+EXCLUDED_DIRECTORIES = {"21-vues-d-ensemble"}
+EXCLUDED_SUFFIX = "-vue-d-ensemble"
 
-# Calage de la grille sur map.jpg, relevé dans game_box/carte.md :
-#     centre(q, r) = ORIGINE + MATRICE · (q, r)
-# Les deux constantes sont passées au JavaScript, qui fait la conversion.
-GRILLE_ORIGINE = [76.355, 70.511]
-GRILLE_MATRICE = [[107.5724, -0.3407], [62.8901, 125.6828]]
+# Alignment of the grid on map.jpg, recorded in game_box/map.md:
+#     centre(q, r) = ORIGIN + MATRIX . (q, r)
+# Both constants are passed to the JavaScript, which does the conversion.
+GRID_ORIGIN = [76.355, 70.511]
+GRID_MATRIX = [[107.5724, -0.3407], [62.8901, 125.6828]]
 
-# Côté du pion, en pixels de map.jpg (un hexagone fait environ 143 px de sommet à sommet).
-PION_TAILLE = 104
+# Side of a piece, in pixels of map.jpg (a hexagon is about 143 px from vertex to vertex).
+PIECE_SIZE = 104
 
-# Les routes vivent sur un blueprint : c'est la factory `create_app`, en fin de fichier, qui les
-# enregistre — après avoir branché la persistance. L'état de jeu, lui, reste aux module-globaux
-# ci-dessous : une seule partie courante par processus, que les tests lisent par `app.PLATEAU`.
-jeu = Blueprint("jeu", __name__)
+# The routes live on a blueprint: it is the `create_app` factory, at the end of this file, that
+# registers them - after wiring up persistence. The game state, for its part, stays in the module
+# globals below: one current game per process, which the tests read through `app.BOARD`.
+game = Blueprint("game", __name__)
 
 
-class JournalEnMemoire(logging.Handler):
-    """Les dernières lignes du journal, retenues pour que le navigateur puisse les montrer.
+class InMemoryLog(logging.Handler):
+    """The last lines of the log, kept so that the browser can show them.
 
-    C'est un *handler*, et non un appel ajouté à côté de chaque `JOURNAL.info` : le journal garde
-    ainsi un seul point d'écriture, et la colonne du navigateur ne peut pas dire autre chose que
-    le fichier. La file est bornée — un serveur qui tourne longtemps ne doit pas enfler d'une
-    ligne par clic refusé.
+    It is a *handler*, and not a call added beside each `LOG.info`: the log thus keeps a single
+    point of writing, and the browser's column cannot say anything other than the file. The queue
+    is bounded - a server running for a long time must not swell by one line per refused click.
 
-    `deque.append` est atomique : le fil qui joue un coup écrit ici pendant qu'un fil de flux
-    recopie la file, et il n'y a rien de plus à verrouiller.
+    `deque.append` is atomic: the thread playing a move writes here while a stream thread copies
+    the queue, and there is nothing more to lock.
     """
 
-    def __init__(self, capacite):
+    def __init__(self, capacity):
         super().__init__()
-        self.lignes = collections.deque(maxlen=capacite)
+        self.lines = collections.deque(maxlen=capacity)
 
-    def emit(self, enregistrement):
-        self.lignes.append({
-            "heure": time.strftime("%H:%M:%S", time.localtime(enregistrement.created)),
-            "texte": enregistrement.getMessage(),
+    def emit(self, record):
+        self.lines.append({
+            "time": time.strftime("%H:%M:%S", time.localtime(record.created)),
+            "text": record.getMessage(),
         })
 
 
-class JournalRotatif(logging.handlers.RotatingFileHandler):
-    """Le journal sur le disque, mis de côté toutes les `lignes_par_fichier` lignes.
+class RotatingLog(logging.handlers.RotatingFileHandler):
+    """The log on disk, set aside every `lines_per_file` lines.
 
-    `RotatingFileHandler` compte des octets ; on compte ici des **lignes**, parce que c'est en
-    lignes que ce journal se lit — une ligne par événement de la partie, et la colonne du
-    navigateur en montre les dernières. Un seuil en octets dirait quelque chose du disque et rien
-    de la partie.
+    `RotatingFileHandler` counts bytes; here we count **lines**, because it is in lines that this
+    log is read - one line per game event, and the browser's column shows the last of them. A
+    threshold in bytes would say something about the disk and nothing about the game.
 
-    Le compteur repart de ce que le fichier contient déjà, et non de zéro : un serveur relancé
-    dix fois dans la journée ne doit pas écrire dix fois mille lignes dans le même fichier.
+    The counter starts again from what the file already contains, and not from zero: a server
+    restarted ten times in a day must not write ten times a thousand lines into the same file.
     """
 
-    def __init__(self, chemin, lignes_par_fichier, fichiers_gardes):
-        chemin.parent.mkdir(parents=True, exist_ok=True)
-        self.lignes_par_fichier = lignes_par_fichier
-        self.lignes_ecrites = self._lignes_deja_ecrites(chemin)
-        super().__init__(chemin, backupCount=fichiers_gardes, encoding="utf-8")
+    def __init__(self, path, lines_per_file, files_kept):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.lines_per_file = lines_per_file
+        self.lines_written = self._lines_already_written(path)
+        super().__init__(path, backupCount=files_kept, encoding="utf-8")
 
     @staticmethod
-    def _lignes_deja_ecrites(chemin):
-        """Ce que le fichier porte déjà, ou zéro s'il n'existe pas encore."""
+    def _lines_already_written(path):
+        """What the file already carries, or zero if it does not exist yet."""
         try:
-            with open(chemin, encoding="utf-8") as fichier:
-                return sum(1 for _ in fichier)
+            with open(path, encoding="utf-8") as source:
+                return sum(1 for _ in source)
         except OSError:
             return 0
 
-    def shouldRollover(self, enregistrement):
-        return self.lignes_ecrites >= self.lignes_par_fichier
+    def shouldRollover(self, record):
+        return self.lines_written >= self.lines_per_file
 
     def doRollover(self):
         super().doRollover()
-        self.lignes_ecrites = 0
+        self.lines_written = 0
 
-    def emit(self, enregistrement):
-        super().emit(enregistrement)
-        self.lignes_ecrites += 1
+    def emit(self, record):
+        super().emit(record)
+        self.lines_written += 1
 
 
-# Le journal est écrit une ligne par événement, dans les fichiers de `logs/` et dans la mémoire.
-# On ne le configure qu'une fois.
-JOURNAL = logging.getLogger("tenebrae.journal")
-MEMOIRE_DU_JOURNAL = JournalEnMemoire(LIGNES_RETENUES)
-if not JOURNAL.handlers:
-    _trace = JournalRotatif(CHEMIN_DU_JOURNAL, LIGNES_PAR_FICHIER, JOURNAUX_GARDES)
+# The log is written one line per event, into the files under `logs/` and into memory. We
+# configure it only once.
+LOG = logging.getLogger("tenebrae.log")
+LOG_MEMORY = InMemoryLog(LINES_KEPT)
+if not LOG.handlers:
+    _trace = RotatingLog(LOG_PATH, LINES_PER_FILE, LOGS_KEPT)
     _trace.setFormatter(logging.Formatter("%(asctime)s  %(message)s", "%Y-%m-%d %H:%M:%S"))
-    JOURNAL.addHandler(_trace)
-    JOURNAL.addHandler(MEMOIRE_DU_JOURNAL)
-    JOURNAL.setLevel(logging.INFO)
+    LOG.addHandler(_trace)
+    LOG.addHandler(LOG_MEMORY)
+    LOG.setLevel(logging.INFO)
 
 
-def les_lignes_du_journal():
-    """Le journal tel que la page le montre : les dernières lignes, de la plus ancienne à la
-    plus récente. Une copie — la file continue de tourner pendant que le message voyage."""
-    return list(MEMOIRE_DU_JOURNAL.lignes)
+def log_lines():
+    """The log as the page shows it: the last lines, from oldest to most recent. A copy - the
+    queue goes on turning while the message travels."""
+    return list(LOG_MEMORY.lines)
 
 
-def est_un_pion(chemin):
-    """Dit si `chemin`, relatif à `pions/`, montre bien un pion isolé."""
-    repertoire, _, fichier = chemin.partition("/")
-    return (repertoire not in REPERTOIRES_EXCLUS
-            and not fichier.removesuffix(".jpg").endswith(SUFFIXE_EXCLU))
+def is_a_piece(path):
+    """Says whether `path`, relative to `pions/`, really shows a single piece."""
+    directory, _, filename = path.partition("/")
+    return (directory not in EXCLUDED_DIRECTORIES
+            and not filename.removesuffix(".jpg").endswith(EXCLUDED_SUFFIX))
 
 
-def charger_pions():
-    """Rend la liste des pions disponibles, valeurs lues sur le carton comprises.
+def load_pieces():
+    """Returns the list of available pieces, values read off the counter included.
 
-    Le catalogue du moteur porte les 127 photos ; on n'en garde que celles qui montrent un pion
-    isolé. Les marqueurs restent du lot : ils se posent sur la carte, ils n'en bougent pas.
+    The engine's catalogue carries the 127 photographs; we keep only those showing a single piece.
+    Markers stay in the batch: they are placed on the map, they do not move from it.
 
-    Tout ce qui est imprimé sur le carton part avec — force, tir, portée, vol, symbole, facultés
-    et remarques —, pour la fiche que le navigateur montre au survol. Les valeurs absentes du
-    carton restent à `None` : c'est l'affichage qui les rend par un tiret.
+    Everything printed on the counter goes with them - strength, fire, range, flight, symbol,
+    abilities and remarks -, for the card the browser shows on hover. Values absent from the
+    counter stay at `None`: it is the display that renders them as a dash.
 
-    `Pion.en_dict()` n'est pas repris tel quel : son `mouvement` est la valeur brute du carton,
-    parfois absente, quand la clé servie ici est le budget de déplacement, et son `image` est le
-    chemin du dépôt, non celui de la route `/pions/`.
+    `Piece.to_dict()` is not reused as it is: its `movement` is the raw counter value, sometimes
+    absent, whereas the key served here is the movement budget, and its `image` is the repository
+    path, not that of the `/pieces/` route.
     """
-    pions = []
-    for pion in sorted(CATALOGUE.values(), key=lambda pion: pion.image):
-        chemin = PIONS / pion.image.removeprefix("game_box/pions/")
-        relatif = f"{chemin.parent.name}/{chemin.name}"
-        if est_un_pion(relatif):
-            pions.append({"cle": pion.cle, "chemin": relatif, "nom": nommer(chemin),
-                          "mouvement": pion.points_de_mouvement, "camp": pion.camp,
-                          "faction": pion.faction, "symbole": pion.symbole,
-                          "force": pion.force, "tir": pion.tir, "portee": pion.portee,
-                          "mouvement_vol": pion.mouvement_vol,
-                          "facultes_speciales": pion.facultes_speciales,
-                          "remarques": pion.remarques})
-    return pions
+    pieces = []
+    for piece in sorted(CATALOGUE.values(), key=lambda piece: piece.image):
+        path = PIECES / piece.image.removeprefix("game_box/pions/")
+        relative = f"{path.parent.name}/{path.name}"
+        if is_a_piece(relative):
+            pieces.append({"key": piece.key, "path": relative, "name": name_of(path),
+                           "movement": piece.movement_points, "side": piece.side,
+                           "faction": piece.faction, "symbol": piece.symbol,
+                           "strength": piece.strength, "fire": piece.fire, "range": piece.range,
+                           "flight_movement": piece.flight_movement,
+                           "special_abilities": piece.special_abilities,
+                           "remarks": piece.remarks})
+    return pieces
 
 
-def nommer(chemin):
-    """« 01-yzent/yzent-05-1-belier.jpg » → « yzent · 1 belier ».
+def name_of(path):
+    """"01-yzent/yzent-05-1-belier.jpg" -> "yzent · 1 belier".
 
-    Le nom de fichier reprend le nom du répertoire sans son numéro, suivi du rang du pion
-    dans la faction puis de sa description (voir game_box/pions/README.md).
+    The file name repeats the directory name without its number, followed by the piece's rank
+    within the faction then by its description (see game_box/pions/README.md).
     """
-    faction = chemin.parent.name.split("-", 1)[1]
-    description = chemin.stem.removeprefix(f"{faction}-")[3:]
+    faction = path.parent.name.split("-", 1)[1]
+    description = path.stem.removeprefix(f"{faction}-")[3:]
     return f"{faction.replace('-', ' ')} · {description.replace('-', ' ')}"
 
 
-CATALOGUE_DES_PIONS = charger_pions()
-PIONS_PAR_CLE = {pion["cle"]: pion for pion in CATALOGUE_DES_PIONS}
+PIECE_CATALOGUE = load_pieces()
+PIECES_BY_KEY = {piece["key"]: piece for piece in PIECE_CATALOGUE}
 
-# La mise en place jouée, lue une fois au démarrage. Un scénario fixé ne change pas d'un
-# chargement à l'autre : c'est ce qui permet d'éprouver les déplacements sur une position connue.
-SCENARIO = scenario(NUMERO_DU_SCENARIO)
+# The set-up being played, read once at start-up. A fixed scenario does not change from one load
+# to the next: that is what makes it possible to exercise moves on a known position.
+SCENARIO = scenario(SCENARIO_NUMBER)
 
-# L'état de partie du serveur : les pions actuellement posés. Il est refait à chaque chargement du
-# plateau et suivi à chaque déplacement — c'est de lui que sortent les zones de contrôle, qui
-# demandent de savoir qui occupe quelle case et dans quel camp.
-PLATEAU = Plateau()
+# The server's game state: the pieces currently placed. It is rebuilt at every board load and
+# followed at every move - it is from it that the zones of control come, which require knowing who
+# occupies which square and on which side.
+BOARD = Board()
 
-# La phase courante : quel camp joue, et à quoi. L'ordre des camps et le nom des armées viennent
-# du scénario. Comme le plateau, le tour est remis à zéro à chaque chargement de « / ».
-TOUR = Tour(SCENARIO.camps, {armee["camp"]: armee["armee"] for armee in SCENARIO.armees})
+# The current phase: which side plays, and at what. The side order and the army names come from
+# the scenario. Like the board, the turn is reset at every load of "/".
+TURN = Turn(SCENARIO.sides, {army["camp"]: army["armee"] for army in SCENARIO.armies})
 
-# Ce que la phase de combat en cours a déjà consommé. Il suit le tour : toute phase franchie le
-# vide, ce qui couvre aussi bien le passage du combat des Nains à celui des Orques que le tour
-# suivant. Le mouvement ne le consulte pas — le vider trop souvent ne coûte rien.
-SUIVI = combat.SuiviDeCombat()
+# What the current combat phase has already consumed. It follows the turn: every phase stepped
+# over empties it, which covers the move from the Dwarves' combat to the Orcs' as well as the next
+# turn. Movement does not consult it - emptying it too often costs nothing.
+REGISTER = combat.CombatRegister()
 
-# Qui tient quel camp (voir `moteur/models/places.py`). Comme le plateau et le tour, il n'y a
-# qu'une table par processus : les deux joueurs jouent la même partie, chacun de son navigateur.
-# Contrairement au plateau, elle **ne se refait pas** à chaque chargement de « / » ni à chaque
-# nouvelle partie : recommencer ne renvoie personne de la table.
-PLACES = Places()
+# Who holds which side (see `engine/models/seats.py`). Like the board and the turn, there is only
+# one table per process: both players play the same game, each from their own browser. Unlike the
+# board, it is **not rebuilt** at every load of "/" nor at every new game: starting over does not
+# send anyone away from the table.
+SEATS = Seats()
 
-# Le numéro de version de la partie : il monte d'un cran à chaque coup joué. C'est à cela que le
-# navigateur de l'adversaire voit qu'il a quelque chose à reprendre. Un simple entier suffit : il
-# n'y a qu'un processus, et deux navigateurs qui lisent la même partie. Il sert deux fois — c'est
-# aussi l'**identifiant d'événement** du flux SSE, celui que le navigateur renvoie en
-# `Last-Event-ID` quand il se reconnecte (voir `/flux`).
+# The game's version number: it rises by one at every move played. That is how the opponent's
+# browser sees it has something to catch up on. A plain integer is enough: there is only one
+# process, and two browsers reading the same game. It serves twice - it is also the SSE stream's
+# **event identifier**, the one the browser sends back in `Last-Event-ID` when it reconnects (see
+# `/stream`).
 VERSION = 0
 
-# À qui pousser la partie quand elle change (voir `flux.py`). Un abonné par onglet ouvert ; le
-# registre est en mémoire, dans ce processus.
-DIFFUSEUR = Diffuseur()
+# Whom to push the game to when it changes (see `stream.py`). One subscriber per open tab; the
+# registry is in memory, in this process.
+BROADCASTER = Broadcaster()
 
 
-def marquer_un_coup():
-    """Note qu'un coup a été joué, et le pousse aux navigateurs qui suivent la partie.
+def mark_a_move():
+    """Notes that a move has been played, and pushes it to the browsers following the game.
 
-    C'est le passage obligé de tout ce qui bouge — `poser_la_mise_en_place` et
-    `sauvegarder_la_partie` sont ses deux seuls appelants, et toute route qui change quoi que ce
-    soit passe par l'un des deux. Brancher la diffusion ici, et nulle part ailleurs, est ce qui
-    garantit qu'aucun coup ne peut être joué sans que les flux ouverts l'apprennent.
+    This is the compulsory passage of everything that moves - `lay_out_the_scenario` and
+    `save_the_game` are its only two callers, and every route that changes anything at all goes
+    through one of the two. Wiring broadcasting here, and nowhere else, is what guarantees that no
+    move can be played without the open streams learning of it.
 
-    L'instantané est pris **ici**, dans le fil qui vient d'écrire, et c'est lui qui voyage : les
-    générateurs de flux n'ont ainsi jamais à relire le plateau depuis leur propre fil pendant
-    qu'un autre le modifie (voir l'en-tête de `flux.py`).
+    The snapshot is taken **here**, in the thread that has just written, and it is the snapshot
+    that travels: stream generators thus never have to re-read the board from their own thread
+    while another is modifying it (see the header of `stream.py`).
     """
     global VERSION
     VERSION += 1
-    DIFFUSEUR.publier(instantane_partage())
+    BROADCASTER.publish(shared_snapshot())
     return VERSION
 
 
-def instantane_partage():
-    """L'état de la partie que **tous** les spectateurs ont en commun.
+def shared_snapshot():
+    """The game state that **all** spectators have in common.
 
-    Tout n'est pas partagé : `la_table` dit à chacun s'il est connecté, sous quel pseudo et quels
-    camps il tient — c'est la seule part du message qui se compose par destinataire, et le flux
-    l'ajoute au moment d'écrire (voir `/flux`).
+    Not everything is shared: `the_table` tells each of them whether they are logged in, under
+    what nickname and which sides they hold - that is the only part of the message composed per
+    recipient, and the stream adds it at the moment of writing (see `/stream`).
 
-    Le journal en est, et pour la même raison que les pions : les deux joueurs regardent la même
-    partie, ils en lisent le même compte rendu. Il est photographié ici, avec le reste — d'où la
-    règle que suivent les routes ci-dessous : **journaliser avant de marquer le coup**, sans quoi
-    la ligne qu'on vient d'écrire ne partirait qu'au coup suivant.
+    The log is part of it, and for the same reason as the pieces: both players watch the same
+    game, they read the same account of it. It is photographed here, with the rest - hence the
+    rule the routes below follow: **log before marking the move**, without which the line just
+    written would only leave at the next move.
     """
-    return {"version": VERSION, "pions": les_unites_posees(), "phase": la_phase_courante(),
-            "journal": les_lignes_du_journal()}
+    return {"version": VERSION, "pieces": placed_units(), "phase": current_phase(),
+            "log": log_lines()}
 
 
-def poser_la_mise_en_place():
-    """Refait le plateau du serveur d'après le scénario, et rend ses unités pour l'affichage.
+def lay_out_the_scenario():
+    """Rebuilds the server's board from the scenario, and returns its units for display.
 
-    Le scénario ne donne qu'un couple « case → clé de pion » : les pions sont posés, puis c'est
-    le plateau qu'on décrit, par `les_unites_posees` — la mise en place n'a rien à dire de plus
-    qu'une partie reprise, et l'inclinaison que la pose vient de tirer est déjà là.
+    The scenario gives only a "square -> piece key" pairing: the pieces are placed, then it is the
+    board that is described, by `placed_units` - the set-up has nothing more to say than a resumed
+    game, and the tilt the placing has just drawn is already there.
 
-    La table n'y est pas touchée : recommencer une partie ne renvoie personne de sa place.
+    The table is not touched: starting a game over sends nobody away from their seat.
 
-    Le coup est marqué **une fois les pions posés**, et non avant : `marquer_un_coup` photographie
-    la partie pour la pousser aux flux ouverts, et une photo prise entre le `vider` et la pose
-    montrerait un plateau désert. C'était déjà vrai du sondage — un `/partie/etat` tombant dans
-    cet intervalle rendait une partie vide —, mais il fallait tomber juste ; le flux, lui, y
-    serait tombé à chaque fois.
+    The move is marked **once the pieces are placed**, and not before: `mark_a_move` photographs
+    the game to push it to the open streams, and a photograph taken between the `clear` and the
+    placing would show a deserted board. That was already true of the polling - a `/game/state`
+    falling in that interval returned an empty game - but it had to land just right; the stream
+    would have landed there every time.
     """
-    PLATEAU.vider()
-    TOUR.recommencer()
-    SUIVI.reinitialiser()
-    for case, cle in SCENARIO.placement.items():
-        PLATEAU.poser(Hex.depuis_cle(case), CATALOGUE[cle])
-    marquer_un_coup()
-    return les_unites_posees()
+    BOARD.clear()
+    TURN.restart()
+    REGISTER.reset()
+    for square, key in SCENARIO.placement.items():
+        BOARD.place(Hex.from_key(square), CATALOGUE[key])
+    mark_a_move()
+    return placed_units()
 
 
-def les_unites_indisponibles():
-    """Les cases des unités qui ne peuvent plus attaquer, ou plus être attaquées, cette phase-ci.
+def unavailable_units():
+    """The squares of units that can no longer attack, or no longer be attacked, this phase.
 
-    Les cases vidées par le combat sont écartées : le registre les garde — elles ne gênent
-    personne, rien ne bouge d'ici la fin de la phase — mais le navigateur n'a plus de pion à y
-    griser.
+    Squares cleared by combat are discarded: the register keeps them - they bother nobody, nothing
+    moves before the end of the phase - but the browser no longer has a piece there to grey out.
     """
-    poses = PLATEAU.pions
+    placed = BOARD.pieces
     return {
-        "attaquants": [Hex.depuis_cle(cle).en_dict()
-                       for cle in sorted(SUIVI.attaquants_engages) if cle in poses],
-        "cibles": [Hex.depuis_cle(cle).en_dict()
-                   for cle in sorted(SUIVI.cibles_engagees) if cle in poses],
+        "attackers": [Hex.from_key(key).to_dict()
+                      for key in sorted(REGISTER.engaged_attackers) if key in placed],
+        "targets": [Hex.from_key(key).to_dict()
+                    for key in sorted(REGISTER.engaged_targets) if key in placed],
     }
 
 
-def la_phase_courante():
-    """La phase telle que le navigateur la reçoit : le tour, et ce que la phase a déjà consommé."""
-    return TOUR.en_dict() | {"indisponibles": les_unites_indisponibles()}
+def current_phase():
+    """The phase as the browser receives it: the turn, and what the phase has already consumed."""
+    return TURN.to_dict() | {"unavailable": unavailable_units()}
 
 
-# --- La partie sauvegardée ---
+# --- The saved game ---
 #
-# Les routes ne connaissent pas MongoDB : elles passent par le dépôt que la factory a accroché à
-# l'application (voir `moteur/depots/`), et n'échangent avec lui que des dicts d'état. Sous la
-# configuration de test — et sous `PERSISTANCE=aucune` — ce dépôt ne retient rien, et tout se
-# passe comme avant : chaque chargement de « / » repart de la mise en place.
+# The routes know nothing of MongoDB: they go through the repository the factory has hooked onto
+# the application (see `engine/repositories/`), and exchange only state dicts with it. Under the
+# test configuration - and under `PERSISTENCE=none` - that repository keeps nothing, and
+# everything happens as before: every load of "/" starts again from the set-up.
 
 
-def le_depot():
-    """Le dépôt de partie de l'application courante."""
-    return current_app.extensions["depot_de_partie"]
+def game_repository():
+    """The current application's game repository."""
+    return current_app.extensions["game_repository"]
 
 
-def le_depot_de_joueurs():
-    """Le dépôt de joueurs de l'application courante."""
-    return current_app.extensions["depot_de_joueurs"]
+def player_repository():
+    """The current application's player repository."""
+    return current_app.extensions["player_repository"]
 
 
-def le_depot_de_vues():
-    """Le dépôt des vues de la carte de l'application courante (voir `models/vue.py`)."""
-    return current_app.extensions["depot_de_vues"]
+def view_repository():
+    """The current application's map view repository (see `models/view.py`)."""
+    return current_app.extensions["view_repository"]
 
 
-def la_vue_du_joueur():
-    """Où le joueur de la session en était sur la carte, ou `None`.
+def player_view():
+    """Where the session's player had got to on the map, or `None`.
 
-    `None` pour un anonyme comme pour un joueur qui n'a encore rien réglé : dans les deux cas la
-    page s'ouvre ajustée à la fenêtre, comme elle l'a toujours fait.
+    `None` for an anonymous visitor as for a player who has adjusted nothing yet: in both cases
+    the page opens fitted to the window, as it always has.
     """
-    joueur = le_joueur_courant()
-    return le_depot_de_vues().par_discord_id(joueur["discord_id"]) if joueur else None
+    player = current_player()
+    return view_repository().by_discord_id(player["discord_id"]) if player else None
 
 
-def lire_une_vue(donnees):
-    """La vue envoyée par le navigateur, ramenée à ses quatre champs — ou `None` si elle ne l'est
-    pas.
+def read_a_view(data):
+    """The view sent by the browser, reduced to its four fields - or `None` if it is not one.
 
-    Le corps vient du dehors : on n'y prend que ce qu'on attend, et on refuse ce qui n'est pas un
-    nombre. L'échelle n'est pas bornée ici — c'est `appliquer` (`static/zoom.js`) qui la borne
-    pour de bon, à la pose comme à la reprise, et une borne de plus, écrite ailleurs, finirait par
-    dire autre chose que celle-là.
+    The body comes from outside: we take from it only what we expect, and refuse whatever is not a
+    number. The scale is not bounded here - it is `apply` (`static/zoom.js`) that bounds it for
+    good, when setting as when restoring, and one more bound, written elsewhere, would end up
+    saying something different from that one.
     """
-    if not isinstance(donnees, dict):
+    if not isinstance(data, dict):
         return None
     try:
-        vue = {champ: float(donnees[champ]) for champ in ("echelle", "x", "y")}
+        view = {field: float(data[field]) for field in ("scale", "x", "y")}
     except (KeyError, TypeError, ValueError):
         return None
-    if not all(math.isfinite(valeur) for valeur in vue.values()):
+    if not all(math.isfinite(value) for value in view.values()):
         return None
-    vue["ajustee"] = bool(donnees.get("ajustee"))
-    return vue
+    view["fitted"] = bool(data.get("fitted"))
+    return view
 
 
-def photographier_la_partie():
-    """Tout l'état de jeu du serveur, sous la forme que le dépôt sait écrire.
+def snapshot_the_game():
+    """The server's whole game state, in the form the repository knows how to write.
 
-    Rien d'autre ne change en jouant : la carte, les cartons et le scénario sont des référentiels
-    lus au démarrage, et c'est le numéro du scénario qui dit sur laquelle de ces mises en place
-    la sauvegarde se lit.
+    Nothing else changes while playing: the map, the counters and the scenario are reference data
+    read at start-up, and it is the scenario number that says which of those set-ups the saved
+    game reads against.
     """
-    return {"scenario": NUMERO_DU_SCENARIO,
-            "placement": PLATEAU.en_dict(),
-            "inclinaisons": PLATEAU.inclinaisons,
-            "camp_actif": TOUR.camp_actif,
-            "type_de_phase": TOUR.type_de_phase,
-            "numero_de_tour": TOUR.numero} | SUIVI.en_dict() | PLACES.en_dict()
+    return {"scenario": SCENARIO_NUMBER,
+            "placement": BOARD.to_dict(),
+            "tilts": BOARD.tilts,
+            "active_side": TURN.active_side,
+            "phase_type": TURN.phase_type,
+            "turn_number": TURN.number} | REGISTER.to_dict() | SEATS.to_dict()
 
 
-def restaurer_la_partie(etat):
-    """Repose le plateau, le tour, le registre des combats et la table tels qu'une sauvegarde les
-    tenait.
+def restore_the_game(state):
+    """Puts the board, the turn, the combat register and the table back as a saved game held them.
 
-    `.get` sur les places : une partie enregistrée avant les joueurs n'en a pas, et elle doit
-    rester reprenable — la table est alors simplement vide, et chacun vient s'y asseoir.
+    `.get` on the seats: a game saved before players existed has none, and it must stay resumable
+    - the table is then simply empty, and everyone comes and sits down at it.
     """
-    # Les inclinaisons se reposent avec les pions : une partie reprise retrouve ses cartons
-    # couchés comme on les a laissés. `.get` pour la même raison que les places — une sauvegarde
-    # d'avant qu'on les retienne n'en a pas, et le plateau en tire alors des neuves.
-    PLATEAU.restaurer(etat["placement"], etat.get("inclinaisons"))
-    TOUR.restaurer(etat["camp_actif"], etat["type_de_phase"], etat["numero_de_tour"])
-    SUIVI.restaurer(etat["attaquants_engages"], etat["cibles_engagees"])
-    PLACES.restaurer(etat.get("places"))
+    # The tilts go back with the pieces: a resumed game finds its counters lying as they were
+    # left. `.get` for the same reason as the seats - a game saved before we started keeping them
+    # has none, and the board then draws fresh ones.
+    BOARD.restore(state["placement"], state.get("tilts"))
+    TURN.restore(state["active_side"], state["phase_type"], state["turn_number"])
+    REGISTER.restore(state["engaged_attackers"], state["engaged_targets"])
+    SEATS.restore(state.get("seats"))
 
 
-def sauvegarder_la_partie():
-    """Enregistre la partie après un coup joué — un déplacement, un combat, un changement de phase.
+def save_the_game():
+    """Records the game after a move played - a move, a combat, a phase change.
 
-    C'est aussi le point de passage obligé de tout ce qui bouge : la version monte ici, et le
-    navigateur de l'adversaire l'apprend à son prochain sondage.
+    It is also the compulsory passage of everything that moves: the version rises here, and the
+    opponent's browser learns of it at its next poll.
     """
-    marquer_un_coup()
-    le_depot().sauvegarder(photographier_la_partie())
+    mark_a_move()
+    game_repository().save(snapshot_the_game())
 
 
-def faire_jouer_l_ia():
-    """Si le camp actif est tenu par l'IA, elle joue son tour entier, et la partie est sauvée.
+def let_the_ai_play():
+    """If the active side is held by the AI, it plays its whole turn, and the game is saved.
 
-    Le tour se joue en entier dans la requête — mouvement, combat, et la main rendue au camp
-    d'en face : quelques millisecondes pour une trentaine d'unités. Une seule sauvegarde à la
-    fin ; la version monte, et le navigateur voit les coups de l'IA à son prochain sondage,
-    comme il verrait ceux d'un adversaire humain.
+    The turn is played in full within the request - movement, combat, and play handed back to the
+    other side: a few milliseconds for some thirty units. A single save at the end; the version
+    rises, and the browser sees the AI's moves at its next poll, as it would see a human
+    opponent's.
 
-    Un `if`, pas un `while` : l'IA ne tient qu'un camp — la création de partie y veille — et
-    son tour joué rend toujours la main. Une sauvegarde ne tombe donc jamais sur une phase
-    tenue par l'IA, et « / » n'a jamais à la faire jouer.
+    An `if`, not a `while`: the AI holds only one side - game creation sees to that - and once its
+    turn is played it always hands play back. A save therefore never lands on a phase held by the
+    AI, and "/" never has to make it play.
     """
-    if PLACES.occupant(TOUR.camp_actif) != ia.JOUEUR_IA:
+    if SEATS.occupant(TURN.active_side) != ai.AI_PLAYER:
         return
-    deplacements, combats = ia.jouer_le_tour(PLATEAU, TOUR, SUIVI, lancer_le_de)
-    for depart, arrivee in deplacements:
-        JOURNAL.info("IA : déplacement %s → %s", depart.cle, arrivee.cle)
-    for cible, attaquants, resultat in combats:
-        message = MESSAGES_DE_COMBAT.get(resultat.resultat, "Combat résolu : sans effet")
-        if resultat.detail is not None:
-            JOURNAL.info("IA : %s", detailler_le_rapport(resultat))
-        JOURNAL.info("IA : %s attaquant(s) sur %s — %s",
-                     len(attaquants), cible.cle, message)
-    JOURNAL.info("IA : tour joué — %s (tour %s)", TOUR.libelle, TOUR.numero)
-    sauvegarder_la_partie()
+    moves, combats = ai.play_turn(BOARD, TURN, REGISTER, roll_the_die)
+    for origin, destination in moves:
+        LOG.info("IA : déplacement %s → %s", origin.key, destination.key)
+    for target, attackers, result in combats:
+        message = COMBAT_MESSAGES.get(result.outcome, "Combat résolu : sans effet")
+        if result.breakdown is not None:
+            LOG.info("IA : %s", describe_the_ratio(result))
+        LOG.info("IA : %s attaquant(s) sur %s — %s", len(attackers), target.key, message)
+    LOG.info("IA : tour joué — %s (tour %s)", TURN.label, TURN.number)
+    save_the_game()
 
 
-def les_unites_posees():
-    """Les unités du plateau sous la forme que le navigateur attend, comme à la mise en place.
+def placed_units():
+    """The board's units in the form the browser expects, as at set-up.
 
-    Tout ce qui n'est pas la case vient du catalogue — l'image, le nom, les valeurs du carton —,
-    et l'entrée en part entière : ce qu'on lui ajoutera suivra tout seul. Seul `chemin` est
-    renommé, en `image`, parce que c'est ce que le navigateur met dans `src`. S'y ajoute
-    l'inclinaison, qui n'est pas du carton mais du plateau : elle dit comment **ce** pion-ci est
-    couché, et le navigateur la reprend telle quelle au lieu d'en tirer une (voir
-    `moteur/plateau.py`).
+    Everything that is not the square comes from the catalogue - the image, the name, the counter
+    values - and the entry goes out whole: whatever is added to it will follow by itself. Only
+    `path` is renamed, to `image`, because that is what the browser puts into `src`. To it is
+    added the tilt, which is not of the counter but of the board: it says how **this** piece lies,
+    and the browser takes it as it is instead of drawing one (see `engine/board.py`).
 
-    Une partie neuve passe par ici comme une partie reprise : `poser_la_mise_en_place` pose les
-    pions du scénario, puis appelle cette fonction.
+    A fresh game goes through here just like a resumed one: `lay_out_the_scenario` places the
+    scenario's pieces, then calls this function.
     """
-    poses = []
-    for case, pion_pose in PLATEAU.pions.items():
-        hexagone = Hex.depuis_cle(case)
-        pion = dict(PIONS_PAR_CLE[pion_pose.cle])
-        poses.append({"q": hexagone.q, "r": hexagone.r, "s": hexagone.s,
-                      "inclinaison": PLATEAU.inclinaison_sur(hexagone),
-                      "image": pion.pop("chemin")} | pion)
-    return poses
+    placed = []
+    for square, placed_piece in BOARD.pieces.items():
+        hexagon = Hex.from_key(square)
+        piece = dict(PIECES_BY_KEY[placed_piece.key])
+        placed.append({"q": hexagon.q, "r": hexagon.r, "s": hexagon.s,
+                       "tilt": BOARD.tilt_on(hexagon),
+                       "image": piece.pop("path")} | piece)
+    return placed
 
 
-# --- Les joueurs -------------------------------------------------------------------------------
+# --- The players --------------------------------------------------------------------------------
 #
-# Deux joueurs, un par camp, identifiés par Discord. Le serveur ne les distingue que par leur
-# identifiant Discord — celui-là même qui voyage dans la session, dans les places et dans le dict
-# d'état : il n'y a qu'une notion d'identité dans tout le projet.
+# Two players, one per side, identified by Discord. The server tells them apart only by their
+# Discord identifier - the very one that travels in the session, in the seats and in the state
+# dict: there is a single notion of identity in the whole project.
 #
-# Ce que la session porte, et la façon de l'ouvrir, sont dans un seul endroit : `Connexion`
-# (`models/connexion.py`), le seul modèle que l'application se garde. Les routes ne touchent plus
-# à `session` elles-mêmes — elles demandent `la_connexion()`, qui désigne le joueur du **moteur**
-# par son identifiant Discord et va le relire au dépôt. Le pseudo et l'avatar ne sont donc jamais
-# recopiés dans la session : un changement de pseudo se voit dès la requête suivante.
+# What the session carries, and the way to open it, are in a single place: `Connection`
+# (`models/connection.py`), the only model the application keeps for itself. The routes no longer
+# touch `session` themselves - they ask for `the_connection()`, which designates the **engine's**
+# player by their Discord identifier and goes and re-reads them from the repository. The nickname
+# and the avatar are therefore never copied into the session: a nickname change is visible from
+# the very next request.
 
 
-def le_client_discord():
-    """Le client d'identité de l'application courante — le vrai, ou le factice des tests."""
+def discord_client():
+    """The current application's identity client - the real one, or the tests' fake one."""
     return current_app.extensions["discord"]
 
 
-def la_connexion():
-    """La connexion de la requête courante : la session, et le dépôt où relire le joueur.
+def the_connection():
+    """The current request's connection: the session, and the repository to re-read the player from.
 
-    Un objet de passage, sans état propre : le construire ne coûte rien, et il n'y a donc pas à
-    le retenir.
+    A passing object, with no state of its own: building it costs nothing, so there is no reason
+    to keep it.
     """
-    return Connexion(session, le_depot_de_joueurs())
+    return Connection(session, player_repository())
 
 
-def le_joueur_courant():
-    """Le joueur de la session, ou `None`.
+def current_player():
+    """The session's player, or `None`.
 
-    Retenu sur `g` : plusieurs décorateurs le demandent dans une même requête, et ce serait autant
-    d'allers-retours en base. Un identifiant qui ne correspond plus à personne — base vidée, dépôt
-    de mémoire d'un serveur relancé — rend `None` sans faire d'histoire : le visiteur redevient
-    anonyme.
+    Kept on `g`: several decorators ask for it within a single request, and that would be as many
+    round trips to the base. An identifier that no longer matches anyone - base emptied, in-memory
+    repository of a restarted server - returns `None` without making a fuss: the visitor becomes
+    anonymous again.
     """
-    if "joueur" not in g:
-        g.joueur = la_connexion().joueur()
-    return g.joueur
+    if "player" not in g:
+        g.player = the_connection().player()
+    return g.player
 
 
-def est_administrateur(joueur):
-    """Dit si ce joueur peut corriger la carte — voir `ADMINISTRATEURS` dans `config.py`."""
-    return joueur is not None and joueur["discord_id"] in current_app.config["ADMINISTRATEURS"]
+def is_administrator(player):
+    """Says whether this player may fix the map - see `ADMINISTRATORS` in `config.py`."""
+    return player is not None and player["discord_id"] in current_app.config["ADMINISTRATORS"]
 
 
-def la_table():
-    """La table telle que la voit le visiteur de la requête courante."""
-    return la_table_de(le_joueur_courant())
+def the_table():
+    """The table as the current request's visitor sees it."""
+    return table_for(current_player())
 
 
-def la_table_de(joueur):
-    """Qui regarde, qui tient quoi — sous la forme que le navigateur reçoit.
+def table_for(player):
+    """Who is watching, who holds what - in the form the browser receives.
 
-    Les identifiants Discord n'en sont pas : le navigateur n'a besoin que d'un pseudo et d'un
-    avatar pour dire qui tient l'Alliance, et servir un identifiant à tout visiteur serait donner
-    une donnée personnelle pour rien.
+    Discord identifiers are not part of it: the browser only needs a nickname and an avatar to say
+    who holds the Alliance, and serving an identifier to every visitor would be giving away a
+    personal detail for nothing.
 
-    Le joueur est passé plutôt que lu dans la session : c'est la **seule** part de l'état qui
-    diffère d'un spectateur à l'autre, et le flux SSE la compose hors de toute requête, pour un
-    joueur qu'il a relu au dépôt lui-même (voir `/flux`). Les routes, elles, appellent
-    `la_table()` et ne voient aucune différence.
+    The player is passed rather than read from the session: it is the **only** part of the state
+    that differs from one spectator to another, and the SSE stream composes it outside any
+    request, for a player it re-read from the repository itself (see `/stream`). The routes, for
+    their part, call `the_table()` and see no difference.
     """
 
-    def occupant_de(camp):
-        """Le joueur assis à ce camp — l'IA n'est pas en base, elle n'a qu'un nom."""
-        occupant = PLACES.occupant(camp)
-        if occupant == ia.JOUEUR_IA:
-            return {"pseudo": ia.NOM_IA}
-        return le_depot_de_joueurs().par_discord_id(occupant)
+    def occupant_of(side):
+        """The player seated at this side - the AI is not in base, it only has a name."""
+        occupant = SEATS.occupant(side)
+        if occupant == ai.AI_PLAYER:
+            return {"nickname": ai.AI_NAME}
+        return player_repository().by_discord_id(occupant)
 
-    occupants = {camp: occupant_de(camp) for camp in SCENARIO.camps}
+    occupants = {side: occupant_of(side) for side in SCENARIO.sides}
     return {
-        "connecte": joueur is not None,
-        "pseudo": joueur["pseudo"] if joueur else None,
-        "avatar": joueur["avatar"] if joueur else None,
-        "administrateur": est_administrateur(joueur),
-        # Une liste, et non un camp : d'ordinaire zéro ou un, mais la suite de tests assied un
-        # même joueur des deux côtés pour jouer la partie à elle seule.
-        "camps": PLACES.camps_de(joueur["discord_id"]) if joueur else [],
-        "armees": {armee["camp"]: armee["armee"] for armee in SCENARIO.armees},
-        "places": {camp: (occupant["pseudo"] if occupant else None)
-                   for camp, occupant in occupants.items()},
+        "connected": player is not None,
+        "nickname": player["nickname"] if player else None,
+        "avatar": player["avatar"] if player else None,
+        "administrator": is_administrator(player),
+        # A list, and not a side: ordinarily zero or one, but the test suite seats one and the
+        # same player on both sides to play the game by itself.
+        "sides": SEATS.sides_of(player["discord_id"]) if player else [],
+        "armies": {army["camp"]: army["armee"] for army in SCENARIO.armies},
+        "seats": {side: (occupant["nickname"] if occupant else None)
+                  for side, occupant in occupants.items()},
     }
 
 
-def connexion_requise(vue):
-    """Refuse la route à qui n'a pas ouvert de session — 401, « je ne sais pas qui vous êtes »."""
-    @wraps(vue)
-    def enveloppe(*args, **kwargs):
-        if le_joueur_courant() is None:
-            return {"autorise": False, "message": "Connectez-vous pour jouer."}, 401
-        return vue(*args, **kwargs)
-    return enveloppe
+def login_required(view):
+    """Refuses the route to anyone who has not opened a session - 401, "I do not know who you are"."""
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        if current_player() is None:
+            return {"allowed": False, "message": "Connectez-vous pour jouer."}, 401
+        return view(*args, **kwargs)
+    return wrapper
 
 
-def place_requise(vue):
-    """Refuse la route à qui ne tient aucun camp — 403, « vous n'êtes pas à la table »."""
-    @wraps(vue)
-    @connexion_requise
-    def enveloppe(*args, **kwargs):
-        if not PLACES.camps_de(le_joueur_courant()["discord_id"]):
-            return {"autorise": False, "message": "Prenez place à un camp pour jouer."}, 403
-        return vue(*args, **kwargs)
-    return enveloppe
+def seat_required(view):
+    """Refuses the route to anyone holding no side - 403, "you are not at the table"."""
+    @wraps(view)
+    @login_required
+    def wrapper(*args, **kwargs):
+        if not SEATS.sides_of(current_player()["discord_id"]):
+            return {"allowed": False, "message": "Prenez place à un camp pour jouer."}, 403
+        return view(*args, **kwargs)
+    return wrapper
 
 
-def camp_actif_requis(vue):
-    """Refuse la route à qui ne tient pas le camp dont c'est la phase — 403, « pas votre tour ».
+def active_side_required(view):
+    """Refuses the route to anyone not holding the side whose phase it is - 403, "not your turn".
 
-    Le décorateur ne regarde que la **place**. Le type de phase et le camp du pion visé restent
-    vérifiés dans les routes, depuis le tour et le plateau : un mouvement hors de la phase de
-    mouvement continue de rendre 200 et `autorise: false`, un combat hors phase 200 et
-    `resolu: false`. C'est cette frontière qui laisse intactes les vérifications d'avant.
+    The decorator looks only at the **seat**. The phase type and the side of the piece aimed at
+    are still checked in the routes, from the turn and the board: a move outside the movement
+    phase goes on returning 200 and `allowed: false`, a combat outside its phase 200 and
+    `resolved: false`. It is that boundary which leaves the earlier checks untouched.
     """
-    @wraps(vue)
-    @connexion_requise
-    def enveloppe(*args, **kwargs):
-        if not PLACES.tient(le_joueur_courant()["discord_id"], TOUR.camp_actif):
-            return {"autorise": False,
-                    "message": f"C'est au camp {TOUR.armee_active} de jouer."}, 403
-        return vue(*args, **kwargs)
-    return enveloppe
+    @wraps(view)
+    @login_required
+    def wrapper(*args, **kwargs):
+        if not SEATS.holds(current_player()["discord_id"], TURN.active_side):
+            return {"allowed": False,
+                    "message": f"C'est au camp {TURN.active_army} de jouer."}, 403
+        return view(*args, **kwargs)
+    return wrapper
 
 
-def administrateur_requis(vue):
-    """Réserve la route aux comptes déclarés dans `ADMIN_DISCORD_IDS`.
+def administrator_required(view):
+    """Reserves the route to the accounts declared in `ADMIN_DISCORD_IDS`.
 
-    Une liste vide n'admet personne : une variable de sécurité dont l'absence ouvrirait tout
-    serait un piège, et le refus dit comment s'y déclarer.
+    An empty list admits nobody: a security variable whose absence would open everything would be
+    a trap, and the refusal says how to declare oneself in it.
     """
-    @wraps(vue)
-    @connexion_requise
-    def enveloppe(*args, **kwargs):
-        if not est_administrateur(le_joueur_courant()):
-            return {"autorise": False,
+    @wraps(view)
+    @login_required
+    def wrapper(*args, **kwargs):
+        if not is_administrator(current_player()):
+            return {"allowed": False,
                     "message": "Corriger la carte demande un compte déclaré dans "
                                "ADMIN_DISCORD_IDS."}, 403
-        return vue(*args, **kwargs)
-    return enveloppe
+        return view(*args, **kwargs)
+    return wrapper
 
 
-def diagnostic_de_l_etat_oauth(attendu, recu):
-    """Pourquoi l'état anti-CSRF ne passe pas, en clair pour le journal.
+def oauth_state_diagnosis(expected, received):
+    """Why the anti-CSRF state does not pass, in plain words for the log.
 
-    Trois cas, et ils ne se soignent pas pareil : un état absent de la **session** veut dire que
-    le cookie posé au départ n'est pas revenu — hôte différent entre l'aller et le retour
-    (`localhost` contre `127.0.0.1`), cookie « Secure » sur du http, session vidée entre-temps ;
-    un état absent de la **requête**, que Discord n'a pas rendu le paramètre ; deux états
-    différents, un retour rejoué ou forgé. Le journal dit lequel, l'hôte demandé et si un cookie
-    de session est arrivé du tout — sans jamais écrire les états eux-mêmes.
+    Three cases, and they are not cured the same way: a state absent from the **session** means
+    the cookie set at departure did not come back - a different host between the outward and
+    return trips (`localhost` against `127.0.0.1`), a "Secure" cookie over http, a session emptied
+    meanwhile; a state absent from the **request**, that Discord did not return the parameter; two
+    different states, a replayed or forged return. The log says which one, the host requested and
+    whether a session cookie arrived at all - without ever writing the states themselves.
     """
-    if not attendu:
+    if not expected:
         cause = "état d'authentification absent de la session"
-    elif not recu:
+    elif not received:
         cause = "état d'authentification absent de la requête"
     else:
         cause = "état d'authentification différent de celui de la session"
-    return f"{cause} (hôte {request.host}, {etat_du_cookie_de_session()})"
+    return f"{cause} (hôte {request.host}, {session_cookie_state()})"
 
 
-def etat_du_cookie_de_session():
-    """Le cookie de session tel qu'il est arrivé : absent, illisible, ou lisible et portant quoi.
+def session_cookie_state():
+    """The session cookie as it arrived: absent, unreadable, or readable and carrying what.
 
-    Un cookie **présent mais vide de l'état** a deux explications qui ne se ressemblent pas, et
-    seule cette ligne les départage. Illisible — la signature ne passe pas —, c'est qu'il a été
-    signé par une autre `SECRET_KEY` : la clé a changé dans `.env`, ou deux serveurs se
-    répondent sur le même hôte. Lisible, c'est qu'une autre requête a réécrit le cookie entre
-    l'aller et le retour — un onglet voisin, un sondage en vol — et la liste des clés qu'il
-    porte encore dit d'où venait cette session-là. Les clés seules : jamais les valeurs.
+    A cookie **present but without the state** has two explanations that do not look alike, and
+    only this line tells them apart. Unreadable - the signature does not check out - means it was
+    signed by another `SECRET_KEY`: the key changed in `.env`, or two servers answer on the same
+    host. Readable means another request rewrote the cookie between the outward and return trips -
+    a neighbouring tab, a poll in flight - and the list of keys it still carries says where that
+    session came from. The keys alone: never the values.
     """
     cookie = request.cookies.get(current_app.config["SESSION_COOKIE_NAME"])
     if cookie is None:
@@ -764,668 +762,669 @@ def etat_du_cookie_de_session():
         current_app.session_interface.get_signing_serializer(current_app).loads(cookie)
     except BadSignature:
         return "cookie de session présent mais illisible — signé par une autre SECRET_KEY ?"
-    contenu = ", ".join(sorted(session.keys()))
-    return f"cookie de session lisible, session {'portant ' + contenu if contenu else 'vide'}"
+    contents = ", ".join(sorted(session.keys()))
+    return f"cookie de session lisible, session {'portant ' + contents if contents else 'vide'}"
 
 
-@jeu.route("/connexion")
-def connexion():
-    """Part chez Discord, avec un état à usage unique contre le CSRF."""
-    etat = la_connexion().poser_un_etat_oauth()
-    return redirect(le_client_discord().url_d_autorisation(etat))
+@game.route("/login")
+def login():
+    """Leaves for Discord, with a single-use state against CSRF."""
+    state = the_connection().set_oauth_state()
+    return redirect(discord_client().authorization_url(state))
 
 
-@jeu.route("/connexion/retour")
-def retour_de_connexion():
-    """Le retour de Discord : on vérifie l'état, on échange le code, on ouvre la session.
+@game.route("/login/return")
+def login_return():
+    """The return from Discord: we check the state, exchange the code, open the session.
 
-    L'état est **retiré** de la session avant toute chose — c'est `Connexion.reprendre_l_etat_oauth`
-    qui s'en charge : un retour rejoué ne trouvera plus rien à quoi se comparer. La comparaison
-    passe par `compare_digest` — c'est un secret, il ne se compare pas caractère à caractère.
+    The state is **removed** from the session first of all - that is `Connection.take_oauth_state`'s
+    job: a replayed return will find nothing left to compare against. The comparison goes through
+    `compare_digest` - it is a secret, it is not compared character by character.
     """
-    if request.args.get("error"):  # le joueur a refusé sur la page de Discord
-        return redirect(url_for("jeu.plateau"))
+    if request.args.get("error"):  # the player refused on Discord's page
+        return redirect(url_for("game.board"))
 
-    connexion = la_connexion()
-    attendu = connexion.reprendre_l_etat_oauth()
-    recu = request.args.get("state")
-    if not attendu or not recu or not secrets.compare_digest(attendu, recu):
-        JOURNAL.info("Connexion refusée : %s", diagnostic_de_l_etat_oauth(attendu, recu))
+    connection = the_connection()
+    expected = connection.take_oauth_state()
+    received = request.args.get("state")
+    if not expected or not received or not secrets.compare_digest(expected, received):
+        LOG.info("Connexion refusée : %s", oauth_state_diagnosis(expected, received))
         abort(400, "état d'authentification absent ou inattendu")
     code = request.args.get("code")
     if not code:
-        JOURNAL.info("Connexion refusée : code d'autorisation absent de la requête")
+        LOG.info("Connexion refusée : code d'autorisation absent de la requête")
         abort(400, "code d'autorisation absent")
 
-    # Pas de `try` autour des deux échanges : une `ErreurDiscord` remonte telle quelle, avec le
-    # statut et le corps de la réponse de Discord dans son message, et Flask en trace la pile.
-    # L'attraper pour rendre un 502 muet ne laissait que « Discord n'a pas répondu » à lire.
-    jeton = le_client_discord().echanger_le_code(code)
-    identite = le_client_discord().identite(jeton)
+    # No `try` around the two exchanges: a `DiscordError` comes back up as it is, with the status
+    # and the body of Discord's answer in its message, and Flask traces its stack. Catching it to
+    # return a mute 502 left only "Discord did not answer" to read.
+    token = discord_client().exchange_code(code)
+    identity = discord_client().identity(token)
 
-    joueur = connexion.ouvrir(identite)
-    JOURNAL.info("Connexion : %s", joueur["pseudo"])
-    return redirect(url_for("jeu.plateau"))
+    player = connection.open(identity)
+    LOG.info("Connexion : %s", player["nickname"])
+    return redirect(url_for("game.board"))
 
 
-@jeu.route("/deconnexion", methods=["POST"])
-def deconnexion():
-    """Ferme la session. La place tenue n'est pas rendue : on revient s'y asseoir.
+@game.route("/logout", methods=["POST"])
+def logout():
+    """Closes the session. The seat held is not given up: one comes back to sit in it.
 
-    En POST, comme tout ce qui change quelque chose ici : un lien ou une image d'un autre site ne
-    doit pas pouvoir déconnecter le joueur.
+    A POST, like everything that changes something here: a link or an image from another site must
+    not be able to log the player out.
     """
-    la_connexion().fermer()
-    return {"connecte": False}
+    the_connection().close()
+    return {"connected": False}
 
 
-@jeu.route("/partie/place", methods=["POST"])
-@connexion_requise
-def prendre_place():
-    """S'asseoir à un camp libre — corps `{"camp": "alliance"}`.
+@game.route("/game/seat", methods=["POST"])
+@login_required
+def take_a_seat():
+    """Sitting down at a free side - body `{"side": "alliance"}`.
 
-    Deux règles, et elles ne vivent pas au même endroit : un camp occupé ne se reprend pas, et
-    c'est le registre qui la tient ; un joueur ne tient qu'un camp, et c'est ici et nulle part
-    ailleurs — un joueur assis des deux côtés jouerait seul contre lui-même.
+    Two rules, and they do not live in the same place: an occupied side is not taken over, and it
+    is the register that holds that one; a player holds only one side, and that is here and
+    nowhere else - a player seated on both sides would play alone against themselves.
     """
-    camp = (request.get_json(silent=True) or {}).get("camp")
-    if camp not in SCENARIO.camps:
-        abort(400, f"camp inconnu ; attendu l'un de {', '.join(SCENARIO.camps)}")
+    side = (request.get_json(silent=True) or {}).get("side")
+    if side not in SCENARIO.sides:
+        abort(400, f"unknown side; expected one of {', '.join(SCENARIO.sides)}")
 
-    joueur = le_joueur_courant()["discord_id"]
-    if PLACES.tient(joueur, camp):
-        return {"assis": True, "camp": camp} | la_table()
-    if PLACES.camps_de(joueur):
-        return {"assis": False, "message": "Vous tenez déjà un camp."} | la_table(), 409
-    if not PLACES.est_libre(camp):
-        return {"assis": False, "message": "Ce camp est déjà tenu."} | la_table(), 409
+    player = current_player()["discord_id"]
+    if SEATS.holds(player, side):
+        return {"seated": True, "side": side} | the_table()
+    if SEATS.sides_of(player):
+        return {"seated": False, "message": "Vous tenez déjà un camp."} | the_table(), 409
+    if not SEATS.is_free(side):
+        return {"seated": False, "message": "Ce camp est déjà tenu."} | the_table(), 409
 
-    PLACES.asseoir(camp, joueur)
-    JOURNAL.info("Place prise : %s par %s", camp, le_joueur_courant()["pseudo"])
-    sauvegarder_la_partie()
-    return {"assis": True, "camp": camp} | la_table()
-
-
-@jeu.route("/partie/place/quitter", methods=["POST"])
-@connexion_requise
-def quitter_la_place():
-    """Rend sa place : le camp redevient libre, la partie reste où elle en est."""
-    joueur = le_joueur_courant()["discord_id"]
-    for camp in PLACES.camps_de(joueur):
-        PLACES.liberer(camp)
-    sauvegarder_la_partie()
-    return {"assis": False} | la_table()
+    SEATS.seat(side, player)
+    LOG.info("Place prise : %s par %s", side, current_player()["nickname"])
+    save_the_game()
+    return {"seated": True, "side": side} | the_table()
 
 
-@jeu.route("/vue", methods=["POST"])
-@connexion_requise
-def enregistrer_la_vue():
-    """Retient où le joueur en est sur la carte — corps `{echelle, x, y, ajustee}`.
+@game.route("/game/seat/leave", methods=["POST"])
+@login_required
+def leave_the_seat():
+    """Gives up one's seat: the side becomes free again, the game stays where it is."""
+    player = current_player()["discord_id"]
+    for side in SEATS.sides_of(player):
+        SEATS.free(side)
+    save_the_game()
+    return {"seated": False} | the_table()
 
-    C'est la seule route de tout le serveur qui n'a rien à voir avec la partie : elle ne touche ni
-    au plateau, ni au tour, ni à la version, et **ne publie rien** — une vue n'appartient qu'à une
-    paire d'yeux, et la pousser au flux ferait sauter la carte de l'autre joueur. Elle n'est donc
-    pas non plus un coup joué : rien ne monte, rien n'est diffusé.
 
-    Connexion requise, et pas de place : on retient la vue d'un spectateur connecté comme celle
-    d'un joueur assis. Un anonyme, lui, n'a pas d'endroit où la ranger.
+@game.route("/view", methods=["POST"])
+@login_required
+def record_the_view():
+    """Keeps where the player is on the map - body `{scale, x, y, fitted}`.
+
+    This is the only route in the whole server that has nothing to do with the game: it touches
+    neither the board, nor the turn, nor the version, and **publishes nothing** - a view belongs
+    to one pair of eyes, and pushing it to the stream would make the other player's map jump. Nor
+    is it therefore a move played: nothing rises, nothing is broadcast.
+
+    Login required, and no seat: we keep the view of a logged-in spectator as of a seated player.
+    An anonymous visitor has nowhere to store it.
     """
-    vue = lire_une_vue(request.get_json(silent=True))
-    if vue is None:
-        abort(400, "vue illisible ; attendu {echelle, x, y, ajustee}")
-    return le_depot_de_vues().enregistrer(le_joueur_courant()["discord_id"], vue)
+    view = read_a_view(request.get_json(silent=True))
+    if view is None:
+        abort(400, "unreadable view; expected {scale, x, y, fitted}")
+    return view_repository().record(current_player()["discord_id"], view)
 
 
-@jeu.route("/")
-def plateau():
-    """La carte, ses pions et la phase courante.
+@game.route("/")
+def board():
+    """The map, its pieces and the current phase.
 
-    La partie est reprise là où on l'a laissée : le dépôt rend la dernière sauvegarde, et le
-    serveur la repose. Faute de sauvegarde — première visite, base vide, dépôt nul —, ou si la
-    sauvegarde est celle d'un autre scénario que celui qu'on joue, la mise en place du scénario
-    est refaite et une nouvelle partie ouverte.
+    The game is resumed where it was left: the repository returns the last save, and the server
+    lays it out again. Failing a save - first visit, empty base, null repository -, or if the save
+    is that of a scenario other than the one being played, the scenario's set-up is rebuilt and a
+    new game opened.
     """
-    etat = le_depot().charger()
-    if etat is None or etat["scenario"] != NUMERO_DU_SCENARIO:
-        poses = poser_la_mise_en_place()
-        le_depot().nouvelle_partie(photographier_la_partie())
+    state = game_repository().load()
+    if state is None or state["scenario"] != SCENARIO_NUMBER:
+        placed = lay_out_the_scenario()
+        game_repository().new_game(snapshot_the_game())
     else:
-        restaurer_la_partie(etat)
-        poses = les_unites_posees()
+        restore_the_game(state)
+        placed = placed_units()
     return render_template(
-        "carte.html",
-        pions=json.dumps(poses, ensure_ascii=False),
-        grille=json.dumps({"origine": GRILLE_ORIGINE, "matrice": GRILLE_MATRICE,
-                           "taille_pion": PION_TAILLE}),
-        phase=json.dumps(la_phase_courante(), ensure_ascii=False),
-        table=json.dumps(la_table(), ensure_ascii=False),
-        journal=json.dumps(les_lignes_du_journal(), ensure_ascii=False),
-        vue=json.dumps(la_vue_du_joueur()),
+        "map.html",
+        pieces=json.dumps(placed, ensure_ascii=False),
+        grid=json.dumps({"origin": GRID_ORIGIN, "matrix": GRID_MATRIX,
+                         "piece_size": PIECE_SIZE}),
+        phase=json.dumps(current_phase(), ensure_ascii=False),
+        table=json.dumps(the_table(), ensure_ascii=False),
+        log=json.dumps(log_lines(), ensure_ascii=False),
+        view=json.dumps(player_view()),
         version=VERSION,
     )
 
 
-@jeu.route("/partie/nouvelle", methods=["POST"])
-@place_requise
-def nouvelle_partie():
-    """Recommence : la mise en place du scénario, et une partie neuve en base.
+@game.route("/game/new", methods=["POST"])
+@seat_required
+def new_game():
+    """Starts over: the scenario's set-up, and a fresh game in base.
 
-    Les parties précédentes restent en base — c'est le dépôt qui en décide —, mais celle-ci
-    devient la plus récente, donc celle que « / » reprendra.
+    Previous games stay in base - that is the repository's decision -, but this one becomes the
+    most recent, hence the one "/" will resume.
 
-    Avec un corps `{"contre_ia": true}`, le camp que le demandeur ne tient pas est confié à
-    l'IA — s'il est libre, ou déjà à elle : on ne met pas un joueur humain à la porte. Et si le
-    scénario ouvre sur le camp de l'IA, elle joue son premier tour dans la foulée : la réponse
-    porte les pions tels qu'elle les a laissés.
+    With a body `{"against_ai": true}`, the side the requester does not hold is entrusted to the
+    AI - if it is free, or already the AI's: we do not throw a human player out. And if the
+    scenario opens on the AI's side, it plays its first turn straight away: the answer carries the
+    pieces as it left them.
     """
-    contre_ia = bool((request.get_json(silent=True) or {}).get("contre_ia"))
-    if contre_ia:
-        joueur = le_joueur_courant()["discord_id"]
-        camps_adverses = [camp for camp in SCENARIO.camps if not PLACES.tient(joueur, camp)]
-        if not camps_adverses:
-            return {"message": "Aucun camp à confier à l'IA."} | la_table(), 409
-        for camp in camps_adverses:
-            if PLACES.occupant(camp) not in (None, ia.JOUEUR_IA):
-                return {"message": "Ce camp est déjà tenu."} | la_table(), 409
+    against_ai = bool((request.get_json(silent=True) or {}).get("against_ai"))
+    if against_ai:
+        player = current_player()["discord_id"]
+        opposing_sides = [side for side in SCENARIO.sides if not SEATS.holds(player, side)]
+        if not opposing_sides:
+            return {"message": "Aucun camp à confier à l'IA."} | the_table(), 409
+        for side in opposing_sides:
+            if SEATS.occupant(side) not in (None, ai.AI_PLAYER):
+                return {"message": "Ce camp est déjà tenu."} | the_table(), 409
 
-    # La table est mise, puis la ligne écrite, et la mise en place seulement ensuite : c'est elle
-    # qui marque le coup et pousse la partie aux flux ouverts (voir `instantane_partage`), et
-    # elle doit la pousser avec l'IA déjà assise et la ligne déjà au journal.
-    if contre_ia:
-        for camp in camps_adverses:
-            PLACES.asseoir(camp, ia.JOUEUR_IA)
-        JOURNAL.info("Nouvelle partie contre l'IA : scénario %s, l'IA tient %s",
-                     NUMERO_DU_SCENARIO, ", ".join(camps_adverses))
+    # The table is set, then the line written, and the set-up only afterwards: it is the set-up
+    # that marks the move and pushes the game to the open streams (see `shared_snapshot`), and it
+    # must push it with the AI already seated and the line already in the log.
+    if against_ai:
+        for side in opposing_sides:
+            SEATS.seat(side, ai.AI_PLAYER)
+        LOG.info("Nouvelle partie contre l'IA : scénario %s, l'IA tient %s",
+                 SCENARIO_NUMBER, ", ".join(opposing_sides))
     else:
-        JOURNAL.info("Nouvelle partie : scénario %s", NUMERO_DU_SCENARIO)
-    poser_la_mise_en_place()
-    le_depot().nouvelle_partie(photographier_la_partie())
-    faire_jouer_l_ia()
-    return {"pions": les_unites_posees(), "phase": la_phase_courante()} | la_table()
+        LOG.info("Nouvelle partie : scénario %s", SCENARIO_NUMBER)
+    lay_out_the_scenario()
+    game_repository().new_game(snapshot_the_game())
+    let_the_ai_play()
+    return {"pieces": placed_units(), "phase": current_phase()} | the_table()
 
 
-@jeu.route("/partie/etat")
-def etat_de_la_partie():
-    """Où en est la partie — le **repli** du flux SSE, et rien de plus.
+@game.route("/game/state")
+def game_state():
+    """Where the game stands - the SSE stream's **fallback**, and nothing more.
 
-    C'est la route que le navigateur sondait toutes les trois secondes. Il ne la sonde plus : il
-    tient un flux ouvert (`/flux`) et le serveur lui pousse la partie quand elle change. Elle
-    reste servie pour deux raisons, et elle est écrite pour n'avoir jamais à changer :
+    This is the route the browser used to poll every three seconds. It no longer polls it: it
+    holds an open stream (`/stream`) and the server pushes the game to it when it changes. It is
+    still served for two reasons, and it is written so as never to have to change:
 
-    - un navigateur dont l'`EventSource` échoue cinq fois de suite y retombe (voir
-      `suivreLaPartie` dans `carte.js`) — un intermédiaire qui casse le SSE ne doit pas casser
-      le jeu ;
-    - elle dit l'état en un aller-retour, ce qui est commode à interroger.
+    - a browser whose `EventSource` fails five times in a row falls back on it (see `followTheGame`
+      in `map.js`) - an intermediary that breaks SSE must not break the game;
+    - it states the state in one round trip, which is convenient to query.
 
-    Avec `?version=N`, elle ne rend que le numéro tant que rien n'a bougé ; dès que la version a
-    changé, tout revient d'un coup — les pions, la phase, la table — et le navigateur repose la
-    scène.
+    With `?version=N`, it returns only the number as long as nothing has moved; as soon as the
+    version has changed, everything comes back at once - the pieces, the phase, the table - and
+    the browser lays the scene out again.
 
-    Elle est publique : un visiteur de passage suit la partie comme il voit la carte.
+    It is public: a passing visitor follows the game as they see the map.
     """
-    connue = request.args.get("version", type=int)
-    if connue == VERSION:
-        return {"version": VERSION, "change": False}
-    return {"version": VERSION, "change": True, "pions": les_unites_posees(),
-            "phase": la_phase_courante(), "table": la_table(),
-            "journal": les_lignes_du_journal()}
+    known = request.args.get("version", type=int)
+    if known == VERSION:
+        return {"version": VERSION, "changed": False}
+    return {"version": VERSION, "changed": True, "pieces": placed_units(),
+            "phase": current_phase(), "table": the_table(),
+            "log": log_lines()}
 
 
-# --- Le flux : la partie poussée à ceux qui la regardent ---------------------------------------
+# --- The stream: the game pushed to those watching it --------------------------------------------
 #
-# Un `GET /flux` par onglet ouvert, qui ne se referme jamais de lui-même. Le serveur y écrit un
-# message à chaque coup joué — pas une seconde avant, pas une de plus —, et un simple commentaire
-# de loin en loin pour que la connexion reste vivante.
+# One `GET /stream` per open tab, which never closes by itself. The server writes a message into
+# it at every move played - not a second before, not one more -, and a plain comment now and then
+# so that the connection stays alive.
 #
-# Le format est celui du Server-Sent Events, que le navigateur sait lire tout seul par
-# `EventSource` : reconnexion comprise, avec l'identifiant du dernier message reçu en
-# `Last-Event-ID`. Cet identifiant, ici, est le numéro de version de la partie — il ne restait
-# rien à inventer.
+# The format is that of Server-Sent Events, which the browser can read all by itself through
+# `EventSource`: reconnection included, with the identifier of the last message received in
+# `Last-Event-ID`. That identifier, here, is the game's version number - there was nothing left to
+# invent.
 
-# Le battement de cœur : au bout de ce silence, le flux écrit un commentaire SSE plutôt que rien.
-# Une ligne qui commence par « : » est ignorée par le navigateur, mais elle traverse la
-# connexion, et c'est tout ce qu'on lui demande — sans quoi un pare-feu, un proxy ou le
-# navigateur lui-même finirait par refermer une connexion qu'il croit morte.
+# The heartbeat: after that much silence, the stream writes an SSE comment rather than nothing. A
+# line beginning with ":" is ignored by the browser, but it crosses the connection, and that is
+# all we ask of it - without which a firewall, a proxy or the browser itself would end up closing
+# a connection it believes dead.
 #
-# TODO: PRODUCTION — 20 s tient sous les valeurs par défaut usuelles (Nginx `proxy_read_timeout`
-# à 60 s, ALB à 60 s). Voir `DEPLOIEMENT.md` : augmenter le timeout de l'intermédiaire plutôt que
-# de descendre celui-ci.
-BATTEMENT = 20  # secondes
+# TODO: PRODUCTION - 20 s stays under the usual default values (Nginx `proxy_read_timeout` at
+# 60 s, ALB at 60 s). See `DEPLOYMENT.md`: raise the intermediary's timeout rather than lower
+# this one.
+HEARTBEAT = 20  # seconds
 
 
-def message_sse(etat, joueur):
-    """Un événement SSE : l'état partagé, la table de *ce* joueur, et la version pour identifiant.
+def sse_message(state, player):
+    """An SSE event: the shared state, *that* player's table, and the version as identifier.
 
-    L'identifiant est ce que le navigateur renverra en `Last-Event-ID` s'il se reconnecte : le
-    serveur saura alors s'il a manqué quelque chose entre-temps.
+    The identifier is what the browser will send back in `Last-Event-ID` if it reconnects: the
+    server will then know whether it missed anything meanwhile.
     """
-    corps = json.dumps(etat | {"table": la_table_de(joueur)}, ensure_ascii=False)
-    return f"id: {etat['version']}\ndata: {corps}\n\n"
+    body = json.dumps(state | {"table": table_for(player)}, ensure_ascii=False)
+    return f"id: {state['version']}\ndata: {body}\n\n"
 
 
-def flux_de_la_partie(application, identifiant, version_connue):
-    """Le générateur du flux : l'état d'entrée s'il y a lieu, puis un message par coup joué.
+def game_stream(application, identifier, known_version):
+    """The stream's generator: the entry state where called for, then one message per move played.
 
-    Il tourne **hors de toute requête** — werkzeug le déroule après que la vue a rendu sa
-    réponse. D'où le contexte d'application poussé à la main : composer la table demande le dépôt
-    de joueurs et la liste des administrateurs, tous deux accrochés à l'application.
+    It runs **outside any request** - werkzeug unrolls it after the view has returned its
+    response. Hence the application context pushed by hand: composing the table requires the
+    player repository and the administrator list, both hooked onto the application.
 
-    Ce contexte est poussé et retiré **entre deux `yield`**, jamais à cheval sur l'un d'eux, et
-    c'est la seule façon de faire : Flask tient ses contextes dans des `ContextVar`, qu'un
-    générateur ne possède pas en propre — il les partage avec qui le déroule. Un `with
-    application.app_context():` enveloppant la boucle serait entré dans un appelant et quitté
-    dans un autre, et Flask le dit sans détour : « Popped wrong app context ».
+    That context is pushed and popped **between two `yield`s**, never straddling one, and that is
+    the only way to do it: Flask keeps its contexts in `ContextVar`s, which a generator does not
+    own - it shares them with whoever unrolls it. A `with application.app_context():` wrapping the
+    loop would be entered in one caller and left in another, and Flask says so bluntly: "Popped
+    wrong app context".
 
-    On ne se sert pas non plus de `stream_with_context`, qui garderait le contexte de *requête*
-    ouvert pour toute la durée du flux — c'est-à-dire tant que l'onglet reste ouvert : `g.joueur`
-    y serait mis en cache une fois pour toutes, et un joueur qui change de pseudo ou quitte sa
-    place ne le verrait jamais. Ici le joueur est relu au dépôt à chaque message, comme partout
-    ailleurs dans le projet.
+    Nor do we use `stream_with_context`, which would keep the *request* context open for the whole
+    duration of the stream - that is, as long as the tab stays open: `g.player` would be cached
+    there once and for all, and a player changing nickname or leaving their seat would never see
+    it. Here the player is re-read from the repository at every message, as everywhere else in the
+    project.
 
-    L'abonnement, lui, enveloppe bien toute la boucle : c'est un objet à nous, sans `ContextVar`.
-    Quoi qu'il arrive — onglet fermé, réseau coupé, serveur arrêté —, le générateur est fermé,
-    `GeneratorExit` traverse le `with`, et l'abonné est radié.
+    The subscription, on the other hand, does wrap the whole loop: it is an object of ours, with
+    no `ContextVar`. Whatever happens - tab closed, network cut, server stopped - the generator is
+    closed, `GeneratorExit` crosses the `with`, and the subscriber is removed.
     """
-    joueurs = application.extensions["depot_de_joueurs"]
+    players = application.extensions["player_repository"]
 
-    def composer(etat):
-        """Le message à écrire, table comprise — le seul endroit qui demande l'application."""
+    def compose(state):
+        """The message to write, table included - the only place that requires the application."""
         with application.app_context():
-            joueur = joueurs.par_discord_id(identifiant) if identifiant else None
-            return message_sse(etat, joueur)
+            player = players.by_discord_id(identifier) if identifier else None
+            return sse_message(state, player)
 
-    with DIFFUSEUR.abonnement() as abonne:
-        # L'état d'entrée. Le navigateur arrive avec le numéro qu'il connaît — du gabarit à la
-        # première connexion, du `Last-Event-ID` à une reconnexion. S'il est à jour, on ne lui
-        # renvoie pas tout le plateau pour rien : un commentaire suffit à ouvrir le flux, ce qui
-        # fait passer son `EventSource` à l'état « ouvert ». S'il ne l'est pas — l'adversaire a
-        # joué pendant la coupure, ou le serveur a redémarré et sa version est repartie de
-        # zéro —, il rattrape tout d'un coup.
-        yield ": partie suivie\n\n" if version_connue == VERSION \
-            else composer(instantane_partage())
+    with BROADCASTER.subscription() as subscriber:
+        # The entry state. The browser arrives with the number it knows - from the template on
+        # first connection, from the `Last-Event-ID` on a reconnection. If it is up to date, we do
+        # not send it the whole board for nothing: a comment is enough to open the stream, which
+        # moves its `EventSource` to the "open" state. If it is not - the opponent played during
+        # the outage, or the server restarted and its version started again from zero - it catches
+        # up on everything at once.
+        yield ": partie suivie\n\n" if known_version == VERSION \
+            else compose(shared_snapshot())
 
         while True:
-            etat = abonne.attendre(BATTEMENT)
-            yield ": battement\n\n" if etat is None else composer(etat)
+            state = subscriber.wait(HEARTBEAT)
+            yield ": battement\n\n" if state is None else compose(state)
 
 
-@jeu.route("/flux")
-def flux_de_partie():
-    """Le flux d'événements de la partie. Publique, comme `/partie/etat`.
+@game.route("/stream")
+def stream():
+    """The game's event stream. Public, like `/game/state`.
 
-    La version que connaît le navigateur vient de deux endroits, et jamais des deux à la fois :
-    `?version=N` à la première connexion — un `EventSource` ne peut pas poser d'en-tête —, et
-    l'en-tête `Last-Event-ID` que le navigateur renvoie de lui-même à chaque reconnexion. C'est
-    ce dernier qui prime : il est plus récent que l'URL, qui date de l'ouverture de la page.
+    The version the browser knows comes from two places, and never from both at once:
+    `?version=N` on the first connection - an `EventSource` cannot set a header - and the
+    `Last-Event-ID` header the browser sends back by itself at every reconnection. The latter
+    prevails: it is more recent than the URL, which dates from when the page opened.
 
-    Tout ce que le générateur aura besoin de savoir est capturé **ici**, tant qu'on est encore
-    dans la requête : l'objet application, et l'identifiant Discord de la session. Le générateur,
-    lui, tourne après.
+    Everything the generator will need to know is captured **here**, while we are still in the
+    request: the application object, and the session's Discord identifier. The generator itself
+    runs afterwards.
     """
-    dernier = request.headers.get("Last-Event-ID")
-    version_connue = _en_entier(dernier) if dernier is not None \
+    last = request.headers.get("Last-Event-ID")
+    known_version = _as_int(last) if last is not None \
         else request.args.get("version", type=int)
 
-    reponse = current_app.response_class(
-        flux_de_la_partie(current_app._get_current_object(),
-                          la_connexion().identifiant, version_connue),
+    response = current_app.response_class(
+        game_stream(current_app._get_current_object(),
+                    the_connection().identifier, known_version),
         mimetype="text/event-stream")
-    reponse.headers["Cache-Control"] = "no-cache"
-    reponse.headers["Connection"] = "keep-alive"
-    # TODO: PRODUCTION — Nginx tamponne les réponses par défaut, et retiendrait chaque message
-    # jusqu'à remplir son tampon : le jeu paraîtrait figé. Cet en-tête le lui interdit pour cette
-    # réponse-ci, sans rien avoir à configurer. Le `proxy_buffering off;` de `DEPLOIEMENT.md`
-    # dit la même chose côté serveur ; les deux ensemble, l'un ne dépendant pas de l'autre.
-    reponse.headers["X-Accel-Buffering"] = "no"
-    return reponse
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["Connection"] = "keep-alive"
+    # TODO: PRODUCTION - Nginx buffers responses by default, and would hold each message until its
+    # buffer filled: the game would look frozen. This header forbids it for this response, with
+    # nothing to configure. The `proxy_buffering off;` in `DEPLOYMENT.md` says the same thing on
+    # the server side; both together, neither depending on the other.
+    response.headers["X-Accel-Buffering"] = "no"
+    return response
 
 
-def _en_entier(texte):
-    """Le `Last-Event-ID` en entier, ou `None` s'il ne l'est pas.
+def _as_int(text):
+    """The `Last-Event-ID` as an integer, or `None` if it is not one.
 
-    L'en-tête vient du navigateur : il peut être vide — c'est ce qu'envoie un `EventSource` qui
-    n'a encore rien reçu — ou n'importe quoi. Un `None` fait simplement renvoyer l'état complet.
+    The header comes from the browser: it may be empty - that is what an `EventSource` that has
+    received nothing yet sends - or anything at all. A `None` simply makes the full state be sent
+    back.
     """
     try:
-        return int(texte)
+        return int(text)
     except ValueError:
         return None
 
 
-@jeu.route("/deplacements")
-def deplacements():
-    """Les hexagones qu'une unité posée en (q, r, s) peut atteindre.
+@game.route("/moves")
+def moves():
+    """The hexagons a unit placed at (q, r, s) can reach.
 
-    C'est ici que le navigateur vient chercher les cases à couvrir de fantômes : il n'applique
-    aucune règle lui-même. C'est le **plateau du serveur** qui dit quel pion se tient là, dans
-    quel camp, et quels adversaires lui opposent leurs zones de contrôle. Le paramètre `pion` ne
-    sert qu'à interroger une case vide ; sans lui, le forfait de 5 points s'applique et la carte
-    est réputée sans adversaire.
+    This is where the browser comes for the squares to cover with ghosts: it applies no rule
+    itself. It is the **server's board** that says which piece stands there, on which side, and
+    which opponents oppose their zones of control to it. The `piece` parameter only serves to
+    query an empty square; without it, the flat 5-point rate applies and the map is held to be
+    free of opponents.
     """
-    depart = lire_un_hexagone(request.args)
-    pion = lire_un_pion(request.args.get("pion"))
-    return decrire_un_deplacement(depart, pion) | {
-        "hexagones": [hexagone.en_dict() for hexagone in PLATEAU.deplacements(depart, pion)],
+    origin = read_a_hexagon(request.args)
+    piece = read_a_piece(request.args.get("piece"))
+    return describe_a_move(origin, piece) | {
+        "hexagons": [hexagon.to_dict() for hexagon in BOARD.moves(origin, piece)],
     }
 
 
-@jeu.route("/deplacer", methods=["POST"])
-@camp_actif_requis
-def deplacer():
-    """Déplace une unité de `depart` vers `arrivee`, si la règle le permet.
+@game.route("/move", methods=["POST"])
+@active_side_required
+def move():
+    """Moves a unit from `origin` to `destination`, if the rules allow it.
 
-    Le serveur ne croit pas le navigateur sur parole : il recalcule la portée, et c'est lui qui
-    tient le plateau. Un déplacement accepté y est appliqué, sans quoi les zones de contrôle du
-    coup d'après se calculeraient sur des positions périmées.
+    The server does not take the browser's word for it: it recomputes the reach, and it is the
+    server that holds the board. An accepted move is applied to it, without which the next move's
+    zones of control would be computed on stale positions.
 
-    Le mouvement n'est ouvert qu'au camp actif, et seulement pendant sa phase de mouvement : hors
-    de là, le déplacement est refusé sans que le plateau ne bouge.
+    Movement is open only to the active side, and only during its movement phase: outside that,
+    the move is refused without the board budging.
     """
-    demande = request.get_json(silent=True) or {}
-    depart = lire_un_hexagone(demande.get("depart") or {})
-    arrivee = lire_un_hexagone(demande.get("arrivee") or {})
-    pion = lire_un_pion(demande.get("pion"))
-    decrit = decrire_un_deplacement(depart, pion)
-    pose = PLATEAU.pion_sur(depart)
-    hors_phase = pose is not None and not TOUR.autorise_mouvement(pose.camp)
-    autorise = not hors_phase and PLATEAU.deplacer(depart, arrivee, pion)
-    if autorise:
-        sauvegarder_la_partie()
-    # Le carton repris en main s'est recouché : c'est le plateau qui a tiré l'angle, et le
-    # navigateur le reçoit plutôt que d'en tirer un de son côté — sans quoi le pion se
-    # recoucherait encore au premier rechargement de la page.
-    return decrit | {"autorise": autorise, "arrivee": arrivee.en_dict(),
-                     "inclinaison": PLATEAU.inclinaison_sur(arrivee)}
+    demand = request.get_json(silent=True) or {}
+    origin = read_a_hexagon(demand.get("origin") or {})
+    destination = read_a_hexagon(demand.get("destination") or {})
+    piece = read_a_piece(demand.get("piece"))
+    described = describe_a_move(origin, piece)
+    placed = BOARD.piece_on(origin)
+    out_of_phase = placed is not None and not TURN.allows_movement(placed.side)
+    allowed = not out_of_phase and BOARD.move(origin, destination, piece)
+    if allowed:
+        save_the_game()
+    # The counter has been picked up and lies down again: it is the board that drew the angle, and
+    # the browser receives it rather than drawing one of its own - without which the piece would
+    # lie down differently again at the first page reload.
+    return described | {"allowed": allowed, "destination": destination.to_dict(),
+                        "tilt": BOARD.tilt_on(destination)}
 
 
-def decrire_un_deplacement(depart, pion):
-    """Ce que le serveur sait de l'unité qui part : sa case, son pion, son camp, ses points."""
-    pose = PLATEAU.pion_sur(depart) or pion
+def describe_a_move(origin, piece):
+    """What the server knows of the departing unit: its square, its piece, its side, its points."""
+    placed = BOARD.piece_on(origin) or piece
     return {
-        "depart": depart.en_dict(),
-        "pion": pose.cle if pose else None,
-        "camp": pose.camp if pose else None,
-        "mouvement": PLATEAU.mouvement_de(depart, pion),
+        "origin": origin.to_dict(),
+        "piece": placed.key if placed else None,
+        "side": placed.side if placed else None,
+        "movement": BOARD.movement_of(origin, piece),
     }
 
 
-@jeu.route("/phase")
-def phase_courante():
-    """La phase en cours — le navigateur s'en sert pour son libellé et ses blocages."""
-    return la_phase_courante()
+@game.route("/phase")
+def phase():
+    """The current phase - the browser uses it for its label and its blocks."""
+    return current_phase()
 
 
-@jeu.route("/phase/suivante", methods=["POST"])
-@camp_actif_requis
-def phase_suivante():
-    """Passe à la phase suivante ; la magie est franchie d'elle-même.
+@game.route("/phase/next", methods=["POST"])
+@active_side_required
+def next_phase():
+    """Steps to the next phase; magic is stepped over by itself.
 
-    Le registre des combats est vidé au passage : chaque phase de combat repart avec toutes ses
-    unités disponibles, celle des Ténèbres comme celle de l'Alliance, à ce tour-ci comme au suivant.
+    The combat register is emptied on the way: every combat phase starts again with all its units
+    available, the Darkness' as well as the Alliance's, this turn as well as the next.
     """
-    TOUR.suivante()
-    SUIVI.reinitialiser()
-    JOURNAL.info("Phase : %s (tour %s)", TOUR.libelle, TOUR.numero)
-    sauvegarder_la_partie()
-    faire_jouer_l_ia()
-    return la_phase_courante()
+    TURN.advance()
+    REGISTER.reset()
+    LOG.info("Phase : %s (tour %s)", TURN.label, TURN.number)
+    save_the_game()
+    let_the_ai_play()
+    return current_phase()
 
 
-def lire_un_hexagone_prefixe(prefixe, source):
-    """Un `Hex` depuis `{prefixe}q`, `{prefixe}r`, `{prefixe}s` — pour deux hexagones dans l'URL."""
-    return lire_un_hexagone({nom: source.get(f"{prefixe}{nom}") for nom in ("q", "r", "s")})
+def read_prefixed_hexagon(prefix, source):
+    """A `Hex` from `{prefix}q`, `{prefix}r`, `{prefix}s` - for two hexagons in the URL."""
+    return read_a_hexagon({name: source.get(f"{prefix}{name}") for name in ("q", "r", "s")})
 
 
-@jeu.route("/combat/portee")
-def verifier_la_portee():
-    """Dit si l'unité en `a…` peut engager la cible en `c…` : à portée, et pas déjà engagée.
+@game.route("/combat/range")
+def check_range():
+    """Says whether the unit at `a...` can engage the target at `c...`: in range, and not already
+    engaged.
 
-    Un attaquant hors de portée n'est pas ajouté au combat, et le refus part au journal — comme le
-    veut le todo. Un attaquant qui a déjà donné cette phase-ci est refusé de la même façon : le
-    navigateur n'a plus qu'à ne pas le surligner en or.
+    An attacker out of range is not added to the combat, and the refusal goes to the log - as the
+    todo requires. An attacker that has already had its turn this phase is refused the same way:
+    the browser then only has to leave it unhighlighted.
     """
-    cible = lire_un_hexagone_prefixe("c", request.args)
-    attaquant = lire_un_hexagone_prefixe("a", request.args)
-    pion_attaquant = PLATEAU.pion_sur(attaquant)
-    if pion_attaquant is None:
-        return {"a_portee": False, "disponible": False, "message": "Aucune unité sur cette case."}
-    dans_la_portee = combat.a_portee(attaquant, pion_attaquant, cible)
-    disponible = SUIVI.peut_attaquer(attaquant.cle)
-    if not disponible:
-        message = DEJA_ATTAQUE
-    elif not dans_la_portee:
+    target = read_prefixed_hexagon("c", request.args)
+    attacker = read_prefixed_hexagon("a", request.args)
+    attacking_piece = BOARD.piece_on(attacker)
+    if attacking_piece is None:
+        return {"in_range": False, "available": False,
+                "message": "Aucune unité sur cette case."}
+    within_range = combat.in_range(attacker, attacking_piece, target)
+    available = REGISTER.can_attack(attacker.key)
+    if not available:
+        message = ALREADY_ATTACKED
+    elif not within_range:
         message = "Cette unité n'est pas à portée de la cible"
     else:
         message = None
     if message:
-        JOURNAL.info(message)
-    return {"a_portee": dans_la_portee, "disponible": disponible, "message": message}
+        LOG.info(message)
+    return {"in_range": within_range, "available": available, "message": message}
 
 
-@jeu.route("/combat/cible")
-def verifier_la_cible():
-    """Dit si l'unité en `c…` peut encore être prise pour cible durant cette phase de combat.
+@game.route("/combat/target")
+def check_target():
+    """Says whether the unit at `c...` can still be taken as a target during this combat phase.
 
-    Le navigateur demandait jusqu'ici son surlignage rouge sans rien demander au serveur ; il lui
-    faut maintenant passer par ici, le registre de la phase étant seul à savoir qui a déjà été
-    attaqué.
+    Until now the browser asked for its red highlight without asking the server anything; it now
+    has to come through here, the phase register alone knowing who has already been attacked.
     """
-    cible = lire_un_hexagone_prefixe("c", request.args)
-    if PLATEAU.pion_sur(cible) is None:
-        return {"disponible": False, "message": "Aucune unité sur cette case."}
-    disponible = SUIVI.peut_etre_cible(cible.cle)
-    message = None if disponible else DEJA_ATTAQUEE
+    target = read_prefixed_hexagon("c", request.args)
+    if BOARD.piece_on(target) is None:
+        return {"available": False, "message": "Aucune unité sur cette case."}
+    available = REGISTER.can_be_targeted(target.key)
+    message = None if available else ALREADY_TARGETED
     if message:
-        JOURNAL.info(message)
-    return {"disponible": disponible, "message": message}
+        LOG.info(message)
+    return {"available": available, "message": message}
 
 
-@jeu.route("/combat", methods=["POST"])
-@camp_actif_requis
-def combattre():
-    """Résout un combat : une cible adverse, un ou plusieurs attaquants du camp actif.
+@game.route("/combat", methods=["POST"])
+@active_side_required
+def fight():
+    """Resolves a combat: one opposing target, one or more attackers of the active side.
 
-    Corps `{"cible": {q, r, s}, "attaquants": [{q, r, s}, …]}`. Le serveur revalide tout, écarte
-    les attaquants hors de portée ou ayant déjà attaqué (avec un message au journal), lance le dé,
-    applique le résultat au plateau et journalise l'issue en français.
+    Body `{"target": {q, r, s}, "attackers": [{q, r, s}, ...]}`. The server revalidates
+    everything, discards attackers out of range or having already attacked (with a message to the
+    log), rolls the die, applies the result to the board and logs the outcome in French.
 
-    Le combat livré est inscrit au registre de la phase, **quelle que soit son issue** : un recul,
-    que le moteur laisse sans effet, a tout de même engagé ses unités.
+    The combat fought is entered in the phase register, **whatever its outcome**: a retreat, which
+    the engine leaves without effect, has engaged its units all the same.
     """
-    demande = request.get_json(silent=True) or {}
-    if TOUR.type_de_phase != COMBAT:
-        return {"resolu": False, "message": "Ce n'est pas la phase de combat."}
+    demand = request.get_json(silent=True) or {}
+    if TURN.phase_type != COMBAT:
+        return {"resolved": False, "message": "Ce n'est pas la phase de combat."}
 
-    cible = lire_un_hexagone(demande.get("cible") or {})
-    if cible.cle not in PLATEAU.adversaires_de(TOUR.camp_actif):
-        return {"resolu": False, "message": "La cible doit être une unité adverse."}
-    if not SUIVI.peut_etre_cible(cible.cle):
-        JOURNAL.info(DEJA_ATTAQUEE)
-        return {"resolu": False, "message": DEJA_ATTAQUEE}
+    target = read_a_hexagon(demand.get("target") or {})
+    if target.key not in BOARD.opponents_of(TURN.active_side):
+        return {"resolved": False, "message": "La cible doit être une unité adverse."}
+    if not REGISTER.can_be_targeted(target.key):
+        LOG.info(ALREADY_TARGETED)
+        return {"resolved": False, "message": ALREADY_TARGETED}
 
-    valides, messages = [], []
-    for case in demande.get("attaquants") or []:
-        attaquant = lire_un_hexagone(case or {})
-        pion_attaquant = PLATEAU.pion_sur(attaquant)
-        if pion_attaquant is None or pion_attaquant.camp != TOUR.camp_actif:
+    valid, messages = [], []
+    for square in demand.get("attackers") or []:
+        attacker = read_a_hexagon(square or {})
+        attacking_piece = BOARD.piece_on(attacker)
+        if attacking_piece is None or attacking_piece.side != TURN.active_side:
             messages.append("Cette unité ne peut pas attaquer cette cible.")
-        elif not SUIVI.peut_attaquer(attaquant.cle):
-            messages.append(DEJA_ATTAQUE)
-        elif not combat.a_portee(attaquant, pion_attaquant, cible):
+        elif not REGISTER.can_attack(attacker.key):
+            messages.append(ALREADY_ATTACKED)
+        elif not combat.in_range(attacker, attacking_piece, target):
             messages.append("Cette unité n'est pas à portée de la cible")
         else:
-            valides.append(attaquant)
+            valid.append(attacker)
     for message in messages:
-        JOURNAL.info(message)
+        LOG.info(message)
 
-    if not valides:
-        return {"resolu": False, "message": "Aucun attaquant valide.", "messages": messages}
+    if not valid:
+        return {"resolved": False, "message": "Aucun attaquant valide.", "messages": messages}
 
-    jet = lancer_le_de()
-    resultat = combat.livrer_combat(PLATEAU, cible, valides, jet)
-    SUIVI.enregistrer([hexagone.cle for hexagone in valides], cible.cle)
-    message = MESSAGES_DE_COMBAT.get(resultat.resultat, "Combat résolu : sans effet")
-    # Le calcul d'abord, l'issue ensuite : la colonne du navigateur se lit à l'envers du fichier,
-    # et l'issue s'y retrouve donc en tête, son détail juste dessous.
-    if resultat.detail is not None:
-        JOURNAL.info(detailler_le_rapport(resultat))
-    JOURNAL.info(message)
-    sauvegarder_la_partie()
+    roll = roll_the_die()
+    result = combat.fight(BOARD, target, valid, roll)
+    REGISTER.record([hexagon.key for hexagon in valid], target.key)
+    message = COMBAT_MESSAGES.get(result.outcome, "Combat résolu : sans effet")
+    # The computation first, the outcome next: the browser's column reads the other way round from
+    # the file, so the outcome ends up at the top, its breakdown just below.
+    if result.breakdown is not None:
+        LOG.info(describe_the_ratio(result))
+    LOG.info(message)
+    save_the_game()
     return {
-        "resolu": True,
-        "resultat": resultat.resultat,
+        "resolved": True,
+        "outcome": result.outcome,
         "message": message,
-        "elimines": [hexagone.en_dict() for hexagone in resultat.elimines],
-        "jet": jet,
-        "de": resultat.de,
-        "rapport": list(resultat.rapport) if resultat.rapport else None,
-        "indisponibles": les_unites_indisponibles(),
+        "eliminated": [hexagon.to_dict() for hexagon in result.eliminated],
+        "roll": roll,
+        "die": result.die,
+        "ratio": list(result.ratio) if result.ratio else None,
+        "unavailable": unavailable_units(),
     }
 
 
-def ecrire_les_corrections(corrections):
-    """Réécrit `map_fix.json`, trié et à raison d'une entrée par ligne, pour rester lisible.
+def write_the_fixes(fixes):
+    """Rewrites `map_fix.json`, sorted and one entry per line, so it stays readable.
 
-    L'application est seule à écrire ce fichier ; c'est le moteur qui le lit, et le chemin est à
-    lui. Le moteur ne le relira qu'au prochain démarrage.
+    The application alone writes this file; it is the engine that reads it, and the path belongs
+    to it. The engine will only re-read it at the next start-up.
     """
-    with moteur_hexagone.CHEMIN_DES_CORRECTIONS.open("w", encoding="utf-8") as fichier:
-        json.dump(dict(sorted(corrections.items())), fichier, ensure_ascii=False, indent=0)
-        fichier.write("\n")
+    with engine_hexagon.FIXES_PATH.open("w", encoding="utf-8") as target:
+        json.dump(dict(sorted(fixes.items())), target, ensure_ascii=False, indent=0)
+        target.write("\n")
 
 
-@jeu.route("/admin/map_fix")
-@administrateur_requis
-def corriger_la_carte():
-    """La carte, le terrain de chaque hexagone au survol, et un clic pour le corriger.
+@game.route("/admin/map_fix")
+@administrator_required
+def fix_the_map():
+    """The map, the terrain of each hexagon on hover, and a click to fix it.
 
-    Toute la carte part au navigateur d'un coup : il n'y a rien à demander au serveur pour
-    afficher un terrain, seulement pour en enregistrer un. C'est la carte **transcrite** qui part,
-    corrections à part : la page dit ce que le scan a donné, et ce qu'on en a corrigé.
+    The whole map goes to the browser at once: there is nothing to ask the server in order to show
+    a terrain, only to record one. It is the **transcribed** map that goes, fixes apart: the page
+    says what the scan gave, and what has been fixed of it.
     """
     return render_template(
         "map_fix.html",
-        carte=json.dumps({cle: elements[0] for cle, elements in CARTE_TRANSCRITE.items()}),
-        corrections=json.dumps(moteur_hexagone.lire_les_corrections(), ensure_ascii=False),
-        appliquees=json.dumps(moteur_hexagone.CORRECTIONS_APPLIQUEES, ensure_ascii=False),
+        map=json.dumps({key: elements[0] for key, elements in TRANSCRIBED_MAP.items()}),
+        fixes=json.dumps(engine_hexagon.read_fixes(), ensure_ascii=False),
+        applied=json.dumps(engine_hexagon.APPLIED_FIXES, ensure_ascii=False),
         terrains=json.dumps(TERRAINS),
-        grille=json.dumps({"origine": GRILLE_ORIGINE, "matrice": GRILLE_MATRICE}),
+        grid=json.dumps({"origin": GRID_ORIGIN, "matrix": GRID_MATRIX}),
     )
 
 
-@jeu.route("/admin/map_fix", methods=["POST"])
-@administrateur_requis
-def corriger_un_hexagone():
-    """Note la correction d'un hexagone — corps `{q, r, s, terrain}`.
+@game.route("/admin/map_fix", methods=["POST"])
+@administrator_required
+def fix_a_hexagon():
+    """Records the fix of a hexagon - body `{q, r, s, terrain}`.
 
-    Choisir le terrain que la carte **transcrite** donne déjà retire la correction au lieu d'en
-    écrire une : c'est ainsi qu'on revient en arrière, et cela reste vrai une fois que le moteur
-    joue sur la carte corrigée.
+    Choosing the terrain the **transcribed** map already gives removes the fix instead of writing
+    one: that is how one goes back, and it stays true now that the engine plays on the fixed map.
     """
-    demande = request.get_json(silent=True) or {}
-    vise = lire_un_hexagone(demande)
-    terrain = demande.get("terrain")
+    demand = request.get_json(silent=True) or {}
+    aimed = read_a_hexagon(demand)
+    terrain = demand.get("terrain")
     if terrain not in TERRAINS:
-        abort(400, f"terrain inconnu ; attendu l'un de {', '.join(TERRAINS)}")
+        abort(400, f"unknown terrain; expected one of {', '.join(TERRAINS)}")
 
-    origine = CARTE_TRANSCRITE[vise.cle][0]
-    corrections = moteur_hexagone.lire_les_corrections()
-    if terrain == origine:
-        corrections.pop(vise.cle, None)
+    original = TRANSCRIBED_MAP[aimed.key][0]
+    fixes = engine_hexagon.read_fixes()
+    if terrain == original:
+        fixes.pop(aimed.key, None)
     else:
-        corrections[vise.cle] = terrain
-    ecrire_les_corrections(corrections)
+        fixes[aimed.key] = terrain
+    write_the_fixes(fixes)
 
-    return {"cle": vise.cle, "terrain": terrain, "origine": origine,
-            "corrige": terrain != origine}
+    return {"key": aimed.key, "terrain": terrain, "original": original,
+            "fixed": terrain != original}
 
 
-def lire_un_pion(cle):
-    """Le pion de clé `cle` dans le catalogue, ou `None` si la requête n'en nomme pas.
+def read_a_piece(key):
+    """The piece with key `key` in the catalogue, or `None` if the request names none.
 
-    Le navigateur ne transmet qu'une clé : les points de mouvement et le camp sortent du
-    catalogue, jamais de la requête. Une clé inconnue est un 400 — mieux vaut refuser que
-    déplacer un pion imaginaire.
+    The browser only transmits a key: movement points and side come from the catalogue, never from
+    the request. An unknown key is a 400 - better refuse than move an imaginary piece.
     """
-    if cle is None:
+    if key is None:
         return None
-    if cle not in CATALOGUE:
-        abort(400, f"pion inconnu : {cle}")
-    return CATALOGUE[cle]
+    if key not in CATALOGUE:
+        abort(400, f"unknown piece: {key}")
+    return CATALOGUE[key]
 
 
-def lire_un_hexagone(source):
-    """Construit un `Hex` depuis des paramètres q, r, s ; 400 s'ils sont illisibles, 404 hors carte."""
+def read_a_hexagon(source):
+    """Builds a `Hex` from q, r, s parameters; 400 if unreadable, 404 if off the map."""
     try:
-        hexagone = Hex(*(int(source[nom]) for nom in ("q", "r", "s")))
+        hexagon = Hex(*(int(source[name]) for name in ("q", "r", "s")))
     except (KeyError, TypeError, ValueError):
-        abort(400, "coordonnées q, r et s attendues, entières et de somme nulle")
-    if not hexagone.est_sur_la_carte:
-        abort(404, f"l'hexagone {hexagone.cle} n'est pas sur la carte")
-    return hexagone
+        abort(400, "q, r and s coordinates expected, integers summing to zero")
+    if not hexagon.is_on_map:
+        abort(404, f"hexagon {hexagon.key} is not on the map")
+    return hexagon
 
 
-@jeu.route("/carte.jpg")
-def image_de_la_carte():
-    return send_from_directory(BOITE, "map.jpg")
+@game.route("/map.jpg")
+def map_image():
+    return send_from_directory(BOX, "map.jpg")
 
 
-@jeu.route("/pions/<path:chemin>")
-def image_de_pion(chemin):
-    if not est_un_pion(chemin):
+@game.route("/pieces/<path:path>")
+def piece_image(path):
+    if not is_a_piece(path):
         abort(404)
-    return send_from_directory(PIONS, chemin)
+    return send_from_directory(PIECES, path)
 
 
 def create_app(config=None):
-    """Construit l'application : la configuration, la persistance, puis les routes.
+    """Builds the application: the configuration, persistence, then the routes.
 
-    Tout Flask naît ici — le module n'a plus d'app globale, seulement le blueprint `jeu` et
-    l'état de jeu. La persistance est branchée sous forme de dépôt (voir `moteur/depots/`), accroché
-    aux extensions de l'app : les routes le retrouvent par `le_depot()` et ne savent rien de
-    MongoDB. Les imports de la branche Mongo sont faits ici, et pas en tête de fichier, pour
-    qu'une app sans persistance — celle des tests — se construise sans mongoengine.
+    All of Flask is born here - the module no longer has a global app, only the `game` blueprint
+    and the game state. Persistence is wired in as a repository (see `engine/repositories/`),
+    hooked onto the app's extensions: the routes find it again through `game_repository()` and
+    know nothing of MongoDB. The imports of the Mongo branch are done here, and not at the top of
+    the file, so that an app without persistence - the tests' - builds without mongoengine.
     """
     application = Flask(__name__)
     application.config.from_object(config or Config)
 
-    # Échec franc au démarrage plutôt qu'une erreur de Flask au premier `session[...]`, c'est-à-dire
-    # au premier clic sur « se connecter ».
+    # A blunt failure at start-up rather than a Flask error at the first `session[...]`, that is,
+    # at the first click on "se connecter".
     if not application.config.get("SECRET_KEY"):
         raise RuntimeError(
-            "SECRET_KEY manquante : sans elle, aucune session ne peut être signée. En poser une "
-            "dans .env — python3 -c \"import secrets; print(secrets.token_hex(32))\"")
+            "SECRET_KEY missing: without it no session can be signed. Set one in .env - "
+            "python3 -c \"import secrets; print(secrets.token_hex(32))\"")
 
-    if application.config["PERSISTANCE"] == "mongo":
-        from depots.vue import DepotDeVuesMongo
+    if application.config["PERSISTENCE"] == "mongo":
+        from engine.repositories.game import MongoGameRepository
+        from engine.repositories.player import MongoPlayerRepository
         from extensions import db
-        from moteur.depots.joueur import DepotDeJoueursMongo
-        from moteur.depots.partie import DepotDePartieMongo
-        db.init_app(application)  # avant les routes, et une seule fois : l'instance est partagée
-        depot, joueurs, vues = DepotDePartieMongo(), DepotDeJoueursMongo(), DepotDeVuesMongo()
+        from repositories.view import MongoViewRepository
+        db.init_app(application)  # before the routes, and only once: the instance is shared
+        games, players, views = (MongoGameRepository(), MongoPlayerRepository(),
+                                 MongoViewRepository())
     else:
-        from depots.vue import DepotDeVuesEnMemoire
-        from moteur.depots.joueur import DepotDeJoueursEnMemoire
-        from moteur.depots.partie import DepotDePartieNul
-        depot, joueurs, vues = (DepotDePartieNul(), DepotDeJoueursEnMemoire(),
-                                DepotDeVuesEnMemoire())
-    application.extensions["depot_de_partie"] = depot
-    application.extensions["depot_de_joueurs"] = joueurs
-    # La vue de la carte n'est pas du jeu : son modèle et son dépôt sont à l'application
-    # (`models/vue.py`, `depots/vue.py`), et non au moteur, qui ne sait pas qu'il existe une image.
-    application.extensions["depot_de_vues"] = vues
+        from engine.repositories.game import NullGameRepository
+        from engine.repositories.player import InMemoryPlayerRepository
+        from repositories.view import InMemoryViewRepository
+        games, players, views = (NullGameRepository(), InMemoryPlayerRepository(),
+                                 InMemoryViewRepository())
+    application.extensions["game_repository"] = games
+    application.extensions["player_repository"] = players
+    # The map view is not part of the game: its model and its repository belong to the application
+    # (`models/view.py`, `repositories/view.py`), and not to the engine, which does not know that
+    # an image exists.
+    application.extensions["view_repository"] = views
 
-    if application.config["AUTHENTIFICATION"] == "discord":
-        from client_discord import ClientDiscord
-        application.extensions["discord"] = ClientDiscord(
+    if application.config["AUTHENTICATION"] == "discord":
+        from discord_client import DiscordClient
+        application.extensions["discord"] = DiscordClient(
             application.config["DISCORD_CLIENT_ID"],
             application.config["DISCORD_CLIENT_SECRET"],
             application.config["DISCORD_REDIRECT_URI"])
     else:
-        from client_discord import ClientDiscordFactice
-        application.extensions["discord"] = ClientDiscordFactice()
+        from discord_client import FakeDiscordClient
+        application.extensions["discord"] = FakeDiscordClient()
 
-    application.register_blueprint(jeu)
+    application.register_blueprint(game)
     return application
 
 

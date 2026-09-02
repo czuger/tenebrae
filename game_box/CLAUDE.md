@@ -1,19 +1,22 @@
 # THIS DIRECTORY CONTAINS THE SOURCE OF TRUTH
 
-Le **matériel de jeu** : les règles transcrites, la carte et sa grille d'hexagones, l'inventaire
-des pions et leurs valeurs. C'est ici que le code lit — `moteur/` y prend la carte
-(`carte_details.json` + `map_fix.json`) et le catalogue (`pions/pions.json`) au démarrage — et
-c'est ici qu'il faut chercher une donnée du jeu, jamais dans `base_material/`.
+The **game material**: the transcribed rules, the map and its hexagon grid, the counter inventory
+and their values. This is where the code reads — `engine/` takes the map (`carte_details.json` +
+`map_fix.json`) and the catalogue (`pions/pions.json`) from here at start-up — and this is where a
+game datum is to be looked for, never in `base_material/`.
 
-Avant de toucher aux données :
+The file names and the vocabulary here are French, and stay that way: this is 1986 material,
+transcribed as it stands. Only the code around it is English.
 
-- **La carte** — lire `carte.md` d'abord. `carte.json` et `carte_details.json` sortent
-  d'`extraction_carte.py` et ne s'éditent pas à la main : une correction de terrain se relève dans
-  `map_fix.json` par `/admin/map_fix`, une correction de site se fait dans le script.
-- **Les règles** — `ave_tenebrae_regles.md` porte ses conventions de transcription dans son
-  propre en-tête (texte seul, tableaux Markdown, orthographe modernisée).
-- **Les pions** — `pions/README.md` est l'index maître ; toute copie ajoutée y est notée avec sa
-  photo d'origine.
+Before touching the data:
 
-Dans les trois cas, **les incertitudes sont conservées, pas résolues** : chaque fichier a sa
-section de réserves, et un doute nouveau s'y ajoute plutôt que de se trancher sans source.
+- **The map** — read `map.md` first. `carte.json` and `carte_details.json` come out of
+  `extract_map.py` and are not edited by hand: a terrain fix is recorded in `map_fix.json` through
+  `/admin/map_fix`, a site fix is made in the script.
+- **The rules** — `ave_tenebrae_regles.md` carries its transcription conventions in its own header
+  (text only, Markdown tables, modernised spelling).
+- **The counters** — `pions/README.md` is the master index; every copy added is noted there with
+  its source photograph.
+
+In all three cases, **uncertainties are kept, not resolved**: each file has its own caveats
+section, and a new doubt is added to it rather than settled without a source.

@@ -1,4 +1,4 @@
-"""Fixtures communes : client Flask connecté, joueur de test, et serveur réel pour le navigateur."""
+"""Shared fixtures: a logged-in Flask client, a test player, and a real server for the browser."""
 
 import sys
 import threading
@@ -9,98 +9,99 @@ from werkzeug.serving import make_server
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app import PLACES, PLATEAU, SCENARIO, SUIVI, TOUR, create_app  # noqa: E402
-from client_discord import IDENTITE_PAR_DEFAUT  # noqa: E402
-from config import ConfigDeTest  # noqa: E402
+from app import BOARD, REGISTER, SCENARIO, SEATS, TURN, create_app  # noqa: E402
+from config import TestingConfig  # noqa: E402
+from discord_client import DEFAULT_IDENTITY  # noqa: E402
 
 
 @pytest.fixture(scope="session")
 def application():
-    """L'application de test, construite une seule fois par la factory.
+    """The test application, built once by the factory.
 
-    Une seule instance pour toute la session : le client Flask et le serveur des tests de
-    navigateur doivent parler au même objet. La configuration de test débranche la persistance
-    (dépôt nul) — l'état de jeu reste dans les module-globaux de `app`, que les fixtures et les
-    tests manipulent directement — et branche le client Discord factice.
+    A single instance for the whole session: the Flask client and the browser tests' server must
+    speak to the same object. The test configuration unplugs persistence (null repository) - the
+    game state stays in `app`'s module globals, which the fixtures and the tests manipulate
+    directly - and plugs in the fake Discord client.
     """
-    return create_app(ConfigDeTest)
+    return create_app(TestingConfig)
 
 
 @pytest.fixture
-def installer_le_joueur():
-    """Rend de quoi asseoir un joueur à la table, et lève la table en sortant.
+def seat_the_player():
+    """Returns the means to seat a player at the table, and lifts the table on the way out.
 
-    La suite joue **les deux camps à la fois** : un seul joueur de test tient l'Alliance et les
-    Ténèbres. Ce n'est pas ce que la route « prendre place » permet — elle refuse un second camp,
-    et un test le vérifie —, mais le registre, lui, n'en sait rien : il ne défend que l'invariant
-    « un camp, un occupant ». C'est cette séparation qui laisse jouer les deux côtés aux tests
-    écrits avant les joueurs, sans en réécrire un seul.
+    The suite plays **both sides at once**: a single test player holds the Alliance and the
+    Darkness. That is not what the "take a seat" route allows - it refuses a second side, and a
+    test checks that - but the register knows nothing of it: it defends only the "one side, one
+    occupant" invariant. It is that separation which lets the tests written before players existed
+    play both sides, without rewriting a single one.
     """
-    PLACES.vider()
+    SEATS.clear()
 
-    def installer(application, client=None, identite=IDENTITE_PAR_DEFAUT, camps=None):
-        application.extensions["depot_de_joueurs"].enregistrer(identite)
-        for camp in (SCENARIO.camps if camps is None else camps):
-            PLACES.asseoir(camp, identite["discord_id"])
+    def seat(application, client=None, identity=DEFAULT_IDENTITY, sides=None):
+        application.extensions["player_repository"].record(identity)
+        for side in (SCENARIO.sides if sides is None else sides):
+            SEATS.seat(side, identity["discord_id"])
         if client is not None:
             with client.session_transaction() as session:
-                session["joueur"] = identite["discord_id"]
-        return identite
+                session["joueur"] = identity["discord_id"]
+        return identity
 
-    yield installer
-    PLACES.vider()
+    yield seat
+    SEATS.clear()
 
 
 @pytest.fixture
-def client(application, installer_le_joueur):
-    """Client de test Flask, **connecté et assis aux deux camps** (voir `installer_le_joueur`).
+def client(application, seat_the_player):
+    """A Flask test client, **logged in and seated at both sides** (see `seat_the_player`).
 
-    Ce n'est plus le visiteur de passage qu'il était avant les joueurs : les routes qui changent
-    l'état demandent maintenant une session et une place. Pour éprouver un anonyme, prendre
-    `client_anonyme`.
+    It is no longer the passing visitor it was before players existed: the routes that change the
+    state now require a session and a seat. To exercise an anonymous visitor, take
+    `anonymous_client`.
     """
     client = application.test_client()
-    installer_le_joueur(application, client)
+    seat_the_player(application, client)
     return client
 
 
 @pytest.fixture
-def client_anonyme(application):
-    """Le même client, sans session : ce que voit un visiteur de passage."""
+def anonymous_client(application):
+    """The same client, with no session: what a passing visitor sees."""
     return application.test_client()
 
 
 @pytest.fixture
-def carte_deserte():
-    """Vide le plateau du serveur et ramène le tour à sa première phase, avant et après le test.
+def deserted_map():
+    """Clears the server's board and brings the turn back to its first phase, before and after the
+    test.
 
-    Le tirage est groupé : sans cela, un secteur tombant près de l'hexagone de référence d'un test
-    de déplacement y poserait des adversaires, et le résultat dépendrait du hasard. Le tour est
-    partagé lui aussi — un test qui le fait avancer le laisserait avancé pour le suivant, et le
-    registre des combats de la phase avec lui.
+    The layout is grouped: without that, a sector falling near a movement test's reference hexagon
+    would place opponents there, and the result would depend on chance. The turn is shared too - a
+    test that advanced it would leave it advanced for the next one, and the phase's combat register
+    with it.
     """
-    PLATEAU.vider()
-    TOUR.recommencer()
-    SUIVI.reinitialiser()
-    yield PLATEAU
-    PLATEAU.vider()
-    TOUR.recommencer()
-    SUIVI.reinitialiser()
+    BOARD.clear()
+    TURN.restart()
+    REGISTER.reset()
+    yield BOARD
+    BOARD.clear()
+    TURN.restart()
+    REGISTER.reset()
 
 
 @pytest.fixture(scope="session")
-def serveur(application):
-    """Sert l'application sur un port libre, le temps de la session de tests.
+def server(application):
+    """Serves the application on a free port, for the length of the test session.
 
-    `threaded=True` n'est pas un confort : depuis que la page tient un **flux SSE** ouvert
-    (`/flux`, voir `application/flux.py`), une requête reste en cours tant que l'onglet vit. Un
-    serveur mono-thread — ce que `make_server` donne par défaut — servirait ce flux et plus
-    jamais rien d'autre, et toute la suite Playwright s'arrêterait là. Les fils de werkzeug sont
-    des démons : l'arrêt n'attend pas les flux encore ouverts.
+    `threaded=True` is not a convenience: since the page holds an open **SSE stream** (`/stream`,
+    see `application/stream.py`), a request stays in progress for as long as the tab lives. A
+    single-threaded server - which is what `make_server` gives by default - would serve that
+    stream and nothing else ever again, and the whole Playwright suite would stop there. Werkzeug's
+    threads are daemons: shutting down does not wait for the streams still open.
     """
-    serveur = make_server("127.0.0.1", 0, application, threaded=True)
-    fil = threading.Thread(target=serveur.serve_forever, daemon=True)
-    fil.start()
-    yield f"http://127.0.0.1:{serveur.server_port}"
-    serveur.shutdown()
-    fil.join()
+    server = make_server("127.0.0.1", 0, application, threaded=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_port}"
+    server.shutdown()
+    thread.join()

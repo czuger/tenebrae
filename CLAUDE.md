@@ -2,259 +2,258 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Nature du dépôt
+## Nature of the repository
 
-Travail d'archivage et de transcription autour d'*Ave Tenebrae*, wargame fantastique de François
-Marcela-Froideval (Jeux Descartes, 2ᵉ éd. 1986) : convertir des sources brutes (PDF scanné, page de
-blog archivée, photos) en documents Markdown et en données exploitables, **puis en faire un jeu**.
-Le jeu existe : un moteur de règles en Python, un serveur Flask, une partie à deux joueurs
-sauvegardée dans MongoDB.
+Archiving and transcription work around *Ave Tenebrae*, a fantasy wargame by François
+Marcela-Froideval (Jeux Descartes, 2nd ed. 1986): turning raw sources (a scanned PDF, an archived
+blog page, photographs) into Markdown documents and usable data, **and then making a game of it**.
+The game exists: a rules engine in Python, a Flask server, a two-player game saved in MongoDB.
 
-**Le contenu est en français** — règles, README, noms de fichiers, code (noms de classes, de
-méthodes et de variables). Toute production nouvelle (documentation, noms de répertoires, slugs de
-fichiers) doit rester en français, avec des slugs sans accents ni apostrophes
-(`morts-vivants-01-20-unites-de-squelettes.jpg`). Seuls les messages de commit sont en anglais.
+**The code is in English; the game content is not.** Identifiers, docstrings, comments and
+documentation are English. What stays French, and must stay French:
+
+- the **game data** — `game_box/` and `scenarios/`: file names, JSON field names, terrain names
+  (`plaine`, `bois`, `montagne`), piece keys (`nains-01-5-infanteries`), side names (`alliance`,
+  `tenebres`). This is 1986 material, transcribed as it stands; translating it would put a second
+  version of the game between the code and its source. New slugs there follow the existing
+  convention: no accents, no apostrophes (`morts-vivants-01-20-unites-de-squelettes.jpg`);
+- everything the **player reads** — button labels, phase names, log lines, refusal messages;
+- the **Mongo collections and stored field names** (`parties`, `joueurs`, `vues`, `camp_actif`,
+  `inclinaisons`, …), which the models pin through `db_field`: renaming a stored field would
+  orphan the games and accounts already in base;
+- the **session keys** (`joueur`, `etat_oauth`), which are already in browsers' cookies;
+- `game_box/ave_tenebrae_regles.md`, the transcribed booklet, which is the source itself.
+
+Commit messages are in English, as they always were.
 
 ## Structure
 
-Cinq répertoires, avec des statuts très différents :
+Five directories, with very different statuses:
 
-| Répertoire | Rôle |
+| Directory | Role |
 | --- | --- |
-| `base_material/` | **Sources brutes. Porte un `CLAUDE.md` qui dit « DO NOT USE THE CONTENT OF THIS DIRECTORY ».** Le PDF des règles, l'article de blog archivé, les 144 photos. Ne pas y puiser pour un travail courant : tout ce qui en a été tiré vit déjà dans `game_box/`. On n'y retourne que pour vérifier ou compléter une transcription, et alors on met à jour le dérivé. |
-| `game_box/` | **Le matériel de jeu. Porte un `CLAUDE.md` qui dit « THIS DIRECTORY CONTAINS THE SOURCE OF TRUTH ».** Règles transcrites, carte et sa grille d'hexagones, script d'extraction, et `pions/` (inventaire des 127 pions + `pions.json`). C'est là que doit lire et écrire le code du jeu. |
-| `moteur/` | **Les règles, en Python.** Deux constantes lues au démarrage — la carte (la transcription recouverte par les corrections de `map_fix.json`) et le catalogue des pions (`pions.json`) — puis sept modules : `hexagone.py` (`Hex` : voisinage, coûts de terrain, déplacements, zones de contrôle), `pion.py` (`Pion` : valeurs du carton, camp), `plateau.py` (`Plateau` : qui occupe quelle case, et sous quel angle le carton y est couché), `scenario.py` (`Scenario` : une mise en place lue dans `scenarios/`), `phase.py` (`Tour` : mouvement → magie → combat, en boucle), `combat.py` (Tableau I du fascicule, et `SuiviDeCombat`) et `ia.py` (l'adversaire artificiel : ciblage, marche, concentration des attaques — et la sentinelle `JOUEUR_IA` de sa place). À côté, **les entités du jeu** : `models/` (`Partie`, `Joueur`, `Places` — un fichier par modèle) et `depots/` (leur accès en base, un module par sujet). Rien de web ici — ni Flask, ni session, ni requête ; la bibliothèque standard suffit aux règles, mongoengine ne servant qu'aux deux documents et à leurs dépôts. Voir `moteur/README.md`. |
-| `scenarios/` | **Les mises en place, fixées une fois pour toutes**, un fichier JSON par scénario du fascicule. Le fascicule dit « l'armée naine se masse au sud du volcan de Toth » ; le passage de la phrase aux hexagones a été fait à la main, et ce répertoire en garde le résultat. Seul le n° 4 est fixé à ce jour. Voir `scenarios/README.md`. |
-| `application/` | **Le serveur.** Application Flask (factory `create_app`) qui affiche la carte, la mise en place d'un scénario (le n° 4), et sert les déplacements et les combats calculés par `moteur/`. Elle lit `game_box/` et `scenarios/`. Elle écrit à deux endroits : `game_box/map_fix.json`, par la route d'admin `/admin/map_fix`, et **MongoDB** — la partie en cours (positions, inclinaison des pions, phase, registre des combats, et qui tient quel camp), sauvegardée à chaque coup et reprise au chargement de `/`, plus les **joueurs** connus. La base n'est jamais touchée depuis une route : tout passe par un dépôt (`moteur/depots/` pour le jeu, `application/depots/` pour le reste), et les référentiels restent en fichiers. Elle modélise deux choses, et seulement ce qui n'est pas du jeu : la **connexion** (`models/connexion.py`) — le lien entre une session Flask et le joueur du moteur, désigné par son identifiant Discord — et la **vue de la carte** (`models/vue.py`, écrite par `depots/vue.py`), c'est-à-dire l'échelle et le point que chaque joueur avait au centre, rendus au chargement suivant pour qu'un rafraîchissement ne défasse plus son zoom. La partie se joue **à deux, un joueur par camp**, identifiés par **Discord OAuth2** : la carte reste publique, les coups demandent d'être connecté et d'occuper le camp actif, et `/admin/map_fix` est réservée aux comptes de `ADMIN_DISCORD_IDS`. Le second camp peut être **confié à l'IA** (`POST /partie/nouvelle` avec `{"contre_ia": true}`) : le serveur joue alors son tour entier — par `moteur/ia.py` — dans la requête qui lui rend la main. L'authentification n'a coûté **aucune dépendance** (`flask.session` et `urllib`). Chaque navigateur suit la partie de l'autre par un **flux SSE** (`GET /flux`, le diffuseur étant dans `flux.py`) : le serveur pousse la partie quand elle change, et `marquer_un_coup` est le seul point de publication. `/partie/etat` reste servie en repli. Le
-**journal de la partie** voyage avec elle : il s'écrit dans `logs/journal_de_combat.log` — à la
-racine du dépôt, rotatif toutes les mille lignes, trois archives gardées derrière — **et** dans
-une file bornée en mémoire, que la page montre en colonne sous la fiche — d'où la règle
-« journaliser avant de marquer le coup ». Voir `application/README.md`, et `DEPLOIEMENT.md` à la racine pour ce que le flux demandera en production. |
+| `base_material/` | **Raw sources. Carries a `CLAUDE.md` saying "DO NOT USE THE CONTENT OF THIS DIRECTORY".** The rules PDF, the archived blog article, the 144 photographs. Not to be drawn on for ordinary work: everything taken from it already lives in `game_box/`. We come back only to check or complete a transcription, and then the derived file is updated. |
+| `game_box/` | **The game material. Carries a `CLAUDE.md` saying "THIS DIRECTORY CONTAINS THE SOURCE OF TRUTH".** Transcribed rules, the map and its hexagon grid, the extraction script, and `pions/` (the inventory of the 127 counters + `pions.json`). This is where the game's code must read and write. |
+| `engine/` | **The rules, in Python.** Two constants read at start-up — the map (the transcription overlaid with the fixes from `map_fix.json`) and the piece catalogue (`pions.json`) — then seven modules: `hexagon.py` (`Hex`: neighbourhood, terrain costs, moves, zones of control), `piece.py` (`Piece`: the counter's values, side), `board.py` (`Board`: who occupies which square, and at what angle the counter lies there), `scenario.py` (`Scenario`: a set-up read from `scenarios/`), `phase.py` (`Turn`: movement → magic → combat, round and round), `combat.py` (the booklet's Table I, and `CombatRegister`) and `ai.py` (the artificial opponent: targeting, marching, concentration of attacks — and the `AI_PLAYER` sentinel for its seat). Beside them, **the game entities**: `models/` (`Game`, `Player`, `Seats` — one file per model) and `repositories/` (their database access, one module per subject). Nothing of the web here — no Flask, no session, no request; the standard library is enough for the rules, mongoengine serving only the two documents and their repositories. See `engine/README.md`. |
+| `scenarios/` | **The set-ups, fixed once and for all**, one JSON file per scenario of the booklet. The booklet says "the dwarf army masses south of the volcano of Toth"; the step from the sentence to the hexagons was taken by hand, and this directory keeps the result. Only no. 4 is fixed to date. See `scenarios/README.md`. |
+| `application/` | **The server.** A Flask application (the `create_app` factory) that shows the map, a scenario's set-up (no. 4), and serves the moves and combats computed by `engine/`. It reads `game_box/` and `scenarios/`. It writes in two places: `game_box/map_fix.json`, through the `/admin/map_fix` route, and **MongoDB** — the current game (positions, piece tilts, phase, combat register, and who holds which side), saved at every move and resumed when `/` is loaded, plus the known **players**. The base is never touched from a route: everything goes through a repository (`engine/repositories/` for the game, `application/repositories/` for the rest), and the reference data stays in files. It models two things, and only what is not the game: the **connection** (`models/connection.py`) — the link between a Flask session and the engine's player, designated by their Discord identifier — and the **map view** (`models/view.py`, written by `repositories/view.py`), that is, the scale and the point each player had at the centre, returned at the next load so that a refresh no longer undoes their zoom. The game is played **by two, one player per side**, identified through **Discord OAuth2**: the map stays public, moves require being logged in and occupying the active side, and `/admin/map_fix` is reserved to the accounts in `ADMIN_DISCORD_IDS`. The second side can be **entrusted to the AI** (`POST /game/new` with `{"against_ai": true}`): the server then plays its whole turn — through `engine/ai.py` — within the request that hands it play. Authentication cost **no dependency at all** (`flask.session` and `urllib`). Each browser follows the other's game through an **SSE stream** (`GET /stream`, the broadcaster being in `stream.py`): the server pushes the game when it changes, and `mark_a_move` is the only point of publication. `/game/state` is still served as a fallback. The **game log** travels with it: it is written into `logs/battle_log.log` — at the root of the repository, rotating every thousand lines, three archives kept behind it — **and** into a bounded in-memory queue, which the page shows as a column under the unit card — hence the "log before marking the move" rule. See `application/README.md`, and `DEPLOYMENT.md` at the root for what the stream will require in production. |
 
-`todo.txt` (racine) porte les consignes de travail de l'utilisateur.
+`todo.txt` (at the root) carries the user's working instructions. It is theirs, and stays French.
 
-Les secrets — connexion MongoDB, application Discord, `SECRET_KEY` — vivent dans `.env` à la
-racine, **non versionné** : voir `.env.example`, que `application/config.py` lit une fois au
-démarrage. Sans `SECRET_KEY`, l'application refuse de démarrer plutôt que d'en tirer une au hasard.
+The secrets — the MongoDB connection, the Discord application, `SECRET_KEY` — live in `.env` at the
+root, **not versioned**: see `.env.example`, which `application/config.py` reads once at start-up.
+Without `SECRET_KEY`, the application refuses to start rather than draw one at random.
 
 ## Architecture
 
-Quatre règles, et elles ne se négocient pas au cas par cas.
+Four rules, and they are not negotiated case by case.
 
-**La logique de jeu réside intégralement dans le moteur, jamais dans l'application.** La partie et
-le joueur *en tant qu'entités de jeu* sont dans `moteur/models/`, avec la table des places ; leur
-accès en base est dans `moteur/depots/`. Le moteur n'importe **rien** de l'application : pas de
-Flask, pas de `session`, pas de `request`, aucune notion d'utilisateur web. Une partie se joue
-depuis un interpréteur, sans serveur. La dépendance ne va que dans un sens — l'application importe
-le moteur.
+**The game logic resides entirely in the engine, never in the application.** The game and the
+player *as game entities* are in `engine/models/`, along with the seating table; their database
+access is in `engine/repositories/`. The engine imports **nothing** from the application: no Flask,
+no `session`, no `request`, no notion of a web user. A game can be played from an interpreter, with
+no server. The dependency runs one way only — the application imports the engine.
 
-**L'application ne modélise que ce qui n'est pas du jeu**, et le fait dans `application/models/`,
-avec son propre `application/depots/` quand il y a une base à écrire. Deux modèles à ce jour :
-`connexion.py` — la session, dont rien n'est persisté — et `vue.py`, l'échelle et le point de la
-carte qu'un joueur avait au centre. La vue est ici et non dans le moteur parce que **le moteur ne
-sait pas qu'il existe une image** : une partie se joue depuis un interpréteur, où le zoom ne veut
-rien dire ; l'inclinaison d'un pion, elle, est du plateau — les deux joueurs la voient pareil,
-quand une vue n'appartient qu'à une paire d'yeux. Les deux modèles **référencent le joueur du
-moteur par son identifiant** (`discord_id`, une chaîne) et ne doublent aucune de ses données : ni
-pseudo, ni avatar, ni date. Le joueur est relu au dépôt à chaque demande. Le reste de
-l'application est de l'orchestration web — routes, décorateurs d'autorisation, sérialisation vers
-les gabarits — et rien d'autre.
+**The application models only what is not the game**, and does so in `application/models/`, with
+its own `application/repositories/` when there is a base to write. Two models to date:
+`connection.py` — the session, none of which is persisted — and `view.py`, the scale and the point
+of the map a player had at the centre. The view is here and not in the engine because **the engine
+does not know that an image exists**: a game can be played from an interpreter, where zoom means
+nothing; a piece's tilt, on the other hand, belongs to the board — both players see it the same
+way, whereas a view belongs to one pair of eyes. Both models **reference the engine's player by
+their identifier** (`discord_id`, a string) and duplicate none of their data: no nickname, no
+avatar, no date. The player is re-read from the repository at every request. The rest of the
+application is web orchestration — routes, authorization decorators, serialisation towards the
+templates — and nothing else.
 
-**Un fichier par modèle, tous les modèles dans un répertoire `models/`.** Un fichier qui
-regrouperait deux classes de modèle est à éclater. Le `__init__.py` de ces répertoires documente
-et ne réexporte rien : `Places` n'a besoin que de la bibliothèque standard, et réexporter les
-documents à côté ferait payer mongoengine à qui ne veut qu'un registre de places — comme à
-l'application montée sans persistance, qui se construit aujourd'hui sans lui. On importe donc
-toujours le module précis : `from moteur.models.places import Places`.
+**One file per model, all the models in a `models/` directory.** A file grouping two model classes
+is to be split. The `__init__.py` of those directories documents and re-exports nothing: `Seats`
+needs only the standard library, and re-exporting the documents beside it would make mongoengine a
+cost for whoever only wants a seating register — as it would for the application mounted without
+persistence, which is built today without it. So the precise module is always imported: `from
+engine.models.seats import Seats`.
 
-**Pas d'imports relatifs, jamais.** Aucun `from .module import ...` ni `from ..paquet import ...` :
-toujours le chemin absolu (`from moteur.depots.joueur import DepotDeJoueursMongo`,
-`from models.connexion import Connexion`). Aucun paquet n'est installé — c'est le `conftest.py` de
-la racine, et un `sys.path.insert` en tête d'`app.py`, qui mettent la racine et `application/` sur
-le chemin —, et un import relatif y casserait selon d'où l'on lance.
+**No relative imports, ever.** No `from .module import ...` nor `from ..package import ...`: always
+the absolute path (`from engine.repositories.player import MongoPlayerRepository`, `from
+models.connection import Connection`). No package is installed — it is the root `conftest.py`, and a
+`sys.path.insert` at the head of `app.py`, that put the root and `application/` on the path — and a
+relative import would break there depending on where one launches from.
 
-Un renommage de collection mongoengine, lui, se demande : les schémas existants (`parties`,
-`joueurs`) restent compatibles tant que personne n'a de raison explicite d'en changer.
+Renaming a mongoengine collection, on the other hand, is asked for: the existing schemas
+(`parties`, `joueurs`, `vues`) stay compatible as long as nobody has an explicit reason to change
+them. The same holds for stored field names, which the models pin through `db_field`.
 
-## Versionnement
+## Versioning
 
-**Tout est versionné, sources brutes comprises.** C'était l'inverse au début du projet — les
-28 Mo de `base_material/` étaient exclus — et la documentation en portait un long avertissement :
-il n'a plus lieu d'être. Le dépôt pèse une quarantaine de mégaoctets et l'assume ; un nouveau
-clone arrive complet, transcriptions **et** sources, et retoucher une transcription ne demande
-rien d'autre.
+**Everything is versioned, raw sources included.** It was the other way round at the start of the
+project — the 28 MB of `base_material/` were excluded — and the documentation carried a long
+warning about it: it no longer has any reason to be. The repository weighs some forty megabytes and
+owns it; a fresh clone arrives complete, transcriptions **and** sources, and retouching a
+transcription requires nothing else.
 
-Ce qui reste hors de git est court, et tient en deux fichiers :
+What stays out of git is short, and fits in two files:
 
-| Fichier | Ce qu'il exclut | Pourquoi |
+| File | What it excludes | Why |
 | --- | --- | --- |
-| `.gitignore` | `.env` | les secrets : connexion MongoDB, identifiants Discord, `SECRET_KEY` |
-| | `logs/` | les traces d'exécution (`journal_de_combat.log` et ses archives), propres à une machine |
-| | `.idea/`, `__pycache__/`, `.pytest_cache/` | outillage local et caches |
-| `.git/info/exclude` | `/.python-version` | le virtualenv pyenv est un choix local |
+| `.gitignore` | `.env` | the secrets: the MongoDB connection, the Discord credentials, `SECRET_KEY` |
+| | `logs/` | the execution traces (`battle_log.log` and its archives), specific to one machine |
+| | `.idea/`, `__pycache__/`, `.pytest_cache/` | local tooling and caches |
+| `.git/info/exclude` | `/.python-version` | the pyenv virtualenv is a local choice |
 
-`.git/info/exclude` garde aussi trois motifs **périmés** — `/images/`,
-`/ave_tenebrae_regles.pdf`, `/vintageboard-1-ave-tenebrae.html` — qui visaient la racine avant le
-déplacement des sources dans `base_material/`. Ils ne correspondent plus à rien et ne protègent
-plus rien : les fichiers qu'ils nommaient sont aujourd'hui suivis. Sans effet, donc, mais
-trompeurs à la lecture.
+`.git/info/exclude` also keeps three **stale** patterns — `/images/`,
+`/ave_tenebrae_regles.pdf`, `/vintageboard-1-ave-tenebrae.html` — which targeted the root before
+the sources were moved into `base_material/`. They no longer match anything and no longer protect
+anything: the files they named are tracked today. Without effect, then, but misleading to read.
 
-Un seul point de vigilance subsiste : **`.DS_Store` n'est ignoré nulle part**, et la skill
-`/commit` ajoute tous les fichiers. Vérifier `git status` avant de commiter.
+A single point of vigilance remains: **`.DS_Store` is ignored nowhere**, and the `/commit` skill
+adds every file. Check `git status` before committing.
 
-## Les dérivés et leurs sources
+## The derived files and their sources
 
-Le rapport entre les deux n'a pas changé, même si tout est désormais versionné : on lit et on
-écrit dans les dérivés, et on ne remonte à la source que pour vérifier.
+The relationship between the two has not changed, even though everything is now versioned: we read
+and write in the derived files, and only go back to the source to check.
 
-| Chemin | Rôle |
+| Path | Role |
 | --- | --- |
-| `base_material/ave_tenebrae_regles.pdf` | Fascicule de règles scanné, 16 pages |
-| `base_material/vintageboard-1-ave-tenebrae.html` | Article de blog archivé (« Vintageboard 1 », R-One Chaff, irlboardgames.blogspot.com) ; contient le découpage des planches de pions |
-| `base_material/images/` | 144 photos de la boîte, de la carte et des planches de pions |
-| `game_box/ave_tenebrae_regles.md` | Transcription des règles |
-| `game_box/map.jpg` | Carte du jeu (10 Mo) |
-| `game_box/carte.json` | 2280 hexagones, `"q,r,s"` → terrain |
-| `game_box/carte_details.json` | `"q,r,s"` → tous les éléments de l'hexagone |
-| `game_box/carte_controle.jpg` | Carte teintée par terrain, pour vérification à l'œil |
-| `game_box/carte.md` | Documentation de la transcription de la carte |
-| `game_box/map_fix.json` | Corrections de terrain relevées à l'œil sur `/admin/map_fix`, appliquées par le moteur |
-| `game_box/extraction_carte.py` | Régénère `carte.json`, `carte_details.json` et `carte_controle.jpg` depuis `map.jpg` |
-| `game_box/pions/` | Inventaire des 127 pions (copies renommées) + `pions.json`, les valeurs des cartons |
-| `scenarios/*.json` | Mises en place fixées, une par scénario |
+| `base_material/ave_tenebrae_regles.pdf` | Scanned rules booklet, 16 pages |
+| `base_material/vintageboard-1-ave-tenebrae.html` | Archived blog article ("Vintageboard 1", R-One Chaff, irlboardgames.blogspot.com); contains the breakdown of the counter sheets |
+| `base_material/images/` | 144 photographs of the box, the map and the counter sheets |
+| `game_box/ave_tenebrae_regles.md` | Transcription of the rules |
+| `game_box/map.jpg` | The game map (10 MB) |
+| `game_box/carte.json` | 2280 hexagons, `"q,r,s"` → terrain |
+| `game_box/carte_details.json` | `"q,r,s"` → every element of the hexagon |
+| `game_box/carte_controle.jpg` | The map tinted by terrain, for checking by eye |
+| `game_box/map.md` | Documentation of the map transcription |
+| `game_box/map_fix.json` | Terrain fixes recorded by eye on `/admin/map_fix`, applied by the engine |
+| `game_box/extract_map.py` | Regenerates `carte.json`, `carte_details.json` and `carte_controle.jpg` from `map.jpg` |
+| `game_box/pions/` | Inventory of the 127 counters (renamed copies) + `pions.json`, the counter values |
+| `scenarios/*.json` | Fixed set-ups, one per scenario |
 
-## Outillage
+## Tooling
 
-Pas de packaging, pas de CI. Ne pas en introduire sans qu'on le demande. Le seul échafaudage est
-le `Makefile` de la racine, qui sert à lancer les tests.
+No packaging, no CI. Do not introduce any without being asked. The only scaffolding is the root
+`Makefile`, which serves to run the tests.
 
-### Vérifier : toujours par un test, jamais à la main
+### Checking: always through a test, never by hand
 
-**Toute vérification passe par la suite de tests, lancée par `make test`.** C'est une règle, pas
-une préférence :
+**Every check goes through the test suite, run by `make test`.** This is a rule, not a preference:
 
-- **Ne jamais lancer l'application pour voir si ça marche** — pas de `python3 app.py` en tâche de
-  fond suivi de `curl`, pas de `python3 -c` jetable. Ce genre de vérification ne se rejoue pas,
-  ne prouve rien à personne d'autre, et laisse des serveurs et des conteneurs derrière elle.
-- **Ce qu'on veut éprouver s'écrit en test**, à côté des autres, pour qu'on puisse le réessayer.
-  Une nouvelle fonctionnalité arrive donc avec ses tests ; une vérification qu'on a eu envie de
-  faire une fois vaut d'être gardée.
-- **Le navigateur, c'est Playwright** (`application/tests/test_plateau.py`,
-  `test_map_fix_navigateur.py`, `test_connexion_navigateur.py`, `test_reprise_navigateur.py`) :
-  c'est là qu'on ouvre une page, qu'on clique un pion, qu'on recharge. Pas dans un vrai navigateur
-  ouvert à la main.
+- **Never launch the application to see whether it works** — no `python3 app.py` in the background
+  followed by `curl`, no throwaway `python3 -c`. That kind of check cannot be replayed, proves
+  nothing to anyone else, and leaves servers and containers behind it.
+- **What we want to exercise is written as a test**, beside the others, so that it can be tried
+  again. A new feature therefore arrives with its tests; a check one felt like running once is
+  worth keeping.
+- **The browser is Playwright** (`application/tests/test_board_browser.py`,
+  `test_map_fix_browser.py`, `test_connection_browser.py`, `test_resume_browser.py`): that is where
+  a page is opened, a piece clicked, a reload made. Not in a real browser opened by hand.
 
-| Commande | Ce qu'elle fait |
+| Command | What it does |
 | --- | --- |
-| `make test` | monte un MongoDB de test dans un conteneur Docker (port 27018, base `tenebrae_test`), attend qu'il réponde, puis lance toute la suite |
-| `make test-rapide` | la même suite sans base : les tests qui demandent un vrai MongoDB se sautent d'eux-mêmes |
-| `make test-navigateur` | les seuls tests Chromium |
-| `make mongo-arret` | retire le conteneur (il reste allumé entre deux `make test`) |
-| `make navigateur` | installe Chromium pour Playwright |
-| `make test ARGS="-k persistance -v"` | `ARGS` est passé tel quel à pytest |
+| `make test` | brings up a test MongoDB in a Docker container (port 27018, database `tenebrae_test`), waits for it to answer, then runs the whole suite |
+| `make test-fast` | the same suite without a base: the tests requiring a real MongoDB skip themselves |
+| `make test-browser` | the Chromium tests only |
+| `make mongo-stop` | removes the container (it stays up between two `make test`) |
+| `make browser` | installs Chromium for Playwright |
+| `make test ARGS="-k persistence -v"` | `ARGS` is passed to pytest as it stands |
 
-Les tests vivent dans `moteur/tests/` et `application/tests/` (pytest + Playwright, à la demande de
-l'utilisateur) et se lancent **depuis la racine** — le `conftest.py` de la racine met le dépôt sur
-`sys.path`, aucun paquet n'étant installé. `python3 -m pytest` marche donc aussi, mais sans la
-base : préférer `make test`.
+The tests live in `engine/tests/` and `application/tests/` (pytest + Playwright, at the user's
+request) and are run **from the root** — the root `conftest.py` puts the repository on `sys.path`,
+no package being installed. `python3 -m pytest` therefore works too, but without the base: prefer
+`make test`.
 
-L'autre exécutable est le script d'extraction de la carte, à lancer **depuis `game_box/`** (il
-travaille en chemins relatifs) :
+The other executable is the map extraction script, to be run **from `game_box/`** (it works in
+relative paths):
 
 ```
-cd game_box && python3 extraction_carte.py
+cd game_box && python3 extract_map.py
 ```
 
-Dépendances (`requirements.txt`) : Pillow, numpy, scipy pour ce script, Flask, mongoengine et
-python-dotenv pour l'application, pytest, pytest-playwright et mongomock pour les tests ; le
-moteur n'utilise la bibliothèque standard que pour ses règles — ses deux documents et leurs
-dépôts demandent mongoengine, et rien d'autre. Elles sont installées dans le virtualenv pyenv
-`tenebrae` que `.python-version` (racine, non versionné) sélectionne automatiquement ; `python3`
-suffit.
-Le script d'extraction tourne une dizaine de minutes et prend environ 2 Go de mémoire.
+Dependencies (`requirements.txt`): Pillow, numpy, scipy for that script, Flask, mongoengine and
+python-dotenv for the application, pytest, pytest-playwright and mongomock for the tests; the
+engine uses only the standard library for its rules — its two documents and their repositories
+require mongoengine, and nothing else. They are installed in the pyenv virtualenv `tenebrae` that
+`.python-version` (at the root, not versioned) selects automatically; `python3` is enough.
+The extraction script runs for about ten minutes and takes some 2 GB of memory.
 
-## `game_box/carte.json` — grille d'hexagones
+## `game_box/carte.json` — the hexagon grid
 
-`game_box/carte.md` est la référence : système de coordonnées, géométrie de calage sur `map.jpg`,
-vocabulaire des 16 terrains, règle de priorité, table des lieux nommés, méthode et réserves. Le lire
-avant de toucher aux données de la carte.
+`game_box/map.md` is the reference: coordinate system, alignment geometry on `map.jpg`, the
+vocabulary of the 16 terrains, the priority rule, the table of named places, method and caveats.
+Read it before touching the map data.
 
-- Grille **flat-top, décalage odd-q**, 57 colonnes × 40 lignes = 2280 hexagones ; clés cubiques
-  `"q,r,s"` avec `q + r + s = 0`.
-- **La carte du jeu n'est pas `carte.json` seul** : le moteur pose `map_fix.json` par-dessus
-  `carte_details.json` à son démarrage (`CARTE_TRANSCRITE` + `CORRECTIONS_APPLIQUEES` → `CARTE`).
-  Une correction remplace le terrain principal et laisse les éléments secondaires. Corriger la
-  carte ne se fait donc **jamais** en éditant `carte.json` : on relève dans `map_fix.json` par
-  `/admin/map_fix`, ou on corrige le script d'extraction.
-- `carte.json` ne donne **qu'un terrain par hexagone** (priorité : lieux construits > lac >
-  montagne > colline > bois > faille > rivière > route > chemin > plaine) ; `carte_details.json`
-  garde tout ce qui a été détecté. Les deux fichiers doivent rester cohérents : les régénérer
-  ensemble avec le script, jamais éditer un seul à la main.
-- Le classement est automatique **sauf les lieux construits et la Faille de Tsaroth**, relevés à la
-  loupe et codés en dur dans `extraction_carte.py` (`MORGENSTERN`, `FORTS`, `CHATEAUX`, `TOURS`,
-  `ILES`, `RUINES`, `VILLAGES`, `FAILLE`). Une correction de site se fait là, pas dans le JSON.
-- Deux constantes d'amorce (`AMORCE_TAILLE`, `AMORCE_ORIGINE`) initialisent le calage de la grille.
-  L'ajustement aux moindres carrés converge ensuite seul, mais elles restent nécessaires pour que la
-  numérotation des colonnes et des lignes tombe juste : ne pas y toucher sans revérifier
-  `carte_controle.jpg`.
-- Les réglages numériques du script sont calés sur ce scan précis (6173 × 5102 px) et ne sont pas
-  génériques.
-- **Les incertitudes sont conservées, pas résolues** : la section « Réserves sur la transcription »
-  de `carte.md` documente les collines (absentes de la carte, donc interprétées), les rivières
-  traitées comme terrain d'hexagone au lieu d'arête, l'étendue floue des ruines de Ghaarth, un nom
-  de village illisible. Y ajouter tout nouveau doute plutôt que de trancher sans source.
-- Vérifier une modification en regardant `carte_controle.jpg`, pas en relisant le JSON.
+- A **flat-top, odd-q offset** grid, 57 columns × 40 rows = 2280 hexagons; cube keys `"q,r,s"` with
+  `q + r + s = 0`.
+- **The game map is not `carte.json` alone**: the engine lays `map_fix.json` over
+  `carte_details.json` at start-up (`TRANSCRIBED_MAP` + `APPLIED_FIXES` → `MAP`). A fix replaces
+  the main terrain and leaves the secondary elements. Fixing the map is therefore **never** done by
+  editing `carte.json`: it is recorded in `map_fix.json` through `/admin/map_fix`, or the
+  extraction script is corrected.
+- `carte.json` gives **only one terrain per hexagon** (priority: built places > lake > mountain >
+  hill > woods > rift > river > road > path > plain); `carte_details.json` keeps everything that
+  was detected. Both files must stay consistent: regenerate them together with the script, never
+  edit one by hand.
+- The classification is automatic **except for the built places and the Rift of Tsaroth**, read
+  under a magnifying glass and hard-coded in `extract_map.py` (`MORGENSTERN`, `FORTS`, `CASTLES`,
+  `TOWERS`, `ISLANDS`, `RUINS`, `VILLAGES`, `RIFT`). A site fix is made there, not in the JSON.
+- Two seed constants (`SEED_SIZE`, `SEED_ORIGIN`) initialise the grid alignment. The least-squares
+  fit then converges on its own, but they remain necessary for the column and row numbering to come
+  out right: do not touch them without rechecking `carte_controle.jpg`.
+- The script's numeric settings are tuned on this precise scan (6173 × 5102 px) and are not
+  generic.
+- **Uncertainties are kept, not resolved**: the "Réserves sur la transcription" section of `map.md`
+  documents the hills (absent from the map, hence interpreted), the rivers treated as hexagon
+  terrain instead of edges, the vague extent of the ruins of Ghaarth, an illegible village name.
+  Add any new doubt there rather than settle it without a source.
+- Check a change by looking at `carte_controle.jpg`, not by rereading the JSON.
 
-## `game_box/ave_tenebrae_regles.md` — conventions de transcription
+## `game_box/ave_tenebrae_regles.md` — transcription conventions
 
-Suivre ces conventions pour toute correction ou complétion (elles sont posées dans l'en-tête du
-fichier lui-même) :
+This file stays in French: it *is* the booklet. Follow these conventions for any correction or
+completion (they are set out in the file's own header):
 
-- **Texte seul** : les illustrations du fascicule ne sont pas reprises, mais leur contenu
-  informatif est reformulé — le schéma « Anatomie d'un pion » est rendu en bloc ASCII *et* en
-  tableau, les symboles des pions en tableau à deux colonnes doubles avec approximations Unicode
-  (`⊠ Infanterie`, `↑ Phalange`) ou description entre parenthèses quand aucun glyphe ne convient
-  (`(créature ailée) Volants`).
-- **Tous les tableaux du fascicule sont convertis en tableaux Markdown** (jamais en texte préformaté).
-- **Orthographe modernisée** : le fascicule est composé en caractères gothiques où le glyphe « b »
-  note « v » ; le texte est rétabli en français moderne.
-- Structure : `#` pour les grandes parties (Règles, Unités spéciales, Magie, Livre des sortilèges,
-  Points d'achat, Scénarios, Tableau des terrains), `##`/`###` en dessous. Les sortilèges portent
-  en titre les initiales des lanceurs autorisés : `### Boule de feu — *M, N*` (M = mage,
-  C = clerc, N = nécromancien).
-- Séparateurs `---` entre les grandes sections.
+- **Text only**: the booklet's illustrations are not reproduced, but their informative content is
+  restated — the "Anatomie d'un pion" diagram is rendered as an ASCII block *and* as a table, the
+  counter symbols as a table of two double columns with Unicode approximations (`⊠ Infanterie`,
+  `↑ Phalange`) or a description in brackets when no glyph will do (`(créature ailée) Volants`).
+- **Every table in the booklet is converted into a Markdown table** (never into preformatted text).
+- **Modernised spelling**: the booklet is set in gothic type where the glyph "b" stands for "v";
+  the text is restored to modern French.
+- Structure: `#` for the major parts (Règles, Unités spéciales, Magie, Livre des sortilèges, Points
+  d'achat, Scénarios, Tableau des terrains), `##`/`###` below. Spells carry in their title the
+  initials of the casters allowed: `### Boule de feu — *M, N*` (M = mage, C = cleric,
+  N = necromancer).
+- `---` separators between the major sections.
 
-## `game_box/pions/` — inventaire des pions
+## `game_box/pions/` — the counter inventory
 
-127 photos de pions, copiées depuis `base_material/images/` (les originaux y restent **intacts** ;
-ce répertoire ne contient que des copies renommées) et classées en 21 répertoires numérotés par
-faction ou utilité, d'après le découpage donné par l'article de blog. `pions.json` s'y ajoute :
-les valeurs relevées à l'œil sur les cartons, que `moteur.pion` lit au démarrage.
+127 counter photographs, copied from `base_material/images/` (the originals stay there **intact**;
+this directory contains only renamed copies) and filed into 21 numbered directories by faction or
+purpose, after the breakdown given by the blog article. `pions.json` is added to them: the values
+read by eye off the counters, which `engine.piece` reads at start-up.
 
-- Nommage : `NN-faction/faction-NN-<description-slugifiee>.jpg`, la numérotation reflétant l'ordre
-  de présentation dans la source.
-- `game_box/pions/README.md` est l'index maître : sommaire des 21 répertoires, répartition en camps
-  (Alliance / Ténèbres / neutre), puis une table par faction associant chaque fichier à son contenu
-  **et à sa photo d'origine**. Toute nouvelle copie doit être ajoutée à ces tables avec sa
-  provenance.
-- **Les incertitudes de la source sont conservées, pas résolues** : les libellés `(renforts ?)` et
-  les interprétations d'initiales (`K` = kobolds ?) gardent leur point d'interrogation, et la
-  section « Réserves sur l'inventaire » en fin de README documente les lacunes connues (photo
-  manquante des cavaleries lourdes du Chaos, initiales des non-humains non expliquées par les
-  règles, cinq mouvements illisibles). Ne pas trancher ces points sans source ; les ajouter à cette
-  section si de nouveaux doutes apparaissent.
-- La section finale liste les 17 images volontairement non reprises (couvertures, vues de carte,
-  habillage du blog).
+- Naming: `NN-faction/faction-NN-<slugified-description>.jpg`, the numbering reflecting the order
+  of presentation in the source. These names are data, and stay French.
+- `game_box/pions/README.md` is the master index: a summary of the 21 directories, the breakdown
+  into sides (Alliance / Darkness / neutral), then one table per faction associating each file with
+  its contents **and with its source photograph**. Every new copy must be added to those tables
+  with its provenance.
+- **The source's uncertainties are kept, not resolved**: the `(renforts ?)` labels and the
+  interpretations of initials (`K` = kobolds?) keep their question mark, and the "Réserves sur
+  l'inventaire" section at the end of the README documents the known gaps (the missing photograph
+  of the Chaos heavy cavalry, the non-human initials unexplained by the rules, five illegible
+  movement values). Do not settle those points without a source; add to that section if new doubts
+  appear.
+- The final section lists the 17 images deliberately not reproduced (covers, map views, the blog's
+  furniture).
 
 ## Commits
 
-**Ne jamais commiter de sa propre initiative.** C'est l'utilisateur qui décide quand et quoi
-commiter : laisser le travail dans l'arbre de travail et le lui signaler. Ne commiter que sur une
-demande explicite pour ce commit-là — invoquer `/commit`, ou dire « commit ». Une consigne comme
-« versionne ce fichier » veut dire « ajoute-le au dépôt », pas « commit ». Une autorisation donnée
-une fois ne vaut pas pour la suivante.
+**Never commit on your own initiative.** It is the user who decides when and what to commit: leave
+the work in the working tree and tell them about it. Commit only on an explicit request for that
+commit — invoking `/commit`, or saying "commit". An instruction such as "version this file" means
+"add it to the repository", not "commit". Permission given once does not hold for the next time.
 
-Messages courts en anglais, une phrase — le contenu est en français, les messages de commit ne le
-sont pas. La skill `/commit` du projet produit un message d'une phrase, ajoute tous les fichiers et
-commit : « tous les fichiers » veut bien dire tous, `.DS_Store` compris s'il traîne. Un coup d'œil
-à `git status` avant.
+Short messages in English, one sentence. The project's `/commit` skill produces a one-sentence
+message, adds every file and commits: "every file" really does mean every, `.DS_Store` included if
+it is lying around. A glance at `git status` beforehand.

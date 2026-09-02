@@ -5,49 +5,49 @@ body {
   font-family: Georgia, "Times New Roman", serif;
 }
 
-/* Le cadre, la toile, le plateau et la barre d'outils sont dans zoom.css, partagé avec le
-   plateau de jeu ; il ne reste ici que ce qui appartient à la correction de la carte. */
-#plateau {
+/* The frame, the canvas, the board and the toolbar are in zoom.css, shared with the game board;
+   only what belongs to map fixing is left here. */
+#board {
   cursor: crosshair;
 }
 
-#surlignage {
+#highlight {
   position: absolute;
   top: 0;
   left: 0;
   pointer-events: none;
 }
 
-/* L'hexagone sous le pointeur. */
-#surlignage .vise {
+/* The hexagon under the pointer. */
+#highlight .aimed {
   fill: rgba(246, 231, 193, 0.18);
   stroke: #f6e7c1;
   stroke-width: 6;
 }
 
-/* Les cases déjà corrigées, pour les voir d'un coup d'œil. */
-#surlignage .corrige {
+/* The squares already fixed, to see them at a glance. */
+#highlight .fixed {
   fill: rgba(214, 108, 74, 0.35);
   stroke: #d66c4a;
   stroke-width: 5;
 }
 
-#compteur {
+#counter {
   padding-left: 0.5rem;
   border-left: 1px solid #6b5a44;
   color: #d9c9a5;
 }
 
-/* Le moteur ne relit map_fix.json qu'au démarrage : tant qu'on n'a pas relancé, le jeu ignore la
-   correction qu'on vient de faire. */
-#redemarrage {
+/* The engine only re-reads map_fix.json at start-up: until it has been restarted, the game
+   ignores the fix one has just made. */
+#restart {
   padding-left: 0.5rem;
   border-left: 1px solid #6b5a44;
   color: #e8a184;
 }
 
-/* L'encadré qui suit le pointeur et dit le terrain. */
-#infobulle {
+/* The box that follows the pointer and states the terrain. */
+#tooltip {
   position: fixed;
   z-index: 3;
   padding: 0.25rem 0.55rem;
@@ -59,11 +59,11 @@ body {
   pointer-events: none;
 }
 
-#infobulle .correction {
+#tooltip .fix {
   color: #e8a184;
 }
 
-#choix {
+#choice {
   border: 1px solid #6b5a44;
   border-radius: 4px;
   background: #241f1b;
@@ -71,28 +71,28 @@ body {
   padding: 1rem 1.2rem;
 }
 
-#choix::backdrop {
+#choice::backdrop {
   background: rgba(0, 0, 0, 0.5);
 }
 
-#choix-titre {
+#choice-title {
   margin: 0 0 0.2rem;
   font-size: 1.05rem;
 }
 
-#choix-etat {
+#choice-state {
   margin: 0 0 0.8rem;
   font-size: 0.85rem;
   color: #d9c9a5;
 }
 
-#choix-terrains {
+#choice-terrains {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 0.35rem;
 }
 
-#choix-terrains button {
+#choice-terrains button {
   font: inherit;
   font-size: 0.9rem;
   padding: 0.35rem 0.5rem;
@@ -103,24 +103,24 @@ body {
   cursor: pointer;
 }
 
-#choix-terrains button:hover {
+#choice-terrains button:hover {
   background: #3a3028;
 }
 
-/* Le terrain que porte la case en ce moment. */
-#choix-terrains button.actuel {
+/* The terrain the square currently carries. */
+#choice-terrains button.current {
   border-color: #f6e7c1;
   background: #4a3d30;
 }
 
-#choix-pied {
+#choice-footer {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
   margin-top: 0.9rem;
 }
 
-#choix-pied button {
+#choice-footer button {
   font: inherit;
   font-size: 0.85rem;
   padding: 0.3rem 0.7rem;
@@ -131,6 +131,6 @@ body {
   cursor: pointer;
 }
 
-#choix-pied button:hover {
+#choice-footer button:hover {
   background: #3a3028;
 }

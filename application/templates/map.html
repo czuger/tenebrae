@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ave Tenebrae — la carte</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='zoom.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='map.css') }}">
+</head>
+<body>
+  <!-- The server passes the layout and the grid alignment as JSON; the JavaScript uses them to
+       convert cube coordinates into pixels and place the pieces. -->
+  <input type="hidden" id="pieces" value="{{ pieces }}">
+  <input type="hidden" id="grid" value="{{ grid }}">
+  <input type="hidden" id="phase" value="{{ phase }}">
+  <!-- Who is watching, who holds which side - and the game's version number, by which the browser
+       sees that the opponent has played (see the "/game/state" route). -->
+  <input type="hidden" id="table" value="{{ table }}">
+  <input type="hidden" id="version" value="{{ version }}">
+  <!-- The game log as it stands when the page opens; the rest arrives through the stream, with
+       the pieces and the phase. -->
+  <input type="hidden" id="initial-log" value="{{ log }}">
+  <!-- Where this player was on the map: their scale and the point they had at the centre. "null"
+       for an anonymous visitor, or for someone who has adjusted nothing yet - the map then opens
+       fitted to the window. -->
+  <input type="hidden" id="view" value="{{ view }}">
+
+  <div id="frame">
+    <div id="canvas">
+      <div id="board">
+        <img id="map" src="{{ url_for('game.map_image') }}" alt="Carte d'Ave Tenebrae">
+      </div>
+    </div>
+  </div>
+
+  <!-- The top-left panel: the toolbar, and beneath it the card of the hovered unit. Both are
+       outside #board, so they escape the zoom. -->
+  <div id="panel">
+    <div id="toolbar">
+      <button type="button" id="zoom-out" title="Reculer">−</button>
+      <span id="scale">—</span>
+      <button type="button" id="zoom-in" title="Approcher">+</button>
+      <button type="button" id="fit">ajuster</button>
+      <!-- Brings the last clicked piece back to the centre of the window. As long as no piece has
+           been clicked there is nothing to aim at: the button stays off. -->
+      <button type="button" id="locate" title="Centrer sur le dernier pion cliqué" disabled>
+        localiser
+      </button>
+
+      <!-- The current phase and its progress, in line with the zoom buttons. -->
+      <span id="phase-label"></span>
+      <button type="button" id="next-phase">Phase suivante</button>
+      <button type="button" id="attack" hidden>Attaquer</button>
+      <button type="button" id="cancel-combat" hidden>Annuler</button>
+
+      <!-- The player: a single button, whatever the state. Anonymous, it sends to Discord;
+           connected, it opens the table dialog. Nothing else goes into the bar - its reference
+           size is documented in map.css, and one more addition would make it overflow to the
+           right. -->
+      <button type="button" id="player"></button>
+    </div>
+
+    <!-- What the server refused - playing out of turn, without a seat, without an account. Under
+         the bar like the card: the panel grows downwards, the bar does not move. -->
+    <div id="message" hidden></div>
+
+    <!-- The card of the hovered unit, under the bar rather than following it: inside the bar it
+         had to stay tiny so as not to lengthen it. The JavaScript fills it from what the hidden
+         "pieces" field carries. -->
+    <div id="card" hidden>
+      <img id="card-image" alt="">
+      <div id="card-text">
+        <span id="card-name"></span>
+        <span id="card-extra"></span>
+        <span id="card-symbol"></span>
+        <dl id="card-values"></dl>
+        <span id="card-remarks"></span>
+      </div>
+    </div>
+
+    <!-- The game log, in a column under the card: phase changes, combats declared and resolved,
+         AI moves. It is the same account as `battle_log.log`, whose last lines the server keeps
+         in memory to push them with the game. Empty, the column does not appear. -->
+    <div id="log" hidden>
+      <ol id="log-lines"></ol>
+    </div>
+  </div>
+
+  <!-- The table: who holds which side, and the means to sit down or leave. Everything that does
+       not fit in the bar is here - that is the pattern of the map-fixing dialog. -->
+  <dialog id="table-dialog">
+    <p id="table-title"></p>
+    <div id="table-seats"></div>
+    <div id="table-footer">
+      <button type="button" id="table-against-ai" hidden>Nouvelle partie contre l'IA</button>
+      <button type="button" id="table-leave" hidden>Quitter ma place</button>
+      <button type="button" id="table-logout">Se déconnecter</button>
+      <button type="button" id="table-close">Fermer</button>
+    </div>
+  </dialog>
+
+  <script src="{{ url_for('static', filename='geometry.js') }}"></script>
+  <script src="{{ url_for('static', filename='zoom.js') }}"></script>
+  <script src="{{ url_for('static', filename='map.js') }}"></script>
+</body>
+</html>

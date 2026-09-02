@@ -1,79 +1,80 @@
-# Pions d'Ave Tenebrae — classement par faction et par utilité
+# Ave Tenebrae counters — filed by faction and by purpose
 
-Ce répertoire rassemble les **127 photos de pions** de la 2ᵉ édition d'Ave Tenebrae (1986),
-extraites du répertoire `base_material/images/` et classées d'après le découpage détaillé dans
-`base_material/vintageboard-1-ave-tenebrae.html` (article « Vintageboard 1 : Ave Tenebrae »,
+This directory gathers the **127 counter photographs** of the 2nd edition of Ave Tenebrae (1986),
+taken from the `base_material/images/` directory and filed after the breakdown detailed in
+`base_material/vintageboard-1-ave-tenebrae.html` (the article "Vintageboard 1: Ave Tenebrae",
 R-One Chaff).
 
-Les fichiers d'origine sont **conservés intacts** dans `base_material/images/` ; ce répertoire
-n'en contient que des copies renommées. `base_material/` n'est pas versionné : la colonne
-« Photo d'origine » des tables ci-dessous ne se vérifie qu'avec les sources en local.
+The original files are **kept intact** in `base_material/images/`; this directory contains only
+renamed copies. The file names, and the contents column of the tables below, are French: they are
+the game's data, and the code reads them as they stand.
 
-## Sommaire
+## Summary
 
-| Répertoire | Faction / utilité | Pions |
+| Directory | Faction / purpose | Counters |
 | --- | --- | --- |
 | `01-yzent/` | Yzent | 12 |
-| `02-reissland/` | Vicomté de Reissland | 4 |
-| `03-empire/` | Empire Tharque | 10 |
-| `04-templiers/` | Templiers | 7 |
+| `02-reissland/` | Viscounty of Reissland | 4 |
+| `03-empire/` | Tharque Empire | 10 |
+| `04-templiers/` | Templars | 7 |
 | `05-population/` | Population | 1 |
-| `06-empire-de-lynn/` | Empire de Lynn | 12 |
+| `06-empire-de-lynn/` | Empire of Lynn | 12 |
 | `07-chaos/` | Chaos | 6 |
-| `08-non-humains/` | Non-humains | 11 |
-| `09-elfes/` | Elfes | 6 |
-| `10-nains/` | Nains | 6 |
-| `11-orques/` | Orques | 8 |
-| `12-sahuaguins/` | Sahuaguins | 4 |
+| `08-non-humains/` | Non-humans | 11 |
+| `09-elfes/` | Elves | 6 |
+| `10-nains/` | Dwarves | 6 |
+| `11-orques/` | Orcs | 8 |
+| `12-sahuaguins/` | Sahuagin | 4 |
 | `13-dragons/` | Dragons | 1 |
-| `14-morts-vivants/` | Morts-vivants | 6 |
-| `15-demons/` | Démons | 8 |
-| `16-volants/` | Volants | 5 |
-| `17-conjurations/` | Conjurations diverses | 7 |
-| `18-machines-de-siege/` | Machines de siège | 1 |
-| `19-magiciens/` | Magiciens et clercs | 2 |
-| `20-marqueurs/` | Marqueurs et éléments de jeu | 6 |
-| `21-vues-d-ensemble/` | Vues d'ensemble | 4 |
+| `14-morts-vivants/` | Undead | 6 |
+| `15-demons/` | Demons | 8 |
+| `16-volants/` | Flyers | 5 |
+| `17-conjurations/` | Assorted conjurations | 7 |
+| `18-machines-de-siege/` | Siege engines | 1 |
+| `19-magiciens/` | Magicians and clerics | 2 |
+| `20-marqueurs/` | Markers and game elements | 6 |
+| `21-vues-d-ensemble/` | Overviews | 4 |
 
-### Camps
+### Sides
 
-- **Forces de l'Alliance / du Bien** : Empire Tharque, Vicomté de Reissland, Templiers, Elfes,
-  Population, Dragons, Empire de Lynn (scénario 3), Nains (scénario 4).
-- **Forces des Ténèbres / du Magiocrate** : Chaos, Non-humains, Orques, Sahuaguins, Yzent
-  (allié d'opportunité), Morts-vivants, Démons, Juggernaut.
-- **Neutre / hors camp** : Volants (scénario 5), conjurations, marqueurs.
+- **Forces of the Alliance / of Good**: Tharque Empire, Viscounty of Reissland, Templars, Elves,
+  Population, Dragons, Empire of Lynn (scenario 3), Dwarves (scenario 4).
+- **Forces of the Darkness / of the Magiocrat**: Chaos, Non-humans, Orcs, Sahuagin, Yzent (an ally
+  of convenience), Undead, Demons, the Juggernaut.
+- **Neutral / outside the sides**: Flyers (scenario 5), conjurations, markers.
 
-## Valeurs lues sur les pions — `pions.json`
+## Values read off the counters — `pions.json`
 
-`pions.json` reprend, pour chacune des 127 photos de ce répertoire, les valeurs **lues à l'œil sur
-la photo**. La clé est le nom de l'image sans répertoire ni extension ; le dictionnaire porte le
-chemin de l'image depuis la racine du dépôt.
+`pions.json` records, for each of the 127 photographs in this directory, the values **read by eye
+off the photograph**. The key is the image's name without directory or extension; the dictionary
+carries the image's path from the repository root. Its field names are French, like the rest of the
+game's data, and `engine.piece` reads them as such.
 
-| Champ | Contenu | Position sur le pion |
+| Field | Contents | Position on the counter |
 | --- | --- | --- |
-| `image` | chemin de la photo depuis la racine du dépôt | — |
-| `faction` | répertoire de classement (`01-yzent`, …) | — |
-| `force` | force d'attaque et de défense | haut, à gauche |
-| `mouvement` | points de mouvement | haut, à droite |
-| `tir` | force de combat par tir de missile | bas, à gauche |
-| `portee` | portée des missiles | bas, à droite |
-| `mouvement_vol` | mouvement en vol (chiffre entre parenthèses) | bas, au centre |
-| `facultes_speciales` | lettre de faculté spéciale (`P`, `s`, `PA`, `D`…) | haut, au centre |
-| `symbole` | type d'unité identifié d'après la table des symboles | centre |
-| `remarques` | lettres de non-humains, noms de leaders, doutes de lecture | — |
+| `image` | path of the photograph from the repository root | — |
+| `faction` | filing directory (`01-yzent`, …) | — |
+| `force` | attack and defence strength | top left |
+| `mouvement` | movement points | top right |
+| `tir` | combat strength by missile fire | bottom left |
+| `portee` | missile range | bottom right |
+| `mouvement_vol` | flight movement (the figure in brackets) | bottom centre |
+| `facultes_speciales` | special ability letter (`P`, `s`, `PA`, `D`…) | top centre |
+| `symbole` | unit type identified from the symbol table | centre |
+| `remarques` | non-human letters, leader names, reading doubts | — |
 
-Un champ absent du pion vaut `null`. 114 des 127 entrées portent une valeur de mouvement ; les 13
-autres sont les marqueurs, les deux feuilles de suivi, les quatre vues d'ensemble et les
-chauves-souris (qui n'ont qu'un mouvement en vol).
+A field absent from the counter is `null`. 114 of the 127 entries carry a movement value; the other
+13 are the markers, the two record sheets, the four overviews and the bats (which have only a
+flight movement).
 
-Le fichier est **écrit à la main d'après les photos**, pas généré : le corriger revient à
-rouvrir la photo concernée.
+The file is **written by hand from the photographs**, not generated: correcting it means reopening
+the photograph concerned.
 
 ## Yzent
 
-`01-yzent/` — Ennemi héréditaire du Vicomté de Reissland. Arrive par le nord-ouest de la carte (scénarios 1 et 3).
+`01-yzent/` — Hereditary enemy of the Viscounty of Reissland. Arrives from the north-west of the map (scenarios 1 and 3).
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `yzent-01-9-infanteries-de-puissance-4.jpg` | 9 infanteries de puissance 4 | `20170714_154512.jpg` |
 | `yzent-02-6-infanteries-de-puissance-6.jpg` | 6 infanteries de puissance 6 | `20170714_154739.jpg` |
@@ -88,22 +89,22 @@ rouvrir la photo concernée.
 | `yzent-11-leader-1.jpg` | leader 1 | `20170714_154821.jpg` |
 | `yzent-12-leader-2.jpg` | leader 2 | `20170714_154834.jpg` |
 
-## Vicomté de Reissland
+## Reissland
 
-`02-reissland/` — Royaume indépendant de l'Empire, présent dans le scénario 1. Doit contenir l'invasion d'Yzent.
+`02-reissland/` — A kingdom independent of the Empire, present in scenario 1. Must contain the invasion from Yzent.
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `reissland-01-15-infanteries.jpg` | 15 infanteries | `20170714_162924.jpg` |
 | `reissland-02-8-cavaleries.jpg` | 8 cavaleries | `20170714_162904.jpg` |
 | `reissland-03-3-archers.jpg` | 3 archers | `20170714_162845.jpg` |
 | `reissland-04-1-leader.jpg` | 1 leader | `20170714_162934.jpg` |
 
-## Empire Tharque
+## The Tharque Empire
 
-`03-empire/` — Les forces humaines de l'Empire : troupes de garnison puis renforts.
+`03-empire/` — The Empire's human forces: garrison troops, then reinforcements.
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `empire-01-26-infanteries.jpg` | 26 infanteries | `20170715_142502.jpg` |
 | `empire-02-6-cavaleries.jpg` | 6 cavaleries | `20170715_142519.jpg` |
@@ -116,11 +117,11 @@ rouvrir la photo concernée.
 | `empire-09-6-cavaleries-de-puissance-10-renforts.jpg` | 6 cavaleries de puissance 10 (renforts) | `20170715_142646.jpg` |
 | `empire-10-1-leader-renforts.jpg` | 1 leader (renforts) | `20170715_143428.jpg` |
 
-## Templiers
+## Templars
 
-`04-templiers/` — Renfort d'élite du scénario 1 (tour 12 ou chute du Reissland). Immunisés à la peur.
+`04-templiers/` — Elite reinforcement of scenario 1 (turn 12, or the fall of Reissland). Immune to fear.
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `templiers-01-5-infanteries.jpg` | 5 infanteries | `20170715_150125.jpg` |
 | `templiers-02-9-cavaleries-de-puissance-10.jpg` | 9 cavaleries de puissance 10 | `20170715_150145.jpg` |
@@ -132,17 +133,17 @@ rouvrir la photo concernée.
 
 ## Population
 
-`05-population/` — Pions de populace disséminés dans les villages de l'Empire en début de partie.
+`05-population/` — Populace counters scattered through the Empire's villages at the start of the game.
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `population-01-20-populaces.jpg` | 20 populaces | `20170715_192640.jpg` |
 
-## Empire de Lynn
+## The Empire of Lynn
 
-`06-empire-de-lynn/` — Armée impériale du scénario 3 (Pour qui sonne le glas). Seule force du jeu à posséder des chars.
+`06-empire-de-lynn/` — The imperial army of scenario 3 (Pour qui sonne le glas). The only force in the game to have chariots.
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `empire-de-lynn-01-10-infanteries.jpg` | 10 infanteries | `20170715_194401.jpg` |
 | `empire-de-lynn-02-10-cavaleries-de-puissance-10.jpg` | 10 cavaleries de puissance 10 | `20170715_194457.jpg` |
@@ -159,9 +160,9 @@ rouvrir la photo concernée.
 
 ## Chaos
 
-`07-chaos/` — Armée humaine de base du Magiocrate, première sur le champ de bataille.
+`07-chaos/` — The Magiocrat's basic human army, first onto the battlefield.
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `chaos-01-4-infanteries-de-puissance-5.jpg` | 4 infanteries de puissance 5 | `20170718_124656.jpg` |
 | `chaos-02-10-archers-de-puissance-3.jpg` | 10 archers de puissance 3 | `20170718_124823.jpg` |
@@ -170,11 +171,11 @@ rouvrir la photo concernée.
 | `chaos-05-6-infanteries-de-puissance-10-renforts.jpg` | 6 infanteries de puissance 10 (renforts ?) | `20170718_125449.jpg` |
 | `chaos-06-1-leader.jpg` | 1 leader | `20170718_125540.jpg` |
 
-## Non-humains
+## Non-humans
 
-`08-non-humains/` — Sept races entrant par le Seuil des Brumes. Doivent toujours combattre groupées.
+`08-non-humains/` — Seven races entering through the Seuil des Brumes. Must always fight in a group.
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `non-humains-01-3-infanteries-de-trolls.jpg` | 3 infanteries de trolls | `20170718_133713.jpg` |
 | `non-humains-02-6-infanteries-de-gobelins.jpg` | 6 infanteries de gobelins | `20170718_133804.jpg` |
@@ -188,11 +189,11 @@ rouvrir la photo concernée.
 | `non-humains-10-3-infanteries-bug.jpg` | 3 infanteries bug (?) | `20170720_202247.jpg` |
 | `non-humains-11-2-phalanges-bug.jpg` | 2 phalanges bug (?) | `20170720_202315.jpg` |
 
-## Elfes
+## Elves
 
-`09-elfes/` — Alliés de l'Empire, apparaissent si une unité ennemie approche à 10 cases de la forêt elfique.
+`09-elfes/` — Allies of the Empire; they appear if an enemy unit comes within 10 squares of the elven forest.
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `elfes-01-5-infanteries.jpg` | 5 infanteries | `20170718_140046.jpg` |
 | `elfes-02-4-archers.jpg` | 4 archers | `20170718_140113.jpg` |
@@ -201,11 +202,11 @@ rouvrir la photo concernée.
 | `elfes-05-3-archers-montes-a-cheval.jpg` | 3 archers montes a cheval | `20170718_140313.jpg` |
 | `elfes-06-1-leader.jpg` | 1 leader | `20170720_205941.jpg` |
 
-## Nains
+## Dwarves
 
-`10-nains/` — Absents de la 1re édition. Scénario 4 (La guerre des nains), au sud du volcan de Toth.
+`10-nains/` — Absent from the 1st edition. Scenario 4 (La guerre des nains), south of the volcano of Toth.
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `nains-01-5-infanteries.jpg` | 5 infanteries | `20170720_204053.jpg` |
 | `nains-02-4-arbaletriers.jpg` | 4 arbaletriers | `20170720_203935.jpg` |
@@ -214,11 +215,11 @@ rouvrir la photo concernée.
 | `nains-05-2-leaders.jpg` | 2 leaders | `20170720_204117.jpg` |
 | `nains-06-1-mage-vorgtd.jpg` | 1 mage (Vorgtd) | `20170720_204129.jpg` |
 
-## Orques
+## Orcs
 
-`11-orques/` — Basés dans l'Orcreich. Bonus d'attaque la nuit, malus le jour. Scénarios 1 et 4.
+`11-orques/` — Based in the Orcreich. Attack bonus at night, penalty by day. Scenarios 1 and 4.
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `orques-01-15-infanteries.jpg` | 15 infanteries | `20170721_113339.jpg` |
 | `orques-02-5-cavaleries.jpg` | 5 cavaleries | `20170721_113516.jpg` |
@@ -229,11 +230,11 @@ rouvrir la photo concernée.
 | `orques-07-3-cavaleries-archers-renforts.jpg` | 3 cavaleries archers (renforts) | `20170721_113738.jpg` |
 | `orques-08-1-leader.jpg` | 1 leader | `20170721_113800.jpg` |
 
-## Sahuaguins
+## Sahuagin
 
-`12-sahuaguins/` — Race aquatique du Lac Noir, soumise au Magiocrate. Force x2 en milieu aquatique.
+`12-sahuaguins/` — An aquatic race of the Lac Noir, subject to the Magiocrat. Strength x2 in water.
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `sahuaguins-01-1-infanterie.jpg` | 1 infanterie | `20170721_122824.jpg` |
 | `sahuaguins-02-5-phalanges.jpg` | 5 phalanges | `20170721_122901.jpg` |
@@ -242,17 +243,17 @@ rouvrir la photo concernée.
 
 ## Dragons
 
-`13-dragons/` — Invocation des forces du bien (20 points de magie, apparition sur un 1 au dé). Attaque unique à 4 contre 1.
+`13-dragons/` — A summoning of the forces of good (20 magic points, appearing on a 1 on the die). A single attack at 4 against 1.
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `dragons-01-pions-de-dragons-trois-couleurs.jpg` | pions de dragons (trois couleurs) | `20170721_125028.jpg` |
 
-## Morts-vivants
+## Undead
 
-`14-morts-vivants/` — Invoqués par le Magiocrate depuis l'Île du Crâne (80 points de magie). Ne combattent que la nuit.
+`14-morts-vivants/` — Summoned by the Magiocrat from the Île du Crâne (80 magic points). They fight only at night.
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `morts-vivants-01-20-unites-de-squelettes.jpg` | 20 unites de squelettes | `20170721_184848.jpg` |
 | `morts-vivants-02-7-unites-de-zombies.jpg` | 7 unites de zombies | `20170721_184929.jpg` |
@@ -261,11 +262,11 @@ rouvrir la photo concernée.
 | `morts-vivants-05-5-cavaleries-de-nature-indeterminee.jpg` | 5 cavaleries de nature indeterminee | `20170721_185102.jpg` |
 | `morts-vivants-06-3-lords-montes-sur-dragons.jpg` | 3 lords (montes sur dragons) | `20170721_185124.jpg` |
 
-## Démons
+## Demons
 
-`15-demons/` — Légions invoquées par Orvarth (100 points de magie) ; protoplasmiques (50 points).
+`15-demons/` — Legions summoned by Orvarth (100 magic points); protoplasmic ones (50 points).
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `demons-01-5-infanteries.jpg` | 5 infanteries | `20170723_192754.jpg` |
 | `demons-02-3-cavaleries.jpg` | 3 cavaleries | `20170723_193012.jpg` |
@@ -276,11 +277,11 @@ rouvrir la photo concernée.
 | `demons-07-prince-demon-3.jpg` | prince demon 3 | `20170723_193218.jpg` |
 | `demons-08-8-demons-protoplasmiques.jpg` | 8 demons protoplasmiques | `20170723_193240.jpg` |
 
-## Volants
+## Flyers
 
-`16-volants/` — Race ailée du scénario 5 (attaque de Morgenstern). Leader Lullth, mage Huluth.
+`16-volants/` — The winged race of scenario 5 (the attack on Morgenstern). Leader Lullth, mage Huluth.
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `volants-01-5-infanteries.jpg` | 5 infanteries | `20170723_194849.jpg` |
 | `volants-02-5-phalanges.jpg` | 5 phalanges | `20170723_194939.jpg` |
@@ -288,11 +289,11 @@ rouvrir la photo concernée.
 | `volants-04-1-leader-lullth.jpg` | 1 leader (Lullth) | `20170723_195025.jpg` |
 | `volants-05-1-mage-huluth.jpg` | 1 mage (Huluth) | `20170723_195041.jpg` |
 
-## Conjurations diverses
+## Assorted conjurations
 
-`17-conjurations/` — Élémentaires et animaux conjurés par les mages et clercs. Durée : 3 tours.
+`17-conjurations/` — Elementals and animals conjured by the mages and clerics. Duration: 3 turns.
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `conjurations-01-6-chauves-souris.jpg` | 6 chauves-souris | `20170723_200755.jpg` |
 | `conjurations-02-3-loups.jpg` | 3 loups | `20170723_200831.jpg` |
@@ -302,28 +303,28 @@ rouvrir la photo concernée.
 | `conjurations-06-6-elementaires-d-air.jpg` | 6 elementaires d'air | `20170723_201000.jpg` |
 | `conjurations-07-6-elementaires-d-eau.jpg` | 6 elementaires d'eau | `20170723_201022.jpg` |
 
-## Machines de siège
+## Siege engines
 
-`18-machines-de-siege/` — Le Juggernaut, engin de siège du Seigneur Whismerhill (scénario 3).
+`18-machines-de-siege/` — The Juggernaut, Lord Whismerhill's siege engine (scenario 3).
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `machines-de-siege-01-juggernaut.jpg` | Juggernaut | `20170723_204336.jpg` |
 
-## Magiciens et clercs
+## Magicians and clerics
 
-`19-magiciens/` — Pions de jeteurs de sorts des deux camps (5 pour les ténèbres, 4 pour l'Empire, plus Orvarth et Thornz).
+`19-magiciens/` — Spellcaster counters for both sides (5 for the darkness, 4 for the Empire, plus Orvarth and Thornz).
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `magiciens-01-pions-de-magiciens-vue-d-ensemble.jpg` | pions de magiciens (vue d'ensemble) | `20170707_194729.jpg` |
 | `magiciens-02-pions-de-magiciens-et-clercs-vue-d-ensemble.jpg` | pions de magiciens et clercs (vue d'ensemble) | `20170707_194615.jpg` |
 
-## Marqueurs et éléments de jeu
+## Markers and game elements
 
-`20-marqueurs/` — Pions sans force de combat, posés sur la carte par les sorts ou les facultés spéciales.
+`20-marqueurs/` — Counters with no combat strength, placed on the map by spells or special abilities.
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `marqueurs-01-feu-mur-de-flammes.jpg` | feu (mur de flammes) | `20170711_212643.jpg` |
 | `marqueurs-02-brume-mur-de-brume.jpg` | brume (mur de brume) | `20170711_213319.jpg` |
@@ -332,11 +333,11 @@ rouvrir la photo concernée.
 | `marqueurs-05-forteresse-ou-tour-en-ruines.jpg` | forteresse ou tour en ruines | `20170711_215353.jpg` |
 | `marqueurs-06-breche-dans-un-mur.jpg` | breche dans un mur | `20170711_215436.jpg` |
 
-## Vues d'ensemble
+## Overviews
 
-`21-vues-d-ensemble/` — Photos générales des planches de pions et du rangement.
+`21-vues-d-ensemble/` — General photographs of the counter sheets and of the storage.
 
-| Fichier | Contenu | Photo d'origine |
+| File | Contents | Source photograph |
 | --- | --- | --- |
 | `vues-d-ensemble-01-planches-de-pions.jpg` | planches de pions | `20170707_194529.jpg` |
 | `vues-d-ensemble-02-boite-de-rangement-des-pions.jpg` | boite de rangement des pions | `20170707_195114.jpg` |
@@ -344,34 +345,35 @@ rouvrir la photo concernée.
 | `vues-d-ensemble-04-pions-en-vrac-vue-2.jpg` | pions en vrac (vue 2) | `20170403_163157.jpg` |
 ---
 
-## Réserves sur l'inventaire
+## Réserves sur l'inventaire (caveats on the inventory)
 
-- **Chaos — cavaleries lourdes** : la source blog réutilise la même photo
-  (`20170718_125449.jpg`) pour « 6 infanteries de puissance 10 » et pour
-  « 5 cavaleries lourdes (renforts) ». La photo n'a été classée qu'une fois, sous les
-  infanteries ; la photo des cavaleries lourdes du Chaos manque donc dans la source.
-- Les libellés « (renforts ?) » avec point d'interrogation reprennent les incertitudes de la
-  source : les règles ne précisent pas quelles unités d'Yzent et du Chaos sont les troupes de
-  départ et lesquelles sont les renforts.
-- Les initiales des non-humains (`h`, `K`, `m`, `o`, `bug`) ne sont expliquées nulle part dans
-  les règles ; les interprétations proposées sont celles de l'auteur de l'article.
-- **Lectures incomplètes dans `pions.json`** : sur cinq photos le pion est rogné ou la valeur
-  illisible, et le champ reste à `null` — `yzent-02` (bas du pion), `orques-07` (pas de valeurs de
-  tir imprimées), `morts-vivants-05` (un « 5 » isolé au bas centre), `conjurations-01` (pas de
-  mouvement au sol), `conjurations-07` (bas gauche). Le champ `remarques` le signale à chaque fois.
-- **Deux fichiers de `19-magiciens/` ne sont pas des pions** : ce sont les feuilles de suivi
-  Alliance et Forces Noires (succession des tours, table des résultats, pistes de points de magie
-  des mages). Les noms qu'elles portent sont relevés dans `remarques` de `pions.json` : THORNZ,
-  MIRZ, ORF, CHÊL, ELIM côté Alliance ; ORVARTH, VIZ, ÔM, HAART, GÔL, ZORN côté Forces Noires.
-  De même, `vues-d-ensemble-01-planches-de-pions.jpg` montre en fait la page « Symboles » du
-  fascicule, pas les planches de pions.
+- **Chaos — heavy cavalry**: the blog source reuses the same photograph
+  (`20170718_125449.jpg`) for "6 infanteries de puissance 10" and for
+  "5 cavaleries lourdes (renforts)". The photograph has been filed only once, under the infantry;
+  the photograph of the Chaos heavy cavalry is therefore missing from the source.
+- The "(renforts ?)" labels with a question mark carry over the source's uncertainties: the rules
+  do not say which Yzent and Chaos units are the starting troops and which are the reinforcements.
+- The non-humans' initials (`h`, `K`, `m`, `o`, `bug`) are explained nowhere in the rules; the
+  interpretations offered are the article author's.
+- **Incomplete readings in `pions.json`**: on five photographs the counter is cropped or the value
+  illegible, and the field stays `null` — `yzent-02` (the bottom of the counter), `orques-07` (no
+  firing values printed), `morts-vivants-05` (an isolated "5" at the bottom centre),
+  `conjurations-01` (no ground movement), `conjurations-07` (bottom left). The `remarques` field
+  says so each time.
+- **Two files in `19-magiciens/` are not counters**: they are the Alliance and Forces Noires record
+  sheets (turn sequence, results table, tracks for the mages' magic points). The names they carry
+  are recorded in `remarques` in `pions.json`: THORNZ, MIRZ, ORF, CHÊL, ELIM on the Alliance side;
+  ORVARTH, VIZ, ÔM, HAART, GÔL, ZORN on the Forces Noires side. Likewise,
+  `vues-d-ensemble-01-planches-de-pions.jpg` in fact shows the booklet's "Symboles" page, not the
+  counter sheets.
 
-## Images de `base_material/images/` non reprises ici
+## Images from `base_material/images/` not reproduced here
 
-Ces 17 fichiers ne sont pas des pions et restent uniquement dans `base_material/images/` : couverture et
-photos de boîte (`pic73874_md.jpg`, `20170707_194444.jpg`, `0f6274f5782e7183198dcabff5b13ed1267d.jpeg`,
-`HE_BGG_2.jpg`), vues de la carte et de ses régions (`20170707_194834.jpg`, `20170403_163236.jpg`,
-`20170710_134448.jpg`, `20170710_134527_001.jpg`, `20170710_134550.jpg`, `20170710_134613.jpg`,
-`20170710_134853.jpg`, `20170710_143554.jpg`, `20170710_150031_001.jpg`), extension
-*Fiefs et Empires* (`fiefs.jpeg`), BD *Chroniques de la Lune Noire* (`chroniques.jpg`), et
-éléments d'habillage du blog (`blogger_logo_round_35.png`, `121110-F-VO466-040.JPG`).
+These 17 files are not counters and remain only in `base_material/images/`: the cover and box
+photographs (`pic73874_md.jpg`, `20170707_194444.jpg`,
+`0f6274f5782e7183198dcabff5b13ed1267d.jpeg`, `HE_BGG_2.jpg`), views of the map and its regions
+(`20170707_194834.jpg`, `20170403_163236.jpg`, `20170710_134448.jpg`, `20170710_134527_001.jpg`,
+`20170710_134550.jpg`, `20170710_134613.jpg`, `20170710_134853.jpg`, `20170710_143554.jpg`,
+`20170710_150031_001.jpg`), the *Fiefs et Empires* expansion (`fiefs.jpeg`), the *Chroniques de la
+Lune Noire* comic (`chroniques.jpg`), and the blog's furniture
+(`blogger_logo_round_35.png`, `121110-F-VO466-040.JPG`).

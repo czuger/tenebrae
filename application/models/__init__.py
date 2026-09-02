@@ -1,18 +1,18 @@
-"""Les modèles de l'application, **un fichier par modèle**.
+"""The application's models, **one file per model**.
 
-Il y en a deux, et pas un de plus : l'application ne modélise que ce qui **n'est pas du jeu**.
-Tout le reste — la partie, le joueur, la table des places — vit dans `moteur/models/`.
+There are two, and not one more: the application only models what is **not** the game. Everything
+else - the game, the player, the seating table - lives in `engine/models/`.
 
-- `connexion.py` : le lien entre une session Flask et le joueur du moteur. Rien n'en est persisté,
-  le cookie signé de Flask *est* son stockage ;
-- `vue.py` : où un joueur en était sur la carte, et de combien il l'avait approchée. Un document
-  Mongo, écrit par `depots/vue.py`. Il est ici et non dans le moteur parce que le moteur ne sait
-  pas qu'il existe une image, des pixels ou une fenêtre : une partie se joue depuis un
-  interpréteur, où le zoom ne veut rien dire.
+- `connection.py`: the link between a Flask session and the engine's player. Nothing of it is
+  persisted, Flask's signed cookie *is* its storage;
+- `view.py`: where a player was on the map, and how close they had zoomed in. A Mongo document,
+  written by `repositories/view.py`. It is here and not in the engine because the engine does not
+  know that an image, pixels or a window exist: a game plays from an interpreter, where zoom means
+  nothing.
 
-Le sens de la dépendance ne s'inverse jamais : les deux désignent le joueur du moteur par son
-identifiant Discord, et le moteur, lui, n'importe rien d'ici.
+The direction of the dependency never reverses: both designate the engine's player by their
+Discord identifier, and the engine imports nothing from here.
 
-    from models.connexion import Connexion
-    from models.vue import Vue
+    from models.connection import Connection
+    from models.view import View
 """

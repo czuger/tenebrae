@@ -1,34 +1,34 @@
-/* L'habillage du zoom, partagé par les pages qui affichent la carte (voir zoom.js).
+/* The zoom's styling, shared by the pages that display the map (see zoom.js).
 
-   Le cadre défile ; la toile lui donne la taille de la carte une fois mise à l'échelle, le
-   transform du plateau ne comptant pas dans la mise en page. Les marges automatiques de la toile
-   centrent la carte tant qu'elle tient dans la fenêtre, et tombent à zéro dès qu'elle déborde —
-   sans quoi le défilement en perdrait le coin haut-gauche. */
+   The frame scrolls; the canvas gives it the size of the map once scaled, the board's transform
+   not counting in the layout. The canvas's automatic margins centre the map as long as it fits in
+   the window, and fall to zero as soon as it overflows - without which scrolling would lose its
+   top-left corner. */
 
-#cadre {
+#frame {
   position: fixed;
   inset: 0;
   overflow: auto;
   display: flex;
 }
 
-#toile {
+#canvas {
   position: relative;
   margin: auto;
 }
 
-#plateau {
+#board {
   position: relative;
   transform-origin: top left;
   width: max-content;
 }
 
-#carte {
+#map {
   display: block;
 }
 
-/* La barre d'outils : reculer, l'échelle, approcher, ajuster — et ce que la page y ajoute. */
-#outils {
+/* The toolbar: zoom out, the scale, zoom in, fit - and whatever the page adds to it. */
+#toolbar {
   position: fixed;
   top: 0.6rem;
   left: 0.6rem;
@@ -44,7 +44,7 @@
   font-size: 0.85rem;
 }
 
-#outils button {
+#toolbar button {
   font: inherit;
   padding: 0.15rem 0.6rem;
   border: 1px solid #6b5a44;
@@ -54,18 +54,18 @@
   cursor: pointer;
 }
 
-#outils button:hover:not(:disabled) {
+#toolbar button:hover:not(:disabled) {
   background: #3a3028;
 }
 
-/* Un bouton sans objet — « localiser » avant qu'on ait cliqué un pion — s'éteint sans changer de
-   taille : la barre garde sa hauteur de référence. */
-#outils button:disabled {
+/* A button with no purpose - "localiser" before a piece has been clicked - goes off without
+   changing size: the bar keeps its reference height. */
+#toolbar button:disabled {
   opacity: 0.45;
   cursor: default;
 }
 
-#echelle {
+#scale {
   min-width: 3.5rem;
   text-align: center;
 }

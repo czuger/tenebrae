@@ -1,29 +1,29 @@
-# Dépendances d'Ave Tenebrae. Installation : python3 -m pip install -r requirements.txt
+# Ave Tenebrae's dependencies. Installation: python3 -m pip install -r requirements.txt
 #
-# Le moteur (moteur/) et l'application (application/) ne tournent qu'avec Flask ;
-# tout le reste ne sert qu'aux tests ou à la régénération de la carte.
+# The engine (engine/) and the application (application/) only run with Flask;
+# everything else serves the tests or the regeneration of the map.
 
-# --- Exécution : le serveur et le moteur ---
+# --- Runtime: the server and the engine ---
 Flask
-Werkzeug        # fourni par Flask ; importé directement dans application/tests/conftest.py
+Werkzeug        # shipped with Flask; imported directly in application/tests/conftest.py
 
-# L'authentification Discord n'ajoute rien ici, et c'est voulu : la session tient sur
-# `flask.session` (cookie signé par itsdangerous, que Flask installe déjà) et les deux appels
-# OAuth2 sur `urllib.request` de la bibliothèque standard. Voir application/client_discord.py.
+# Discord authentication adds nothing here, and that is deliberate: the session rests on
+# `flask.session` (a cookie signed by itsdangerous, which Flask already installs) and the two
+# OAuth2 calls on `urllib.request` from the standard library. See application/discord_client.py.
 
-# --- Persistance de la partie (MongoDB) ---
-# Le todo demandait flask-mongoengine : sa dernière version (1.0.0, 2022) ne s'importe pas sous
-# Flask 3 (elle cherche `flask.json.JSONEncoder`, retiré en 2.3). application/extensions.py en
-# reprend l'interface au-dessus de mongoengine seul.
+# --- Game persistence (MongoDB) ---
+# The todo asked for flask-mongoengine: its last version (1.0.0, 2022) does not import under
+# Flask 3 (it looks for `flask.json.JSONEncoder`, removed in 2.3). application/extensions.py
+# takes over its interface on top of mongoengine alone.
 mongoengine
-python-dotenv   # lit le `.env` où vivent les informations de connexion
+python-dotenv   # reads the `.env` where the connection details live
 
 # --- Tests ---
 pytest
-pytest-playwright   # fixture `page` des tests de navigateur ; puis : python3 -m playwright install chromium
-mongomock           # MongoDB en mémoire : les tests de persistance ne demandent aucun serveur
+pytest-playwright   # the `page` fixture of the browser tests; then: python3 -m playwright install chromium
+mongomock           # MongoDB in memory: the persistence tests require no server
 
-# --- Régénération de la carte (game_box/extraction_carte.py, jamais relancé en pratique) ---
+# --- Map regeneration (game_box/extract_map.py, never rerun in practice) ---
 Pillow
 numpy
 scipy

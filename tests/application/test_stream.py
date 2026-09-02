@@ -15,9 +15,9 @@ import threading
 
 import pytest
 
-import app
-from discord_client import DEFAULT_IDENTITY
-from stream import Broadcaster
+from tenebrae.application import app
+from tenebrae.application.discord_client import DEFAULT_IDENTITY
+from tenebrae.application.stream import Broadcaster
 
 ALLIANCE, DARKNESS = "alliance", "tenebres"
 

@@ -5,7 +5,7 @@ import re
 
 import pytest
 
-import app
+from tenebrae.application import app
 from tenebrae.engine.board import MAXIMUM_TILT
 from tenebrae.engine.hexagon import DEFAULT_MOVEMENT, MAP, Hex
 from tenebrae.engine.piece import ALLIANCE, CATALOGUE, DARKNESS
@@ -46,7 +46,7 @@ def test_the_page_carries_both_armies_of_the_scenario(client):
 
 
 def test_the_page_places_each_piece_on_the_scenarios_square(client):
-    """The server invents nothing: it serves the placement fixed in `scenarios/`."""
+    """The server invents nothing: it serves the placement fixed in `tenebrae/scenarios/`."""
     pieces = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
     placed = {f"{piece['q']},{piece['r']},{piece['s']}": piece["key"] for piece in pieces}
     assert placed == app.SCENARIO.placement
@@ -114,7 +114,7 @@ def test_each_placed_piece_carries_its_counter_values(client):
 
 
 def test_the_counter_values_are_those_read_off_the_photographs(client):
-    """Two pieces from the scenario, recorded in `game_box/pions/pions.json`."""
+    """Two pieces from the scenario, recorded in `tenebrae/game_box/pions/pions.json`."""
     pieces = {piece["key"]: piece
               for piece in read_hidden_field(client.get("/").get_data(as_text=True), "pieces")}
 

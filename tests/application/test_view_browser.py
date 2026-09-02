@@ -12,7 +12,7 @@ import time
 
 import pytest
 
-from discord_client import DEFAULT_IDENTITY
+from tenebrae.application.discord_client import DEFAULT_IDENTITY
 
 # The zoom is sent after half a second of quiet (`VIEW_DELAY` in `static/map.js`): these waits
 # leave it some margin on a loaded machine.

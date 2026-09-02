@@ -39,12 +39,14 @@ test-fast:
 	python3 -m pytest $(ARGS)
 
 test-browser: mongo
-	MONGODB_URI_TEST=$(URI) python3 -m pytest application/tests/test_board_browser.py \
-		application/tests/test_map_fix_browser.py \
-		application/tests/test_resume_browser.py \
-		application/tests/test_connection_browser.py \
-		application/tests/test_ai_browser.py \
-		application/tests/test_stream_browser.py $(ARGS)
+	MONGODB_URI_TEST=$(URI) python3 -m pytest tests/application/test_board_browser.py \
+		tests/application/test_map_fix_browser.py \
+		tests/application/test_resume_browser.py \
+		tests/application/test_connection_browser.py \
+		tests/application/test_ai_browser.py \
+		tests/application/test_stream_browser.py \
+		tests/application/test_view_browser.py \
+		tests/application/test_log_browser.py $(ARGS)
 
 # Brings the container up if it is not already there, then waits for the database to really answer:
 # a container that is "Up" is not yet a server accepting connections, and pytest would then start

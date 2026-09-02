@@ -13,15 +13,15 @@
 // Everything the player reads stays in French; only the code is English.
 
 // The tilt of the placed pieces comes from the server: it is part of the game state, drawn at
-// random when the piece is placed and saved with it (see `engine/board.py`). The page only draws
-// one for the ghosts, which are placed nowhere - and for a piece arriving without one, which the
-// server does not do.
+// random when the piece is placed and saved with it (see `tenebrae/engine/board.py`). The page
+// only draws one for the ghosts, which are placed nowhere - and for a piece arriving without one,
+// which the server does not do.
 const MAXIMUM_ROTATION = 5; // degrees, forwards or backwards
 
 // The counter's numeric values, in the order the card gives them to read (see the "Valeurs lues
-// sur les pions" section of game_box/pions/README.md). "Mouvement" is the movement budget the
-// server retained, the very one the engine uses. The symbol and the remarks are not in it: they
-// are words, not numbers, and they have a line of their own. The labels are French, like
+// sur les pions" section of tenebrae/game_box/pions/README.md). "Mouvement" is the movement budget
+// the server retained, the very one the engine uses. The symbol and the remarks are not in it:
+// they are words, not numbers, and they have a line of their own. The labels are French, like
 // everything the player reads.
 const FIELDS = [
   ["strength", "Force"],
@@ -64,7 +64,7 @@ const tableSeats = document.getElementById("table-seats");
 const leaveButton = document.getElementById("table-leave");
 const againstAIButton = document.getElementById("table-against-ai");
 
-// The nickname the server gives to the seat held by the AI (see `engine/ai.py`).
+// The nickname the server gives to the seat held by the AI (see `tenebrae/engine/ai.py`).
 const AI_NAME = "IA";
 
 let pieces = JSON.parse(document.getElementById("pieces").value);

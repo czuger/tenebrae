@@ -2,7 +2,7 @@
 
 A repository exchanges **dicts** - `{scale, x, y, fitted}` -, never a MongoEngine Document: that
 is the form in which the view arrives from the browser, is stored, and goes back to the template.
-`app.py` therefore has to know neither `models.view` nor mongoengine.
+`app.py` therefore has to know neither `tenebrae.application.models.view` nor mongoengine.
 
 Both repositories **keep**, like the player ones and unlike the game one: a view has no other home
 in memory - there is no module global holding it - and a repository that kept nothing would make
@@ -21,7 +21,7 @@ class MongoViewRepository:
     def __init__(self):
         # The import is done here and not at the top: building the in-memory repository must not
         # require mongoengine, which the base-less engine have no reason to load.
-        from models.view import View
+        from tenebrae.application.models.view import View
         self._View = View
 
     def by_discord_id(self, discord_id):

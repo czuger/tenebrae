@@ -1,9 +1,10 @@
 """The connection model: what the session carries, and the engine player it designates.
 
-These engine bear on the class alone, with no request and no route - as `engine/engine/test_seats.py`
-does for the seating register. `Connection` only asks for a session (any mapping that also accepts
-the `permanent` attribute: Flask's real session is one) and a player repository; we give it here
-the engine's in-memory repository, which is the engine' real repository.
+These engine bear on the class alone, with no request and no route - as
+`tenebrae/engine/engine/test_seats.py` does for the seating register. `Connection` only asks for a
+session (any mapping that also accepts the `permanent` attribute: Flask's real session is one) and a
+player repository; we give it here the engine's in-memory repository, which is the engine' real
+repository.
 
 What is checked comes down to three points, and they are the class's three reasons for existing:
 the session carries **only** the identifier, the player is **re-read** from the repository at every
@@ -12,9 +13,9 @@ request, and the OAuth2 state is **removed** from the session as soon as it is t
 
 import pytest
 
-from discord_client import DEFAULT_IDENTITY
+from tenebrae.application.discord_client import DEFAULT_IDENTITY
 from tenebrae.engine.repositories.player import InMemoryPlayerRepository
-from models.connection import OAUTH_STATE_KEY, PLAYER_KEY, Connection
+from tenebrae.application.models.connection import OAUTH_STATE_KEY, PLAYER_KEY, Connection
 
 
 class FakeSession(dict):

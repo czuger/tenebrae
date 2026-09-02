@@ -1,7 +1,7 @@
 """The artificial opponent: targeting, the march towards the enemy, the concentration of attacks.
 
-The file is not called `test_ai.py`: `application/engine/` already has one, and pytest imports test
-modules by their file name alone.
+The file is not called `test_ai.py`: `tenebrae/application/engine/` already has one, and pytest
+imports test modules by their file name alone.
 
 As everywhere, the hexagons are not hard-coded: the figures are looked up on the game map - a
 corner of bare plain, ruins adjacent to a plain - so as to survive a terrain fix. The die is a

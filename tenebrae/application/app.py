@@ -1,63 +1,63 @@
 """A small Flask application that shows the Ave Tenebrae map with pieces laid out on it.
 
 The server lays out a scenario's set-up - no. 4, "La guerre des nains" -, read once and for all
-from `scenarios/`, and passes it to the template as JSON (a hidden field). It is the JavaScript
-that converts cube coordinates into pixels and places the pieces on the map.
+from `tenebrae/scenarios/`, and passes it to the template as JSON (a hidden field). It is the
+JavaScript that converts cube coordinates into pixels and places the pieces on the map.
 
 The game is **saved in MongoDB**: every move played records it, and "/" resumes it where it was
 left. The routes do not see the base - they go through the repository that `create_app` hooks onto
-the application (`engine/repositories/`), and speak to it in state dicts. `POST /game/new` starts
-again from the set-up. Without persistence (`PERSISTENCE=none`, and the test configuration), the
-repository keeps nothing: every load of "/" then places the same pieces on the same squares, as
+the application (`tenebrae/engine/repositories/`), and speak to it in state dicts. `POST /game/new`
+starts again from the set-up. Without persistence (`PERSISTENCE=none`, and the test configuration),
+the repository keeps nothing: every load of "/" then places the same pieces on the same squares, as
 before.
 
-The rules are not here: the possible moves and their validation come from `engine.hexagon`, which
-the /moves and /move routes merely expose. Each piece moves by the number of points read off its
-counter (`engine.piece`): the browser says **which** piece it has in hand, never how many points
-it has - that number is taken from the catalogue.
+The rules are not here: the possible moves and their validation come from `tenebrae.engine.hexagon`,
+which the /moves and /move routes merely expose. Each piece moves by the number of points read off
+its counter (`tenebrae.engine.piece`): the browser says **which** piece it has in hand, never how
+many points it has - that number is taken from the catalogue.
 
-The server also holds the **turn** (`engine.phase.Turn`, the module global `TURN`): the routes
-/phase/next, /combat and /combat/range expose it, and /move refuses a move outside the side's
-movement phase. Combat resolution is in `engine.combat`; only the die roll (`roll_the_die`) is
-here, so that the engine can fix it. The game log is written in two places:
-`logs/battle_log.log` at the root of the repository - the second place where the application
-writes to disk, a rotating file of a thousand lines, kept in three archives behind it -, and a
-bounded in-memory queue, which the browser turns into a column under the unit card. Hence the rule
-the routes follow: **log before marking the move**, since the snapshot pushed to the streams
-carries the log (see `shared_snapshot`).
+The server also holds the **turn** (`tenebrae.engine.phase.Turn`, the module global `TURN`): the
+routes /phase/next, /combat and /combat/range expose it, and /move refuses a move outside the side's
+movement phase. Combat resolution is in `tenebrae.engine.combat`; only the die roll (`roll_the_die`)
+is here, so that the engine can fix it. The game log is written in two places: `logs/battle_log.log`
+at the root of the repository - the second place where the application writes to disk, a rotating
+file of a thousand lines, kept in three archives behind it -, and a bounded in-memory queue, which
+the browser turns into a column under the unit card. Hence the rule the routes follow: **log before
+marking the move**, since the snapshot pushed to the streams carries the log (see
+`shared_snapshot`).
 
-Beside the turn, the module global `REGISTER` (`engine.combat.CombatRegister`) keeps what the
-current combat phase has already consumed: a unit attacks only once, a unit is attacked only once.
-It is emptied at every phase change, and both /combat/range and /combat/target consult it so that
-the browser does not highlight a unit that has already fought.
+Beside the turn, the module global `REGISTER` (`tenebrae.engine.combat.CombatRegister`) keeps what
+the current combat phase has already consumed: a unit attacks only once, a unit is attacked only
+once. It is emptied at every phase change, and both /combat/range and /combat/target consult it so
+that the browser does not highlight a unit that has already fought.
 
-The game is played **by two, one player per side**, identified by Discord (see `discord_client.py`
-for the OAuth2 flow, `engine/models/seats.py` for the table, `models/connection.py` for the link
-between the session and the engine's player). The map stays public - a passing visitor sees it and
-consults the possible moves -, but everything that changes the state requires being logged in and
-holding the side whose phase it is: that is what the `login_required`, `seat_required` and
-`active_side_required` decorators set out. The module global `SEATS` keeps who holds what, and
-`VERSION` rises at every move played.
+The game is played **by two, one player per side**, identified by Discord (see
+`tenebrae/application/discord_client.py` for the OAuth2 flow, `tenebrae/engine/models/seats.py` for
+the table, `models/connection.py` for the link between the session and the engine's player). The map
+stays public - a passing visitor sees it and consults the possible moves -, but everything that
+changes the state requires being logged in and holding the side whose phase it is: that is what the
+`login_required`, `seat_required` and `active_side_required` decorators set out. The module global
+`SEATS` keeps who holds what, and `VERSION` rises at every move played.
 
-Each browser follows the other's game through an **open stream**, /stream, of Server-Sent Events:
-it no longer asks for anything, the server pushes the game to it when it changes. The registry of
-open streams is in `stream.py`; the only point from which anything is published is `mark_a_move`,
-through which everything that moves passes. The /game/state route, which the browser used to poll,
-is still served as a **fallback** - a page whose EventSource does not get through falls back on
-it. See `DEPLOYMENT.md` for what the stream will require behind Nginx.
+Each browser follows the other's game through an **open stream**, /stream, of Server-Sent Events: it
+no longer asks for anything, the server pushes the game to it when it changes. The registry of open
+streams is in `tenebrae/application/stream.py`; the only point from which anything is published is
+`mark_a_move`, through which everything that moves passes. The /game/state route, which the browser
+used to poll, is still served as a **fallback** - a page whose EventSource does not get through
+falls back on it. See `DEPLOYMENT.md` for what the stream will require behind Nginx.
 
-The /admin/map_fix route stands apart: it serves to fix by eye the errors of the map
-transcription, and it is the only place where the application writes into `game_box/` - into a
-file of its own, `map_fix.json`, never into `carte.json` nor `carte_details.json`. It always works
-on the transcribed map, whereas the rest of the application plays on the fixed map the engine
-derives from it at start-up. It is reserved to the accounts in `ADMIN_DISCORD_IDS`.
+The /admin/map_fix route stands apart: it serves to fix by eye the errors of the map transcription,
+and it is the only place where the application writes into `tenebrae/game_box/` - into a file of its
+own, `map_fix.json`, never into `carte.json` nor `carte_details.json`. It always works on the
+transcribed map, whereas the rest of the application plays on the fixed map the engine derives from
+it at start-up. It is reserved to the accounts in `ADMIN_DISCORD_IDS`.
 
 Everything the player reads - button labels, phase names, log lines - stays in French, as do the
 data files; only the code is English.
 
-Launch (from this directory):
+Launch (from the root of the repository):
 
-    python3 app.py
+    python3 -m tenebrae.application.app
 
 then http://127.0.0.1:5000/
 """
@@ -68,7 +68,6 @@ import logging.handlers
 import math
 import random
 import secrets
-import sys
 import time
 from functools import wraps
 from pathlib import Path
@@ -77,21 +76,18 @@ from itsdangerous import BadSignature
 from flask import Blueprint, Flask, abort, current_app, g, redirect, render_template, \
     request, send_from_directory, session, url_for
 
-# The repository is not an installed package: we add it to sys.path to reach `engine`.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from config import Config  # noqa: E402
+from tenebrae.application.config import ROOT, Config
+from tenebrae.application.models.connection import Connection
+from tenebrae.application.stream import Broadcaster
 from tenebrae.engine import ai
-from tenebrae.engine import combat  # noqa: E402
-from tenebrae.engine import hexagon as engine_hexagon  # noqa: E402
-from tenebrae.engine.board import Board  # noqa: E402
-from tenebrae.engine.hexagon import TRANSCRIBED_MAP, Hex  # noqa: E402
-from tenebrae.engine.models.seats import Seats  # noqa: E402
-from tenebrae.engine.phase import COMBAT, Turn  # noqa: E402
-from tenebrae.engine.piece import CATALOGUE  # noqa: E402
-from tenebrae.engine.scenario import scenario  # noqa: E402
-from models.connection import Connection  # noqa: E402
-from stream import Broadcaster  # noqa: E402
+from tenebrae.engine import combat
+from tenebrae.engine import hexagon as engine_hexagon
+from tenebrae.engine.board import Board
+from tenebrae.engine.hexagon import TRANSCRIBED_MAP, Hex
+from tenebrae.engine.models.seats import Seats
+from tenebrae.engine.phase import COMBAT, Turn
+from tenebrae.engine.piece import CATALOGUE
+from tenebrae.engine.scenario import scenario
 
 BOX = Path(__file__).resolve().parent.parent / "game_box"
 PIECES = BOX / "pions"
@@ -102,13 +98,13 @@ TERRAINS = ("ville", "fort", "chateau", "tour", "ruines", "village", "ile", "lac
             "colline", "bois", "faille", "riviere", "route", "chemin", "plaine")
 
 # The scenario the server lays out when "/" is loaded: "La guerre des nains", dwarves against orcs
-# (see `scenarios/README.md`).
+# (see `tenebrae/scenarios/README.md`).
 SCENARIO_NUMBER = 4
 
 # The game log: phase changes, combats declared, units out of range, results. It is written in two
 # places at once - files, in `logs/` at the root of the repository, and a bounded in-memory queue,
 # which the browser turns into its column under the unit card.
-LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "battle_log.log"
+LOG_PATH = ROOT / "logs" / "battle_log.log"
 
 # What the current file accepts before it is set aside, and the number of archives kept behind it:
 # `battle_log.log` plus `battle_log.log.1` to `.3`, that is at most 4,000 lines of game on disk.
@@ -346,10 +342,10 @@ TURN = Turn(SCENARIO.sides, {army["camp"]: army["armee"] for army in SCENARIO.ar
 # turn. Movement does not consult it - emptying it too often costs nothing.
 REGISTER = combat.CombatRegister()
 
-# Who holds which side (see `engine/models/seats.py`). Like the board and the turn, there is only
-# one table per process: both players play the same game, each from their own browser. Unlike the
-# board, it is **not rebuilt** at every load of "/" nor at every new game: starting over does not
-# send anyone away from the table.
+# Who holds which side (see `tenebrae/engine/models/seats.py`). Like the board and the turn, there
+# is only one table per process: both players play the same game, each from their own browser.
+# Unlike the board, it is **not rebuilt** at every load of "/" nor at every new game: starting over
+# does not send anyone away from the table.
 SEATS = Seats()
 
 # The game's version number: it rises by one at every move played. That is how the opponent's
@@ -359,8 +355,8 @@ SEATS = Seats()
 # `/stream`).
 VERSION = 0
 
-# Whom to push the game to when it changes (see `stream.py`). One subscriber per open tab; the
-# registry is in memory, in this process.
+# Whom to push the game to when it changes (see `tenebrae/application/stream.py`). One subscriber
+# per open tab; the registry is in memory, in this process.
 BROADCASTER = Broadcaster()
 
 
@@ -374,7 +370,7 @@ def mark_a_move():
 
     The snapshot is taken **here**, in the thread that has just written, and it is the snapshot
     that travels: stream generators thus never have to re-read the board from their own thread
-    while another is modifying it (see the header of `stream.py`).
+    while another is modifying it (see the header of `tenebrae/application/stream.py`).
     """
     global VERSION
     VERSION += 1
@@ -444,9 +440,9 @@ def current_phase():
 
 # --- The saved game ---
 #
-# The routes know nothing of MongoDB: they go through the repository the factory has hooked onto
-# the application (see `engine/repositories/`), and exchange only state dicts with it. Under the
-# test configuration - and under `PERSISTENCE=none` - that repository keeps nothing, and
+# The routes know nothing of MongoDB: they go through the repository the factory has hooked onto the
+# application (see `tenebrae/engine/repositories/`), and exchange only state dicts with it. Under
+# the test configuration - and under `PERSISTENCE=none` - that repository keeps nothing, and
 # everything happens as before: every load of "/" starts again from the set-up.
 
 
@@ -568,7 +564,7 @@ def placed_units():
     values - and the entry goes out whole: whatever is added to it will follow by itself. Only
     `path` is renamed, to `image`, because that is what the browser puts into `src`. To it is
     added the tilt, which is not of the counter but of the board: it says how **this** piece lies,
-    and the browser takes it as it is instead of drawing one (see `engine/board.py`).
+    and the browser takes it as it is instead of drawing one (see `tenebrae/engine/board.py`).
 
     A fresh game goes through here just like a resumed one: `lay_out_the_scenario` places the
     scenario's pieces, then calls this function.
@@ -625,7 +621,8 @@ def current_player():
 
 
 def is_administrator(player):
-    """Says whether this player may fix the map - see `ADMINISTRATORS` in `config.py`."""
+    """Says whether this player may fix the map - see `ADMINISTRATORS` in
+    `tenebrae/application/config.py`."""
     return player is not None and player["discord_id"] in current_app.config["ADMINISTRATORS"]
 
 
@@ -1376,11 +1373,11 @@ def piece_image(path):
 def create_app(config=None):
     """Builds the application: the configuration, persistence, then the routes.
 
-    All of Flask is born here - the module no longer has a global app, only the `game` blueprint
-    and the game state. Persistence is wired in as a repository (see `engine/repositories/`),
-    hooked onto the app's extensions: the routes find it again through `game_repository()` and
-    know nothing of MongoDB. The imports of the Mongo branch are done here, and not at the top of
-    the file, so that an app without persistence - the engine' - builds without mongoengine.
+    All of Flask is born here - the module no longer has a global app, only the `game` blueprint and
+    the game state. Persistence is wired in as a repository (see `tenebrae/engine/repositories/`),
+    hooked onto the app's extensions: the routes find it again through `game_repository()` and know
+    nothing of MongoDB. The imports of the Mongo branch are done here, and not at the top of the
+    file, so that an app without persistence - the engine' - builds without mongoengine.
     """
     application = Flask(__name__)
     application.config.from_object(config or Config)
@@ -1395,15 +1392,15 @@ def create_app(config=None):
     if application.config["PERSISTENCE"] == "mongo":
         from tenebrae.engine.repositories.game import MongoGameRepository
         from tenebrae.engine.repositories.player import MongoPlayerRepository
-        from extensions import db
-        from repositories.view import MongoViewRepository
+        from tenebrae.application.extensions import db
+        from tenebrae.application.repositories.view import MongoViewRepository
         db.init_app(application)  # before the routes, and only once: the instance is shared
         games, players, views = (MongoGameRepository(), MongoPlayerRepository(),
                                  MongoViewRepository())
     else:
         from tenebrae.engine.repositories.game import NullGameRepository
         from tenebrae.engine.repositories.player import InMemoryPlayerRepository
-        from repositories.view import InMemoryViewRepository
+        from tenebrae.application.repositories.view import InMemoryViewRepository
         games, players, views = (NullGameRepository(), InMemoryPlayerRepository(),
                                  InMemoryViewRepository())
     application.extensions["game_repository"] = games
@@ -1414,13 +1411,13 @@ def create_app(config=None):
     application.extensions["view_repository"] = views
 
     if application.config["AUTHENTICATION"] == "discord":
-        from discord_client import DiscordClient
+        from tenebrae.application.discord_client import DiscordClient
         application.extensions["discord"] = DiscordClient(
             application.config["DISCORD_CLIENT_ID"],
             application.config["DISCORD_CLIENT_SECRET"],
             application.config["DISCORD_REDIRECT_URI"])
     else:
-        from discord_client import FakeDiscordClient
+        from tenebrae.application.discord_client import FakeDiscordClient
         application.extensions["discord"] = FakeDiscordClient()
 
     application.register_blueprint(game)

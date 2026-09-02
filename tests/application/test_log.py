@@ -14,13 +14,14 @@ from pathlib import Path
 
 import pytest
 
-import app
+from tenebrae.application import app
+from tenebrae.application.config import ROOT
 from tenebrae.engine import combat
 from tenebrae.engine.hexagon import Hex
 from tenebrae.engine.piece import CATALOGUE
-from stream import Broadcaster
+from tenebrae.application.stream import Broadcaster
 
-from test_server import read_hidden_field
+from tests.application.test_server import read_hidden_field
 
 PLAIN = {"q": 1, "r": 26, "s": -27}
 NEIGHBOUR = {"q": 2, "r": 26, "s": -28}
@@ -112,7 +113,7 @@ def test_the_shared_snapshot_carries_the_log():
 # --- The breakdown of the ratio computation ------------------------------------------------------
 #
 # The sentence alone, on a made-up breakdown: what happens on the map is exercised in
-# `engine/engine/test_combat.py`, what goes to the log further down.
+# `tenebrae/engine/engine/test_combat.py`, what goes to the log further down.
 
 def sentence(strengths, target_strength, terrain, multiplier, die_bonus, roll):
     """The line the log would write for that computation."""
@@ -285,7 +286,9 @@ def test_a_restart_does_not_start_again_from_zero(log_on_disk, tmp_path):
 
 
 def test_the_applications_log_is_in_logs_at_the_root():
-    """No longer in `application/`: the execution traces all live in the same place."""
+    """At the root of the repository, outside the `tenebrae` package: the execution traces all live
+    in the same place, beside `.env`, and neither is versioned."""
     assert app.LOG_PATH.parent.name == "logs"
-    assert app.LOG_PATH.parent.parent == Path(app.__file__).resolve().parent.parent
+    assert app.LOG_PATH.parent.parent == ROOT
+    assert ROOT == Path(__file__).resolve().parents[2]
     assert (app.LINES_PER_FILE, app.LOGS_KEPT) == (1000, 3)

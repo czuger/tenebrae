@@ -1,13 +1,13 @@
 # Ave Tenebrae counters — filed by faction and by purpose
 
 This directory gathers the **127 counter photographs** of the 2nd edition of Ave Tenebrae (1986),
-taken from the `base_material/images/` directory and filed after the breakdown detailed in
-`base_material/vintageboard-1-ave-tenebrae.html` (the article "Vintageboard 1: Ave Tenebrae",
-R-One Chaff).
+taken from the `material/base_material/images/` directory and filed after the breakdown detailed in
+`material/base_material/vintageboard-1-ave-tenebrae.html` (the article "Vintageboard 1: Ave
+Tenebrae", R-One Chaff).
 
-The original files are **kept intact** in `base_material/images/`; this directory contains only
-renamed copies. The file names, and the contents column of the tables below, are French: they are
-the game's data, and the code reads them as they stand.
+The original files are **kept intact** in `material/base_material/images/`; this directory contains
+only renamed copies. The file names, and the contents column of the tables below, are French: they
+are the game's data, and the code reads them as they stand.
 
 ## Summary
 
@@ -48,7 +48,7 @@ the game's data, and the code reads them as they stand.
 `pions.json` records, for each of the 127 photographs in this directory, the values **read by eye
 off the photograph**. The key is the image's name without directory or extension; the dictionary
 carries the image's path from the repository root. Its field names are French, like the rest of the
-game's data, and `engine.piece` reads them as such.
+game's data, and `tenebrae.engine.piece` reads them as such.
 
 | Field | Contents | Position on the counter |
 | --- | --- | --- |
@@ -367,10 +367,10 @@ the photograph concerned.
   `vues-d-ensemble-01-planches-de-pions.jpg` in fact shows the booklet's "Symboles" page, not the
   counter sheets.
 
-## Images from `base_material/images/` not reproduced here
+## Images from `material/base_material/images/` not reproduced here
 
-These 17 files are not counters and remain only in `base_material/images/`: the cover and box
-photographs (`pic73874_md.jpg`, `20170707_194444.jpg`,
+These 17 files are not counters and remain only in `material/base_material/images/`: the cover and
+box photographs (`pic73874_md.jpg`, `20170707_194444.jpg`,
 `0f6274f5782e7183198dcabff5b13ed1267d.jpeg`, `HE_BGG_2.jpg`), views of the map and its regions
 (`20170707_194834.jpg`, `20170403_163236.jpg`, `20170710_134448.jpg`, `20170710_134527_001.jpg`,
 `20170710_134550.jpg`, `20170710_134613.jpg`, `20170710_134853.jpg`, `20170710_143554.jpg`,

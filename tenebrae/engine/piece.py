@@ -1,9 +1,10 @@
 """The pieces of Ave Tenebrae: what is printed on them, and what movement takes from it.
 
-`game_box/pions/pions.json` carries, for each of the 127 photographs in `game_box/pions/`, the
-values read by eye off the counter - strength, movement, fire, range, flight, special ability (see
-`game_box/pions/README.md`). The file is read once, when the module is imported, and the result is
-held to be constant: the pieces were printed in 1986, they do not change mid-game.
+`tenebrae/game_box/pions/pions.json` carries, for each of the 127 photographs in
+`tenebrae/game_box/pions/`, the values read by eye off the counter - strength, movement, fire,
+range, flight, special ability (see `tenebrae/game_box/pions/README.md`). The file is read once,
+when the module is imported, and the result is held to be constant: the pieces were printed in 1986,
+they do not change mid-game.
 
 Its field names are in French, like every data file in the box, and they are read as such here;
 only the code around them is English.
@@ -12,8 +13,8 @@ The engine currently uses just one of those values, movement, which replaces the
 moves used to be computed on. The rest is loaded anyway: strength and fire will serve in combat.
 
 The side, on the other hand, is not in `pions.json`: it is not printed on the counter. It comes
-from the side breakdown in `game_box/pions/README.md`, held here in `SIDES`, and serves to know
-who opposes whom - hence which zones of control are exerted against whom.
+from the side breakdown in `tenebrae/game_box/pions/README.md`, held here in `SIDES`, and serves
+to know who opposes whom - hence which zones of control are exerted against whom.
 """
 
 import json
@@ -29,9 +30,9 @@ MOTIONLESS = 0
 # suffers one. The values are those of the data files and of the saved game, and stay in French.
 ALLIANCE, DARKNESS, NEUTRAL = "alliance", "tenebres", "neutre"
 
-# The side of each faction, after the "Camps" section of `game_box/pions/README.md`. Directories
-# with no units - record sheets, markers, overviews - are neutral for want of anything better:
-# nothing in them fights.
+# The side of each faction, after the "Camps" section of `tenebrae/game_box/pions/README.md`.
+# Directories with no units - record sheets, markers, overviews - are neutral for want of anything
+# better: nothing in them fights.
 SIDES = {
     "01-yzent": DARKNESS,             # the Magiocrat's ally of convenience
     "02-reissland": ALLIANCE,
@@ -120,7 +121,7 @@ class Piece:
         Every unit of a side does. Markers exert nothing since they are not units, and neutrals
         do not either for want of an opponent. The booklet further exempts leaders, spellcasters,
         demons and ordinary undead: those exceptions are not applied, they are recorded in
-        `engine/README.md`.
+        `tenebrae/engine/README.md`.
         """
         return self.is_a_unit and self.side != NEUTRAL
 

@@ -13,7 +13,7 @@ These engine require Chromium (`make browser`).
 
 import pytest
 
-import app
+from tenebrae.application import app
 
 # A move played must show in less time than the old poll would have taken: that is the only way to
 # tell "the stream pushed" from "something eventually asked again".

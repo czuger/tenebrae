@@ -7,7 +7,7 @@ neither the game nor the web. What shows in a page is exercised separately, in `
 
 import threading
 
-from stream import Broadcaster
+from tenebrae.application.stream import Broadcaster
 
 # Enough not to wait a second to observe that a box is empty.
 INSTANT = 0.05

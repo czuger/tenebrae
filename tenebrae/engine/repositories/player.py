@@ -3,7 +3,7 @@
 Both repositories return **dicts** - `{discord_id, nickname, display_name, avatar, email}` - and
 never a document: that is the form in which a player travels to the routes and to the template,
 and it is what the application's connection entity
-(`application/models/connection.py`) receives when it asks "who is in session".
+(`tenebrae/application/models/connection.py`) receives when it asks "who is in session".
 """
 
 from datetime import datetime, timezone

@@ -5,8 +5,8 @@ import json
 import pytest
 
 from tenebrae.engine.hexagon import Hex
-from tenebrae.engine.piece import (ALLIANCE, BOX, CATALOGUE, DARKNESS, MOTIONLESS, NEUTRAL, SIDES, Piece,
-                                   piece, read_catalogue)
+from tenebrae.engine.piece import (ALLIANCE, BOX, CATALOGUE, DARKNESS, MOTIONLESS, NEUTRAL,
+                                   SIDES, Piece, piece, read_catalogue)
 
 RAM = "yzent-05-1-belier"                       # strength 10, movement 2
 INFANTRY = "empire-01-26-infanteries"           # 4 and 4, the most common value
@@ -84,7 +84,7 @@ class TestUnits:
 
 
 class TestSides:
-    """The side breakdown of `game_box/pions/README.md`, faction by faction."""
+    """The side breakdown of `tenebrae/game_box/pions/README.md`, faction by faction."""
 
     def test_every_piece_has_a_side(self):
         for read in CATALOGUE.values():
@@ -124,7 +124,7 @@ class TestZoneOfControlExerted:
         assert not piece(BAT).exerts_a_zone_of_control
 
     def test_the_booklet_exceptions_are_not_applied(self):
-        """Leaders, demons and undead exert one here: see `engine/README.md`."""
+        """Leaders, demons and undead exert one here: see `tenebrae/engine/README.md`."""
         assert piece("elfes-06-1-leader").exerts_a_zone_of_control
         assert piece("demons-01-5-infanteries").exerts_a_zone_of_control
         assert piece("morts-vivants-01-20-unites-de-squelettes").exerts_a_zone_of_control

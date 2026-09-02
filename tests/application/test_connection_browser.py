@@ -7,8 +7,8 @@ session cookie just as it would have one from Discord.
 
 import pytest
 
-import app
-from discord_client import DEFAULT_IDENTITY
+from tenebrae.application import app
+from tenebrae.application.discord_client import DEFAULT_IDENTITY
 
 ALLIANCE, DARKNESS = "alliance", "tenebres"
 

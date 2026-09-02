@@ -4,10 +4,10 @@ The map is 6173 x 5102 pixels, and it is played zoomed in. Until now, every page
 everyone back to the fit scale, the whole map inside the window: one had to redo one's zoom and
 find the place one was manoeuvring at, every time. That is what this document keeps.
 
-**Why here, and not in `engine/models/`?** Because it is not part of the game. The engine does not
-know that an image, pixels or a window exist: a game plays from an interpreter, and zoom means
-nothing there. A piece's tilt, on the other hand, belongs to the board - the counter really does
-lie askew, and both players see it the same way; a map view belongs to **one** pair of eyes. So
+**Why here, and not in `tenebrae/engine/models/`?** Because it is not part of the game. The engine
+does not know that an image, pixels or a window exist: a game plays from an interpreter, and zoom
+means nothing there. A piece's tilt, on the other hand, belongs to the board - the counter really
+does lie askew, and both players see it the same way; a map view belongs to **one** pair of eyes. So
 this is the application's second model, beside the connection, and it too designates the engine's
 player by its `discord_id` alone.
 

@@ -178,9 +178,9 @@ The errors noticed by eye since, hexagon by hexagon, are **not corrected here**:
 into `map_fix.json` (`"q,r,s" → terrain`, the fixed squares only), through the application's
 `/admin/map_fix` route. `carte.json` and `carte_details.json` stay what the script produces: it is
 the engine that lays the fixes over them, at start-up, and the game is played on the result (see
-`engine/README.md`). Feeding those fixes back into `extract_map.py` remains to be done — until
-then, a fix can only replace a hexagon's main terrain, never remove a road or a path detected in
-error.
+`tenebrae/engine/README.md`). Feeding those fixes back into `extract_map.py` remains to be done —
+until then, a fix can only replace a hexagon's main terrain, never remove a road or a path detected
+in error.
 
 - **The hills are not drawn on the map.** The booklet says that "access to the mountains requires
   passing through the hill squares that border them", but no colour tells them apart: the massifs

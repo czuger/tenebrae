@@ -1,10 +1,10 @@
 """Who holds which side at the table: the seating register.
 
 The booklet has two players play, one per side. The rest of the engine knows only sides -
-`engine.piece` files each faction under "alliance" or "tenebres", `engine.phase` rotates the
-phases from one to the other - and never had to know *who* was playing them. This file holds that
-link: it is game, not web, and therefore lives here rather than in the application, which only
-concerns itself with opening the session a player presents themselves through.
+`tenebrae.engine.piece` files each faction under "alliance" or "tenebres", `tenebrae.engine.phase`
+rotates the phases from one to the other - and never had to know *who* was playing them. This file
+holds that link: it is game, not web, and therefore lives here rather than in the application, which
+only concerns itself with opening the session a player presents themselves through.
 
 A player is designated by their Discord identifier, a string. The register knows nothing else
 about them: neither nickname nor avatar - that lives in the player repository, and the register
@@ -23,9 +23,9 @@ seats them, just as the legality of a move is in the server and not in the brows
 is not gratuitous: the test suite seats one and the same player on both sides to play a whole game
 by itself, which the route refuses and the register allows.
 
-Like `engine.combat.CombatRegister`, it serialises to a dict and restores from a saved game: who
-holds the Alliance is part of the game state, just as much as the active side, and a server
-restart must not empty the table.
+Like `tenebrae.engine.combat.CombatRegister`, it serialises to a dict and restores from a saved
+game: who holds the Alliance is part of the game state, just as much as the active side, and a
+server restart must not empty the table.
 """
 
 

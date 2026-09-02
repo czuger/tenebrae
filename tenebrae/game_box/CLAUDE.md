@@ -1,9 +1,9 @@
 # THIS DIRECTORY CONTAINS THE SOURCE OF TRUTH
 
 The **game material**: the transcribed rules, the map and its hexagon grid, the counter inventory
-and their values. This is where the code reads — `engine/` takes the map (`carte_details.json` +
-`map_fix.json`) and the catalogue (`pions/pions.json`) from here at start-up — and this is where a
-game datum is to be looked for, never in `base_material/`.
+and their values. This is where the code reads — `tenebrae/engine/` takes the map
+(`carte_details.json` + `map_fix.json`) and the catalogue (`pions/pions.json`) from here at start-up
+— and this is where a game datum is to be looked for, never in `material/base_material/`.
 
 The file names and the vocabulary here are French, and stay that way: this is 1986 material,
 transcribed as it stands. Only the code around it is English.

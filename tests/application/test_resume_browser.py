@@ -23,8 +23,8 @@ mongomock = pytest.importorskip("mongomock")
 import mongoengine  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
-import app  # noqa: E402
-from test_persistence import TEST_URI, MongomockConfig, RealMongoConfig, \
+from tenebrae.application import app  # noqa: E402
+from tests.application.test_persistence import TEST_URI, MongomockConfig, RealMongoConfig, \
     mongodb_is_reachable  # noqa: E402
 
 

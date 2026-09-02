@@ -8,8 +8,8 @@ die, the AI replays the same game.
 
 import pytest
 
-import app
-from discord_client import DEFAULT_IDENTITY
+from tenebrae.application import app
+from tenebrae.application.discord_client import DEFAULT_IDENTITY
 from tenebrae.engine import ai
 from tenebrae.engine.piece import CATALOGUE
 from tests.engine.plains import ring_of, well_surrounded_plain

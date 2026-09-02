@@ -6,7 +6,8 @@ from fractions import Fraction
 import pytest
 
 from tenebrae.engine import hexagon as engine_hexagon
-from tenebrae.engine.hexagon import (DEFAULT_MOVEMENT, MAP, TRANSCRIBED_MAP, Hex, apply_fixes, read_fixes)
+from tenebrae.engine.hexagon import (DEFAULT_MOVEMENT, MAP, TRANSCRIBED_MAP, Hex, apply_fixes,
+                                     read_fixes)
 
 # Reference hexagons, read off the game map - the fixed transcription. If a future fix changes one
 # of them, these engine will say so: another one must then be chosen, not the fix undone.
@@ -225,7 +226,7 @@ class TestConversion:
 
 
 class TestFixes:
-    """The overlay of `game_box/map_fix.json` onto the transcription."""
+    """The overlay of `tenebrae/game_box/map_fix.json` onto the transcription."""
 
     TRANSCRIBED = {
         "0,0,0": ("plaine",),

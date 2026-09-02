@@ -1,19 +1,19 @@
 """The map-fixing page in the browser: hovering, dialog, zoom.
 
 These engine require Chromium (`python3 -m playwright install chromium`). Like the client ones, they
-divert the path of the fixes file: nothing is written into `game_box/`.
+divert the path of the fixes file: nothing is written into `tenebrae/game_box/`.
 """
 
 import json
 
 import pytest
 
-import app
+from tenebrae.application import app
 from tenebrae.engine import hexagon as engine_hexagon
 from tenebrae.engine.hexagon import TRANSCRIBED_MAP, Hex
 
-from test_board_browser import click_the_hexagon, point_of_the_hexagon
-from test_map_fix import fixes, reread  # noqa: F401  (fixture reused)
+from tests.application.test_board_browser import click_the_hexagon, point_of_the_hexagon
+from tests.application.test_map_fix import fixes, reread  # noqa: F401  (fixture reused)
 
 # A plain hexagon, far from the edges, and the terrain it will be given.
 PLAIN = Hex.from_key("10,20,-30")

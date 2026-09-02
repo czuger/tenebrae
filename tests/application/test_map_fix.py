@@ -1,7 +1,7 @@
 """The admin route that fixes the map's terrains, without a browser.
 
-No test writes into `game_box/`: the `fixes` fixture diverts the path of the fixes file, which
-belongs to the engine, to a temporary file.
+No test writes into `tenebrae/game_box/`: the `fixes` fixture diverts the path of the fixes file,
+which belongs to the engine, to a temporary file.
 
 The page works on the **transcribed** map - not on `MAP`, which the engine has already overlaid
 with the fixes in force: that is what keeps the "original" terrain and its "Rétablir" button
@@ -12,11 +12,11 @@ import json
 
 import pytest
 
-import app
+from tenebrae.application import app
 from tenebrae.engine import hexagon as engine_hexagon
 from tenebrae.engine.hexagon import TRANSCRIBED_MAP
 
-from test_server import read_hidden_field
+from tests.application.test_server import read_hidden_field
 
 # A plain hexagon, and the first woods that come along: enough to fix one into the other.
 PLAIN = "1,26,-27"

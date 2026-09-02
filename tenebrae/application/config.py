@@ -20,7 +20,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parent.parent
+# The root of the repository: `tenebrae/application/config.py` -> three levels up.
+# `.env` and `logs/` live there, outside the package.
+ROOT = Path(__file__).resolve().parents[2]
 
 # A single read of `.env`, at first import; variables already set in the environment keep the
 # upper hand, as python-dotenv intends.
@@ -93,12 +95,13 @@ class TestingConfig(Config):
     PERSISTENCE = "none"
 
     # Discord without Discord: the fake client closes the flow on our own return route (see
-    # `discord_client.py`). Nothing leaves the machine, and the whole flow is exercised.
+    # `tenebrae/application/discord_client.py`). Nothing leaves the machine, and the whole flow is
+    # exercised.
     AUTHENTICATION = "fake"
 
     # Fixed, and never used anywhere else: the suite does not depend on a local `.env`.
     SECRET_KEY = "worthless-test-key"
 
-    # The test player fixes the map just as they play: it is `engine/conftest.py` that puts this
-    # identifier into the session.
+    # The test player fixes the map just as they play: it is `tenebrae/engine/conftest.py` that puts
+    # this identifier into the session.
     ADMINISTRATORS = ["100000000000000001"]

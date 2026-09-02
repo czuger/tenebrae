@@ -1,4 +1,4 @@
-"""The scenarios fixed in `scenarios/`: what they contain, and the board they yield.
+"""The scenarios fixed in `tenebrae/scenarios/`: what they contain, and the board they yield.
 
 These engine keep the placement consistent with the map: a terrain fix that would put a unit in a
 lake would show up here, and not mid-game.

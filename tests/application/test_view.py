@@ -2,7 +2,7 @@
 
 The map is 6173 x 5102 px and it is played zoomed in: every reload brought the player back to the
 fit, the whole map inside the window. The server therefore keeps, per player, the scale and the
-point they had at the centre (`application/models/view.py`).
+point they had at the centre (`tenebrae/application/models/view.py`).
 
 What happens in the browser - reading the view, restoring it - is in `test_view_browser.py`; what
 MongoDB makes of it, in `test_persistence.py`.
@@ -10,9 +10,9 @@ MongoDB makes of it, in `test_persistence.py`.
 
 import pytest
 
-import app
+from tenebrae.application import app
 
-from test_server import read_hidden_field
+from tests.application.test_server import read_hidden_field
 
 # A second account, to exercise that a view belongs to one pair of eyes only.
 OTHER_IDENTITY = {"discord_id": "100000000000000002", "nickname": "Adversaire", "avatar": None,

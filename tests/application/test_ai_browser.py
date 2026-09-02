@@ -6,8 +6,8 @@ fake Discord client closes the authorization on our own return route.
 
 import pytest
 
-import app
-from discord_client import DEFAULT_IDENTITY
+from tenebrae.application import app
+from tenebrae.application.discord_client import DEFAULT_IDENTITY
 from tenebrae.engine import ai
 
 ALLIANCE, DARKNESS = "alliance", "tenebres"

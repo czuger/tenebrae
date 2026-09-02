@@ -10,8 +10,8 @@ from urllib.error import HTTPError, URLError
 
 import pytest
 
-import discord_client
-from discord_client import DiscordClient, DiscordError
+from tenebrae.application import discord_client
+from tenebrae.application.discord_client import DiscordClient, DiscordError
 
 
 @pytest.fixture

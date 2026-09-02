@@ -1,10 +1,10 @@
 """The saved game: the only game state that changes while playing, and that must outlive the run.
 
-What goes into the base is what the board, the turn, the combat register and the seating table
-hold in memory - the positions, the phase, what the combat phase has already consumed, who sits at
-which side. The reference data is not there: the map, the piece catalogue and the scenarios live
-in files under `game_box/` and `scenarios/`, which are the repository's source of truth (see the
-root `CLAUDE.md`). Copying them in would make two truths for one.
+What goes into the base is what the board, the turn, the combat register and the seating table hold
+in memory - the positions, the phase, what the combat phase has already consumed, who sits at which
+side. The reference data is not there: the map, the piece catalogue and the scenarios live in files
+under `tenebrae/game_box/` and `tenebrae/scenarios/`, which are the repository's source of truth
+(see the root `CLAUDE.md`). Copying them in would make two truths for one.
 
 A placed unit has no identity of its own: the engine designates it by its **square**, one counter
 standing for all the units it represents (`orques-01-15-infanteries` is placed fifteen times in
@@ -34,11 +34,11 @@ class Game(Document):
     scenario = IntField(required=True)
     placement = MapField(StringField(), required=True)
 
-    # The angle each counter lies at, "q,r,s" -> degrees (see `engine/board.py`). It is not a
-    # rule, it is appearance - but an appearance that must hold: without it in base, the piece
+    # The angle each counter lies at, "q,r,s" -> degrees (see `tenebrae/engine/board.py`). It is not
+    # a rule, it is appearance - but an appearance that must hold: without it in base, the piece
     # would lie down differently at every page reload. Same keys as `placement`, and the field is
-    # not required: games saved before we started keeping them have none, and their pieces lie
-    # down once when the game resumes.
+    # not required: games saved before we started keeping them have none, and their pieces lie down
+    # once when the game resumes.
     tilts = MapField(FloatField(), db_field="inclinaisons")
 
     # The current phase. The (side, type) pair is enough to put the turn back in its sequence;
@@ -52,10 +52,11 @@ class Game(Document):
     engaged_attackers = ListField(StringField(), db_field="attaquants_engages")
     engaged_targets = ListField(StringField(), db_field="cibles_engagees")
 
-    # Who holds which side: "alliance" or "tenebres" -> Discord identifier. A free side has no
-    # key. It is an identifier and not a `ReferenceField` to `Player` because the repositories
-    # only exchange state dicts: a reference would force a document out of `engine/repositories/`,
-    # or make a DBRef travel around. The game thus stays readable on its own.
+    # Who holds which side: "alliance" or "tenebres" -> Discord identifier. A free side has no key.
+    # It is an identifier and not a `ReferenceField` to `Player` because the repositories only
+    # exchange state dicts: a reference would force a document out of
+    # `tenebrae/engine/repositories/`, or make a DBRef travel around. The game thus stays readable
+    # on its own.
     #
     # The field is not required: games saved before players existed have none, and they must stay
     # resumable - the table is then simply empty.

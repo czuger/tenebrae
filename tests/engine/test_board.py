@@ -251,8 +251,8 @@ class TestTilts:
     """The angle of the placed counter: drawn on placing, kept, and restored on restore.
 
     It is not a rule from the booklet, but it is part of the game state - see the header of
-    `engine/board.py`: a piece lying down differently at each reread of the board would betray an
-    angle recomputed rather than kept.
+    `tenebrae/engine/board.py`: a piece lying down differently at each reread of the board would
+    betray an angle recomputed rather than kept.
     """
 
     def test_placing_lays_the_counter_askew(self, ground):

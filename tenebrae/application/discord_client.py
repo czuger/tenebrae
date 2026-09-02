@@ -1,15 +1,15 @@
 """Where a player's identity comes from: from Discord, or from a fake client for the engine.
 
 The OAuth2 protocol fits in two round trips: a form POST to `/oauth2/token`, which exchanges the
-single-use code for an access token, then a GET bearing that token to `/users/@me`.
-`urllib.request` does both perfectly well. **We therefore add nothing to `requirements.txt`**:
-this is the same stance as `extensions.py`, which rewrote Flask-MongoEngine's interface rather
-than install a dead extension. `requests` is indeed lying around in the virtualenv, but pulled in
-by Playwright - and the server cannot depend at runtime on a testing tool.
+single-use code for an access token, then a GET bearing that token to `/users/@me`. `urllib.request`
+does both perfectly well. **We therefore add nothing to `requirements.txt`**: this is the same
+stance as `tenebrae/application/extensions.py`, which rewrote Flask-MongoEngine's interface rather
+than install a dead extension. `requests` is indeed lying around in the virtualenv, but pulled in by
+Playwright - and the server cannot depend at runtime on a testing tool.
 
-The file is not called `discord.py`, and that is not a whim: `app.py` and the root `conftest.py`
-put `application/` at the head of `sys.path`, so a module of that name would shadow any `discord`
-package for the whole process.
+The file is not called `discord.py`: it is `tenebrae.application.discord_client`, and a module
+named `discord` inside the package would read, at every call site, like the Discord library it is
+not.
 
 Two implementations, chosen by `AUTHENTICATION` and hooked onto `application.extensions` as the
 repository already is: the real one, and a fake one that closes the flow on our own return route.
@@ -113,7 +113,7 @@ class DiscordClient:
 
 
 # The account the fake client serves, failing another. The identifier is the one `TestingConfig`
-# declares as administrator and that `engine/conftest.py` seats at the table.
+# declares as administrator and that `tenebrae/engine/conftest.py` seats at the table.
 DEFAULT_IDENTITY = {"discord_id": "100000000000000001", "nickname": "Joueuse d'essai",
                     "display_name": None, "avatar": None, "email": None}
 

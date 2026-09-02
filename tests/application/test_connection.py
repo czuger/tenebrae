@@ -10,9 +10,9 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-import app
-from config import TestingConfig
-from discord_client import DEFAULT_IDENTITY, DiscordError
+from tenebrae.application import app
+from tenebrae.application.config import TestingConfig
+from tenebrae.application.discord_client import DEFAULT_IDENTITY, DiscordError
 
 # A second account, to seat someone opposite. Its identifier is not in
 # `TestingConfig.ADMINISTRATORS`: it is the ordinary player of the administration engine.
@@ -429,7 +429,7 @@ class GameConfig(TestingConfig):
 
 
 def test_the_game_configuration_plugs_in_the_real_discord_client():
-    from discord_client import DiscordClient
+    from tenebrae.application.discord_client import DiscordClient
     application = app.create_app(GameConfig)
     assert isinstance(application.extensions["discord"], DiscordClient)
 
@@ -446,7 +446,7 @@ def test_the_real_client_really_sends_to_discord():
 
 def test_the_real_client_introduces_itself_to_discord(monkeypatch):
     """Every outgoing call carries a User-Agent: Cloudflare turns `urllib`'s away with a 403."""
-    import discord_client
+    from tenebrae.application import discord_client
 
     requests = []
 

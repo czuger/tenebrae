@@ -1,6 +1,6 @@
 // The geometry of the grid, shared by the pages that display the map.
 //
-// The alignment recorded in game_box/map.md fits into an origin and a 2 x 2 matrix:
+// The alignment recorded in tenebrae/game_box/map.md fits into an origin and a 2 x 2 matrix:
 //
 //     centre(q, r) = origin + matrix . (q, r)
 //
@@ -18,7 +18,8 @@ function alignment(grid) {
   const inverseMatrix = invert(matrix);
 
   // Half-width and half-height of a hexagon: the matrix carries the grid's step, from which the
-  // flat-top tiling factors (1.5 in x, sqrt(3) in y) are removed. See game_box/extract_map.py.
+  // flat-top tiling factors (1.5 in x, sqrt(3) in y) are removed.
+  // See tenebrae/game_box/extract_map.py.
   const halfWidth = matrix[0][0] / 1.5;
   const halfHeight = matrix[1][1] / Math.sqrt(3);
 

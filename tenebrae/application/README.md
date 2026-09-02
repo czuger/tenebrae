@@ -1,6 +1,6 @@
-# `application/` — the map displayed in the browser
+# `tenebrae/application/` — the map displayed in the browser
 
-A Flask application that serves `game_box/map.jpg`, **lays a scenario out on it** — no. 4,
+A Flask application that serves `tenebrae/game_box/map.jpg`, **lays a scenario out on it** — no. 4,
 "La guerre des nains", 18 dwarves against 30 orcs — and lets the browser do the geometry. Clicking
 a piece shows as **ghosts** the squares it can go to; clicking a ghost moves it there. Hovering it
 opens its **card**: its photograph enlarged and everything its counter carries.
@@ -12,11 +12,11 @@ on one's own units within range designates them as attackers (gold), and "Attaqu
 the booklet's Table I. **A unit fights only once per phase**: those that have had their turn are
 greyed out and refuse the click until the next phase.
 
-The rules are not here: moves come from `engine/`, the application only serves them. The JavaScript
-never decides the legality of a move. **Each piece moves by the number of points printed on its
-counter** — from 1 to 20 depending on the unit, read from `game_box/pions/pions.json` by
-`engine.piece` — and **stops on contact with opponents**, whose zones of control cover the six
-squares surrounding them.
+The rules are not here: moves come from `tenebrae/engine/`, the application only serves them. The
+JavaScript never decides the legality of a move. **Each piece moves by the number of points printed
+on its counter** — from 1 to 20 depending on the unit, read from
+`tenebrae/game_box/pions/pions.json` by `tenebrae.engine.piece` — and **stops on contact with
+opponents**, whose zones of control cover the six squares surrounding them.
 
 The game is played **by two, one player per side**, each identified by their Discord account: the
 server refuses a move played by whoever's turn it is not, and each browser sees the other's game
@@ -24,9 +24,9 @@ advance without reloading anything — through an **event stream** the server pu
 changes, and no longer by asking again every three seconds. The map itself stays visible without an
 account (see "Two players, two sides" and "Logging in through Discord").
 
-A second page, `/admin/map_fix`, serves to fix the map transcription: it is the only place where
-the application writes into `game_box/`, and only into a file of its own. The engine applies those
-fixes at start-up — so the board is played on the fixed map. It is reserved to the accounts
+A second page, `/admin/map_fix`, serves to fix the map transcription: it is the only place where the
+application writes into `tenebrae/game_box/`, and only into a file of its own. The engine applies
+those fixes at start-up — so the board is played on the fixed map. It is reserved to the accounts
 declared in `ADMIN_DISCORD_IDS`.
 
 The code is English; everything the player reads on screen is French, and so is the game data the
@@ -34,10 +34,10 @@ application serves.
 
 ## Running
 
-From this directory, with the pyenv virtualenv `tenebrae`:
+From the root of the repository, with the pyenv virtualenv `tenebrae`:
 
 ```
-python3 app.py
+python3 -m tenebrae.application.app
 ```
 
 then <http://127.0.0.1:5000/> for the board, <http://127.0.0.1:5000/admin/map_fix> to fix the map.
@@ -59,8 +59,8 @@ the current phase, what the combat phase has already consumed, and **who holds w
 knowing who plays the Alliance is part of the game, and a restart must not empty the table. Beside
 it, two other collections: the known **players** (`joueurs`), and each one's **map view** (`vues`,
 see "Finding one's map view again") — the only one that is not part of the game. The map, the piece
-catalogue and the scenarios stay as files in `game_box/` and `scenarios/`, which are the
-repository's source of truth.
+catalogue and the scenarios stay as files in `tenebrae/game_box/` and `tenebrae/scenarios/`, which
+are the repository's source of truth.
 
 The Mongo collection names and the stored field names are French, and stay so: renaming a stored
 field would orphan the games already saved. The models pin them through `db_field`.
@@ -85,10 +85,10 @@ or through Homebrew (`brew install mongodb-community && brew services start mong
 cp .env.example .env
 ```
 
-`.env` is not versioned: it is the only place where the connection details and the secrets live,
-and `application/config.py` reads them there once at start-up. `MONGODB_URI` and `PERSISTENCE` for
-the database; `SECRET_KEY`, the three `DISCORD_*`, `ADMIN_DISCORD_IDS` and `SECURE_COOKIE` for the
-players (see "Logging in through Discord").
+`.env` is not versioned: it is the only place where the connection details and the secrets live, and
+`tenebrae/application/config.py` reads them there once at start-up. `MONGODB_URI` and `PERSISTENCE`
+for the database; `SECRET_KEY`, the three `DISCORD_*`, `ADMIN_DISCORD_IDS` and `SECURE_COOKIE` for
+the players (see "Logging in through Discord").
 
 **Playing without MongoDB**: `PERSISTENCE=none` in `.env`. The server then plugs in a repository
 that keeps nothing, and the application behaves as it did before persistence — every load of `/`
@@ -110,11 +110,12 @@ nobody being able to open a session any more, hence take a seat, hence play. The
 The previous games stay in base: `POST /game/new` erases nothing, it opens one more document, and
 it is the most recent that `/` resumes.
 
-**The routes do not know MongoDB.** They go through a *repository* (`engine/repositories/`) that
-the `create_app` factory hooks onto the application, and exchange only state dicts with it; the
-document and the queries are in `engine/repositories/game.py` and `engine/models/game.py`, nowhere
-else. Serialisation, for its part, is in the engine (`Board.to_dict`/`restore`, `Turn.restore`,
-`CombatRegister.to_dict`/`restore`) and depends on no database.
+**The routes do not know MongoDB.** They go through a *repository* (`tenebrae/engine/repositories/`)
+that the `create_app` factory hooks onto the application, and exchange only state dicts with it; the
+document and the queries are in `tenebrae/engine/repositories/game.py` and
+`tenebrae/engine/models/game.py`, nowhere else. Serialisation, for its part, is in the engine
+(`Board.to_dict`/`restore`, `Turn.restore`, `CombatRegister.to_dict`/`restore`) and depends on no
+database.
 
 **The game is not a model of the application**: it is part of the game, and the game is in the
 engine. The application keeps only the orchestration — when to load, when to save, and what is
@@ -123,23 +124,23 @@ shown of it to the browser. See "The models" below, and the "Architecture" secti
 
 A word on the extension: the todo asked for Flask-MongoEngine, whose last version (1.0.0, 2022)
 imports `flask.json.JSONEncoder`, removed from Flask since 2.3 — it does not import under this
-repository's Flask 3. `application/extensions.py` takes over its interface (`db = MongoEngine()`,
-`db.init_app(app)`, `MONGODB_SETTINGS` in the config) on top of `mongoengine` alone. If the
-extension becomes installable again, this file is the only one to change.
+repository's Flask 3. `tenebrae/application/extensions.py` takes over its interface (`db =
+MongoEngine()`, `db.init_app(app)`, `MONGODB_SETTINGS` in the config) on top of `mongoengine` alone.
+If the extension becomes installable again, this file is the only one to change.
 
 ## The models
 
 The application models only **what is not the game**: the connection, and the map view. Everything
-else lives in `engine/models/` — one file per model, on both sides, and one repository per subject
-beside it (`application/repositories/`, `engine/repositories/`).
+else lives in `tenebrae/engine/models/` — one file per model, on both sides, and one repository per
+subject beside it (`tenebrae/application/repositories/`, `tenebrae/engine/repositories/`).
 
 | Class | Module | Mongo collection | File |
 | --- | --- | --- | --- |
 | `Connection` | application | — (Flask's signed cookie) | `models/connection.py` |
 | `View` | application | `vues` | `models/view.py` |
-| `Game` | engine | `parties` | `engine/models/game.py` |
-| `Player` | engine | `joueurs` | `engine/models/player.py` |
-| `Seats` | engine | — (`Game`'s `places` field) | `engine/models/seats.py` |
+| `Game` | engine | `parties` | `tenebrae/engine/models/game.py` |
+| `Player` | engine | `joueurs` | `tenebrae/engine/models/player.py` |
+| `Seats` | engine | — (`Game`'s `places` field) | `tenebrae/engine/models/seats.py` |
 
 **Why `View` is here and not in the engine**: the engine does not know that an image, pixels or a
 window exist — a game can be played from an interpreter, where zoom means nothing. A piece's tilt,
@@ -187,33 +188,34 @@ scrolling — in `static/zoom.js` and `static/zoom.css`.
 ## The server's board
 
 Zones of control require knowing **who occupies which square and on which side**: the server
-therefore holds an `engine.board.Board`, rebuilt at every load of `/` and updated by `/move`.
-Without it, the zones would be computed on stale positions from the first move on.
+therefore holds an `tenebrae.engine.board.Board`, rebuilt at every load of `/` and updated by
+`/move`. Without it, the zones would be computed on stale positions from the first move on.
 
-Beside the board, the server holds an `engine.phase.Turn` — the module global `TURN`: which side
-plays, and at what. Board and turn are **resumed from the saved game** at every load of `/`, or
+Beside the board, the server holds an `tenebrae.engine.phase.Turn` — the module global `TURN`: which
+side plays, and at what. Board and turn are **resumed from the saved game** at every load of `/`, or
 rebuilt from the scenario if there is none (see "Game persistence"). There is only **one current
 game per process**: two tabs open on `/` share the same board and the same turn — which suits,
 since both players play the same game.
 
-Beside them, the module global `SEATS` (`engine/models/seats.py`) keeps who holds which side.
-Unlike the board and the turn, it is **not** rebuilt at every load of `/`: starting a game over
-sends nobody away from their seat.
+Beside them, the module global `SEATS` (`tenebrae/engine/models/seats.py`) keeps who holds which
+side. Unlike the board and the turn, it is **not** rebuilt at every load of `/`: starting a game
+over sends nobody away from their seat.
 
-The JavaScript converts each hexagon into pixels with the formula recorded in `game_box/map.md`:
+The JavaScript converts each hexagon into pixels with the formula recorded in
+`tenebrae/game_box/map.md`:
 
 ```
 centre(q, r) = origin + matrix . (q, r)
 ```
 
 The piece is then **centred** on that point (`translate(-50%, -50%)`) then **tilted by a few
-degrees**, so that the board does not look laid out with a ruler. That angle is **not** drawn by
-the page: it comes from the server, with the piece, because it is part of the game state — the
-engine's board draws it when placing and keeps it (`engine/board.py`), the save carries it, and it
-changes only when the piece is moved. A page that redrew it every time made all the counters spin
-at every scene laid out again. The page draws one only for the **ghosts**, which are placed
-nowhere. The positions are expressed in pixels of `map.jpg`: the map is carried at its natural size
-by `#board`, which the JavaScript then scales.
+degrees**, so that the board does not look laid out with a ruler. That angle is **not** drawn by the
+page: it comes from the server, with the piece, because it is part of the game state — the engine's
+board draws it when placing and keeps it (`tenebrae/engine/board.py`), the save carries it, and it
+changes only when the piece is moved. A page that redrew it every time made all the counters spin at
+every scene laid out again. The page draws one only for the **ghosts**, which are placed nowhere.
+The positions are expressed in pixels of `map.jpg`: the map is carried at its natural size by
+`#board`, which the JavaScript then scales.
 
 ## Zooming in and out
 
@@ -307,8 +309,8 @@ attackers (see "Phases and combat").
 
 ## Phases and combat
 
-The server holds the current phase in `TURN` (`engine.phase.Turn`) and passes it to the template in
-`#phase`. The booklet chains, for each side, **movement → magic → combat**; magic is not
+The server holds the current phase in `TURN` (`tenebrae.engine.phase.Turn`) and passes it to the
+template in `#phase`. The booklet chains, for each side, **movement → magic → combat**; magic is not
 implemented, `Turn.advance()` skips it — it is never the current one.
 
 | Route | Response |
@@ -332,7 +334,7 @@ does**: in the movement phase, only the active side shows its ghosts; in the com
 
 `POST /combat` revalidates everything on the server side — phase, the target's side, each
 attacker's range, and the phase register — rolls the die (`app.roll_the_die`, isolated for the
-tests), resolves through `engine.combat.fight` and applies the result:
+tests), resolves through `tenebrae.engine.combat.fight` and applies the result:
 
 ```json
 {"resolved": true, "outcome": "DE", "message": "Combat résolu : Défenseur Éliminé",
@@ -348,7 +350,7 @@ opponent, when it has already been attacked, or when no attacker is valid.
 
 The booklet limits each unit to one attack per phase, and each target to one attack per phase even
 by different attackers. The count is kept **on the server side** by the module global `REGISTER`
-(`engine.combat.CombatRegister`), beside `BOARD` and `TURN`:
+(`tenebrae.engine.combat.CombatRegister`), beside `BOARD` and `TURN`:
 
 - it is **emptied at every phase change** (`POST /phase/next`) — so between the Dwarves' combat
   phase and the Orcs', and at the next turn. `GET /` resumes it from the save, or empties it if it
@@ -357,10 +359,10 @@ by different attackers. The count is kept **on the server side** by the module g
   retreat, which the engine leaves without effect, has engaged its units all the same;
 - a combat **refused** (no valid attacker) enters nothing.
 
-`unavailable` — carried by `#phase`, `GET`/`POST /phase…` and the response of `POST /combat` —
-gives the **squares** of that register that still carry a piece, so that the page can grey those
-units out (`.piece.unavailable`). The register designates units by their square and not by their
-counter: see `engine/README.md` § "One combat per unit and per phase" for what that assumes.
+`unavailable` — carried by `#phase`, `GET`/`POST /phase…` and the response of `POST /combat` — gives
+the **squares** of that register that still carry a piece, so that the page can grey those units out
+(`.piece.unavailable`). The register designates units by their square and not by their counter: see
+`tenebrae/engine/README.md` § "One combat per unit and per phase" for what that assumes.
 
 **The log is written in two places at once** — one line per event: a phase change, a seat taken, a
 unit out of range, a combat result in French, the AI's moves.
@@ -375,10 +377,10 @@ Combat résolu : Défenseur Éliminé
 The computation first, the outcome next — the browser's column reading the other way round from
 the file, that is what puts the outcome at the top and its breakdown just below. The sentence is
 composed by `describe_the_ratio`, from the numbers `combat.RatioBreakdown` kept (see
-`engine/README.md` § "The breakdown of the computation"): the engine builds no sentence, and the
-application recomputes nothing. The **defender's terrain is always named**, including when it
-multiplies nothing — it is what one came for; the three terms, for their part, are only spelled out
-when there is a detail to spell out (a lone attacker, a neutral terrain and a die that nothing
+`tenebrae/engine/README.md` § "The breakdown of the computation"): the engine builds no sentence,
+and the application recomputes nothing. The **defender's terrain is always named**, including when
+it multiplies nothing — it is what one came for; the three terms, for their part, are only spelled
+out when there is a detail to spell out (a lone attacker, a neutral terrain and a die that nothing
 raises are written as a single number).
 
 - `logs/battle_log.log`, **the file**, at the repository root. It is the second place where the
@@ -399,7 +401,7 @@ The lines kept leave with the game: `shared_snapshot` carries them, so the SSE s
 `GET /game/state` do too, and `GET /` gives them straight away in `#initial-log`. Hence the rule
 the routes follow: **log before marking the move**. `mark_a_move` photographs the game, log
 included; a route that logged after saving would push the browsers an account one move behind.
-`application/tests/test_log.py` checks it route by route.
+`tests/application/test_log.py` checks it route by route.
 
 ## The log column
 
@@ -448,9 +450,9 @@ on its left edge. The card appears and disappears under the bar; neither of them
   does not fire, it does not fire "at 0". The remarks, for their part, are not a counter value but
   what the photograph leaves open — an illegible name, an incomplete framing: **their mention
   appears only if there is something to say**.
-- "Mouvement" is the budget the engine uses — the ground movement, failing that the flight one, 0
-  for a marker (see `engine/README.md`) — and not the raw value `pions.json` sometimes leaves
-  empty.
+- - "Mouvement" is the budget the engine uses — the ground movement, failing that the flight one, 0
+  for a marker (see `tenebrae/engine/README.md`) — and not the raw value `pions.json` sometimes
+  leaves empty.
 - **The panel is outside `#board`**: the zoom does not reach it, the card keeps its size at any
   scale. And it is **fixed in place**, out of the flow: nothing moves from one piece to another,
   and the map occupies the window as if it did not exist.
@@ -473,7 +475,7 @@ choosing a terrain makes a round trip.
 | `#hexagons` | `"q,r,s" → terrain` for the 2280 hexagons, the main terrain alone |
 | `#fixes` | the fixes already recorded, read from `map_fix.json` |
 | `#applied` | those the engine loaded at start-up — a difference calls for a restart |
-| `#terrains` | the 16 terrains, in the priority order of `game_box/map.md` |
+| `#terrains` | the 16 terrains, in the priority order of `tenebrae/game_box/map.md` |
 | `#grid` | the same alignment as the board, without `piece_size` |
 
 - **Zoom**: the same as the board's (see above) — the map opens fitted to the window, where a
@@ -491,8 +493,8 @@ choosing a terrain makes a round trip.
 
 An unknown terrain or unreadable coordinates → 400; a hexagon off the map → 404.
 
-Every fix is written straight away into **`game_box/map_fix.json`**, which contains only the
-squares taken up:
+Every fix is written straight away into **`tenebrae/game_box/map_fix.json`**, which contains only
+the squares taken up:
 
 ```json
 {
@@ -501,12 +503,12 @@ squares taken up:
 ```
 
 `carte.json` and `carte_details.json` are **never touched**: they are produced by
-`game_box/extract_map.py` and must stay that way (see `game_box/map.md`).
+`tenebrae/game_box/extract_map.py` and must stay that way (see `tenebrae/game_box/map.md`).
 
 **The engine reads that file and lays it over the transcription**, once, at start-up (see
-`engine/README.md`): the board of `/` and the moves are computed on the fixed map. Since the
-overlay happens only at start-up, the toolbar announces "redémarrer le serveur pour jouer dessus"
-as soon as the recorded fixes differ from those the engine loaded.
+`tenebrae/engine/README.md`): the board of `/` and the moves are computed on the fixed map. Since
+the overlay happens only at start-up, the toolbar announces "redémarrer le serveur pour jouer
+dessus" as soon as the recorded fixes differ from those the engine loaded.
 
 This page, for its part, always works on the **transcribed** map: `#hexagons` carries what the scan
 gave, the fixes come separately, and the "original" terrain in the dialog stays the scan's. Without
@@ -524,8 +526,8 @@ Alliance), the other the Orcs (the Darkness). The server refuses a move played b
 is not — that is the `active_side_required` decorator — and the browser turns off in advance the
 buttons a refusal would await.
 
-The table is a separate register, `engine/models/seats.py` — it is part of the game, not of the web
-— held beside the board and the turn in the module global `SEATS`. It knows only Discord
+The table is a separate register, `tenebrae/engine/models/seats.py` — it is part of the game, not of
+the web — held beside the board and the turn in the module global `SEATS`. It knows only Discord
 identifiers, and defends a single invariant: **a side has at most one occupant**, and a seat is not
 taken from whoever occupies it. The rule that a player holds only one side is elsewhere, in the
 `POST /game/seat` route — that separation is what lets the test suite seat a single player on both
@@ -567,11 +569,11 @@ the seats dict like any other identifier — nothing more to save, nothing more 
 
 Its turn is played **on the server side, within the request that hands it play**:
 `let_the_ai_play()`, called at the end of `POST /phase/next` — and at the creation of the game, in
-case the scenario opens on its side. The strategy lives in the engine (`engine/ai.py`, see
-`engine/README.md`); the application only passes it the die (`roll_the_die`), saves and logs. A
-single save at the end of the turn: the version rises, and the browser sees the AI's moves at once
-through the stream, as it would see a human opponent's. A save therefore never lands on a phase
-held by the AI — "/" never has to make it play.
+case the scenario opens on its side. The strategy lives in the engine (`tenebrae/engine/ai.py`, see
+`tenebrae/engine/README.md`); the application only passes it the die (`roll_the_die`), saves and
+logs. A single save at the end of the turn: the version rises, and the browser sees the AI's moves
+at once through the stream, as it would see a human opponent's. A save therefore never lands on a
+phase held by the AI — "/" never has to make it play.
 
 ### Following the opponent's game
 
@@ -585,7 +587,7 @@ The channel is **one-way**, server → browser, and it stays so: everything the 
 a `POST` on the ordinary routes, exactly as before. The stream only serves to carry a move's result
 to the **others**.
 
-**The mechanism, in three pieces** (`application/stream.py`):
+**The mechanism, in three pieces** (`tenebrae/application/stream.py`):
 
 - one **subscriber** per open stream, that is, per tab watching the game;
 - a **one-slot box** per subscriber — a `Queue(maxsize=1)` whose content is *replaced* rather than
@@ -697,8 +699,8 @@ is lost by it fits in one line: the cookie's expiry (31 days) runs from the logi
 last visit.
 
 The scope requested is `identify` alone. Not `email`: the game would do nothing with it, and one
-scope fewer is one consent fewer to ask for. The `email` field of `engine.models.player` waits,
-just in case.
+scope fewer is one consent fewer to ask for. The `email` field of `tenebrae.engine.models.player`
+waits, just in case.
 
 **No dependency was added for any of this**, and it is the same stance as for `extensions.py`,
 which rewrote Flask-MongoEngine's interface rather than install a dead extension:
@@ -736,24 +738,24 @@ The portal asks for **no scope to tick**: it is claimed by the authorization URL
 
 ## The set-up
 
-The server no longer draws anything at random: it reads the set-up of scenario `SCENARIO_NUMBER`
-(4) from `scenarios/` through `engine.scenario`, once at start-up, and lays it out again at the
-first load of `/` — or at each, if persistence is unplugged.
+The server no longer draws anything at random: it reads the set-up of scenario `SCENARIO_NUMBER` (4)
+from `tenebrae/scenarios/` through `tenebrae.engine.scenario`, once at start-up, and lays it out
+again at the first load of `/` — or at each, if persistence is unplugged.
 
-- **The placement comes from the file, not from the server.**
-  `scenarios/scenario-04-la-guerre-des-nains.json` gives "square → piece key"; the application adds
-  to it only what the display needs — the image, the readable name, the movement and the side, all
-  taken from the catalogue in `game_box/pions/`. The detail of the deployment and its caveats are
-  in `scenarios/README.md`.
+- - **The placement comes from the file, not from the server.**
+  `tenebrae/scenarios/scenario-04-la-guerre-des-nains.json` gives "square → piece key"; the
+  application adds to it only what the display needs — the image, the readable name, the movement
+  and the side, all taken from the catalogue in `tenebrae/game_box/pions/`. The detail of the
+  deployment and its caveats are in `tenebrae/scenarios/README.md`.
 - **The starting position is reproducible.** A fresh game always puts the 48 units back on the same
   squares: that is what makes it possible to exercise a move twice in a row and get the same
   result. `POST /game/new` — and, without persistence, a simple reload — brings it back.
-- **The movement is the counter's**: each piece carries its points, read off the photograph and
-  stored in `game_box/pions/pions.json`. The **strength** now serves in combat; fire and range serve
-  only for an archer's engagement distance.
-- **The side comes from the faction** (see `engine/README.md`): it decides who hinders whom. Here
-  the dwarves are the alliance and the orcs the darkness, and the two masses face each other 3
-  squares apart.
+- - **The movement is the counter's**: each piece carries its points, read off the photograph and
+  stored in `tenebrae/game_box/pions/pions.json`. The **strength** now serves in combat; fire and
+  range serve only for an archer's engagement distance.
+- - **The side comes from the faction** (see `tenebrae/engine/README.md`): it decides who hinders
+  whom. Here the dwarves are the alliance and the orcs the darkness, and the two masses face each
+  other 3 squares apart.
 - The overviews are still not served: the 4 photographs in `21-vues-d-ensemble/` and the 2 record
   sheets in `19-magiciens/` do not show a single counter, and `/pieces/…` refuses them. The
   scenario does not name them either.
@@ -777,61 +779,61 @@ series to the next. `ARGS` passes arguments to pytest: `make test ARGS="-k persi
 **Nothing is checked by hand**: no server launched to go and look, no `curl`. What we want to
 exercise is written as a test, and what shows in a page is exercised in Chromium through Playwright.
 
-`tests/test_broadcaster.py`, `tests/test_stream.py` and `tests/test_stream_browser.py` cover the
-**SSE stream**, in three layers. The first takes the broadcaster alone, without Flask or a browser:
-the one-slot box, three publications coalescing into one wake-up, fan-out to several subscribers,
-and guaranteed removal — on a normal exit, on an error, and on an abandoned generator, which is
-what happens when a tab closes. The second takes the `/stream` route through the Flask client:
-mimetype and headers (`Cache-Control`, `X-Accel-Buffering`), the opening comment to whoever is up
-to date and the whole game to whoever is not, the `Last-Event-ID` prevailing over `?version` and
-the restarted server it catches up with, the move pushed without anyone having asked for anything,
-the heartbeat, the **table composed per recipient** — a seated player and an anonymous visitor
-receive the same game and two different tables — the player re-read at every message, and ten
-streams opened then closed leaving nothing behind them. The third opens Chromium: the page really
-holds an `EventSource`, it **never again** polls `/game/state`, it calls nothing at all at rest, a
-move played outside — by an HTTP client independent of the browser — arrives in less than a second
-and a half, two tabs see it together, a visitor without an account sees it too, the "localiser"
-marker survives the scene being laid out again, the fallback to polling settles in when `/stream`
-is cut, the page reconnects and catches up on what it missed, and a closed tab frees its
-subscription.
+`tests/application/test_broadcaster.py`, `tests/application/test_stream.py` and
+`tests/application/test_stream_browser.py` cover the **SSE stream**, in three layers. The first
+takes the broadcaster alone, without Flask or a browser: the one-slot box, three publications
+coalescing into one wake-up, fan-out to several subscribers, and guaranteed removal — on a normal
+exit, on an error, and on an abandoned generator, which is what happens when a tab closes. The
+second takes the `/stream` route through the Flask client: mimetype and headers (`Cache-Control`,
+`X-Accel-Buffering`), the opening comment to whoever is up to date and the whole game to whoever is
+not, the `Last-Event-ID` prevailing over `?version` and the restarted server it catches up with, the
+move pushed without anyone having asked for anything, the heartbeat, the **table composed per
+recipient** — a seated player and an anonymous visitor receive the same game and two different
+tables — the player re-read at every message, and ten streams opened then closed leaving nothing
+behind them. The third opens Chromium: the page really holds an `EventSource`, it **never again**
+polls `/game/state`, it calls nothing at all at rest, a move played outside — by an HTTP client
+independent of the browser — arrives in less than a second and a half, two tabs see it together, a
+visitor without an account sees it too, the "localiser" marker survives the scene being laid out
+again, the fallback to polling settles in when `/stream` is cut, the page reconnects and catches up
+on what it missed, and a closed tab frees its subscription.
 
-The browser tests' server is **concurrent** (`threaded=True` in `tests/conftest.py` and
-`tests/test_resume_browser.py`): since the stream, an open page holds a request in progress as long
-as it lives, and a single-threaded server would serve nothing else.
+The browser tests' server is **concurrent** (`threaded=True` in `tests/application/conftest.py` and
+`tests/application/test_resume_browser.py`): since the stream, an open page holds a request in
+progress as long as it lives, and a single-threaded server would serve nothing else.
 
-`tests/test_map_fix.py` and `tests/test_map_fix_browser.py` cover the map-fixing page — the second
-in Chromium: hovering, dialog, recording, zoom buttons. Both divert the path of the fixes file to a
-temporary directory: **no test writes into `game_box/`**.
+`tests/application/test_map_fix.py` and `tests/application/test_map_fix_browser.py` cover the
+map-fixing page — the second in Chromium: hovering, dialog, recording, zoom buttons. Both divert the
+path of the fixes file to a temporary directory: **no test writes into `tenebrae/game_box/`**.
 
-`tests/test_server.py` queries Flask without a browser: the contents of the hidden fields — including
-the counter values the hover card reads there — the consistency of the coordinates, the files
-served, the set-up served square by square — it must be the scenario's, and the same from one load
-to the next — and the two movement routes, including the check that they add nothing to the
-engine's rules, that the reach follows the placed piece's counter, that an opponent in contact
-reduces it, that a friend does not, and that an accepted move really changes the server's board. It
-also covers the **turn**: `#phase` in the page, `/phase/next` which skips magic and alternates the
-players, `/move` refused outside the movement phase, `/combat/range` by distance, and `/combat`
-which removes the right piece on a `DE` (die fixed by `monkeypatch` of `app.roll_the_die`) and
-touches nothing on a retreat. The rule of **one combat per phase** has its own section there: an
+`tests/application/test_server.py` queries Flask without a browser: the contents of the hidden
+fields — including the counter values the hover card reads there — the consistency of the
+coordinates, the files served, the set-up served square by square — it must be the scenario's, and
+the same from one load to the next — and the two movement routes, including the check that they add
+nothing to the engine's rules, that the reach follows the placed piece's counter, that an opponent
+in contact reduces it, that a friend does not, and that an accepted move really changes the server's
+board. It also covers the **turn**: `#phase` in the page, `/phase/next` which skips magic and
+alternates the players, `/move` refused outside the movement phase, `/combat/range` by distance, and
+`/combat` which removes the right piece on a `DE` (die fixed by `monkeypatch` of `app.roll_the_die`)
+and touches nothing on a retreat. The rule of **one combat per phase** has its own section there: an
 attacker and a target refused at the second combat, a whole group of attackers marked at once, two
 units of the same counter tracked apart, the `unavailable` lists served to the browser, and the
 reset from one combat phase to the next then to the following turn. Every test there starts from a
 **deserted map** — the `deserted_map` fixture clears the board, brings the turn back to its first
-phase and empties the combat register, all three being shared from one request to the next. What
-the scenario itself contains is exercised separately, in `engine/tests/test_scenario.py`; combat
-resolution, in `engine/tests/test_combat.py` and `test_phase.py`.
+phase and empties the combat register, all three being shared from one request to the next. What the
+scenario itself contains is exercised separately, in `tests/engine/test_scenario.py`; combat
+resolution, in `tests/engine/test_combat.py` and `test_phase.py`.
 
-`tests/test_board_browser.py` opens the page in Chromium with Playwright: the 48 pieces loaded and
-centred to within a pixel, tilted by less than 5° — and **tilted once and for all**: a move played
-outside the page makes the scene be laid out again through the stream, and the angles must be the
-same, only a moved piece lying down again — a map that stays scaled after a resize, the zoom —
-buttons, the wheel keeping its point under the pointer, pieces staying on their hexagon once zoomed
-in, a hand-set scale that a resize does not undo — the hover card — the counter values of all the
-units compared with the engine's catalogue, the mention of remarks appearing only when warranted,
-the photograph, the square of a piece one has just moved, the card closing on leaving the piece,
-not appearing on a ghost, its elements stacked one per line, sitting **under** the toolbar and
-aligned on its left edge, reading **at the bar's body size**, not making the bar grow — on a narrow
-window as on a wide one — and not capturing clicks — the layout itself — the panel neither
+`tests/application/test_board_browser.py` opens the page in Chromium with Playwright: the 48 pieces
+loaded and centred to within a pixel, tilted by less than 5° — and **tilted once and for all**: a
+move played outside the page makes the scene be laid out again through the stream, and the angles
+must be the same, only a moved piece lying down again — a map that stays scaled after a resize, the
+zoom — buttons, the wheel keeping its point under the pointer, pieces staying on their hexagon once
+zoomed in, a hand-set scale that a resize does not undo — the hover card — the counter values of all
+the units compared with the engine's catalogue, the mention of remarks appearing only when
+warranted, the photograph, the square of a piece one has just moved, the card closing on leaving the
+piece, not appearing on a ghost, its elements stacked one per line, sitting **under** the toolbar
+and aligned on its left edge, reading **at the bar's body size**, not making the bar grow — on a
+narrow window as on a wide one — and not capturing clicks — the layout itself — the panel neither
 overflowing the window nor scrolling sideways at 1400, 800 and 480 px, and the map it neither
 displaces nor shrinks — then the full cycle click → ghosts → move, both fitted and zoomed in. The
 expected ghosts are those the server's board computes — it runs in the same process, so it is read
@@ -843,74 +845,74 @@ highlights fall away — and **one combat per phase**: the engaged units greyed 
 server's register enters them, the click that does not take them up again, and the greying that
 falls at the next phase.
 
-`tests/test_persistence.py` is the only one to plug in persistence, on **mongomock** — an in-memory
-MongoDB: no server is required, and the file skips itself if mongomock is not installed. It covers
-the opening of a game at the first load, resumption after a simulated restart (the move found
-again, the phase found again, the combat register found again), the elimination that does not come
-back, the **tilts** written, resumed and rewritten on a move — and the save without that field that
-stays resumable — a save of another scenario discarded, `POST /game/new` which opens a second
-document without erasing the first — including when both share the same date, the identifier
-breaking the tie — and the repository's round trip alone. Everywhere else the test configuration
-installs the **null repository**: the other test files see no database, and `GET /` there lays the
-set-up out again as before.
+`tests/application/test_persistence.py` is the only one to plug in persistence, on **mongomock** —
+an in-memory MongoDB: no server is required, and the file skips itself if mongomock is not
+installed. It covers the opening of a game at the first load, resumption after a simulated restart
+(the move found again, the phase found again, the combat register found again), the elimination that
+does not come back, the **tilts** written, resumed and rewritten on a move — and the save without
+that field that stays resumable — a save of another scenario discarded, `POST /game/new` which opens
+a second document without erasing the first — including when both share the same date, the
+identifier breaking the tie — and the repository's round trip alone. Everywhere else the test
+configuration installs the **null repository**: the other test files see no database, and `GET /`
+there lays the set-up out again as before.
 
-`tests/test_resume_browser.py` exercises resumption **as seen from the screen**, in Chromium: move
-a piece then reload the page and find it at its new square, the phase likewise found again,
-`POST /game/new` which puts the 48 units back, and the counters that a reload finds lying at the
-same angle — the previous one for the motionless pieces, the new one for the moved piece. Each test
-there runs **twice** — on mongomock, and on the real MongoDB as soon as `MONGODB_URI_TEST`
+`tests/application/test_resume_browser.py` exercises resumption **as seen from the screen**, in
+Chromium: move a piece then reload the page and find it at its new square, the phase likewise found
+again, `POST /game/new` which puts the 48 units back, and the counters that a reload finds lying at
+the same angle — the previous one for the motionless pieces, the new one for the moved piece. Each
+test there runs **twice** — on mongomock, and on the real MongoDB as soon as `MONGODB_URI_TEST`
 designates one that answers, which `make test` does — so that the full chain is exercised as it
 really runs, without having to launch the server oneself.
 
-`engine/tests/test_seats.py` exercises the seating register alone, with no request and no base:
-taking a side, the seat that is not taken from its occupant, the round trip of serialisation, and a
-save from before players existed which simply leaves the table empty. It followed its subject into
-the engine; `tests/test_connection_model.py` answers it on this side, and exercises `Connection`
-alone: what the session carries and what it does not, the player re-read from the repository at
-every request, an unknown identifier that becomes anonymous again, and the OAuth2 state removed as
-soon as it is taken back.
+`tests/engine/test_seats.py` exercises the seating register alone, with no request and no
+base: taking a side, the seat that is not taken from its occupant, the round trip of serialisation,
+and a save from before players existed which simply leaves the table empty. It followed its subject
+into the engine; `tests/application/test_connection_model.py` answers it on this side, and exercises
+`Connection` alone: what the session carries and what it does not, the player re-read from the
+repository at every request, an unknown identifier that becomes anonymous again, and the OAuth2
+state removed as soon as it is taken back.
 
-`tests/test_connection.py` unrolls the OAuth2 flow **in full** against the fake client: the state
-drawn and checked, the one that does not match and the one that is replayed, the return without a
-code, the player's refusal on Discord's page, Discord's error coming back up whole, the player
-created then updated, and the access token that never enters the session. Then what the server
-refuses: the anonymous visitor who sees the map but moves nothing, the player who does not hold the
-active side, the one who has taken no seat, the second side refused to whoever holds one, the seat
-that is not taken over, the two players each sitting at their own, the seats kept by
-`POST /game/new`, and map fixing reserved to the declared accounts.
+`tests/application/test_connection.py` unrolls the OAuth2 flow **in full** against the fake client:
+the state drawn and checked, the one that does not match and the one that is replayed, the return
+without a code, the player's refusal on Discord's page, Discord's error coming back up whole, the
+player created then updated, and the access token that never enters the session. Then what the
+server refuses: the anonymous visitor who sees the map but moves nothing, the player who does not
+hold the active side, the one who has taken no seat, the second side refused to whoever holds one,
+the seat that is not taken over, the two players each sitting at their own, the seats kept by `POST
+/game/new`, and map fixing reserved to the declared accounts.
 
-`tests/test_discord_client.py` exercises `DiscordClient` alone, `urlopen` replaced in the module:
-the token read from the answer, the HTTP error that carries over the status, the URL called and the
-body of Discord's answer, the unreachable Discord that says which and why, and the answer with no
-token.
+`tests/application/test_discord_client.py` exercises `DiscordClient` alone, `urlopen` replaced in
+the module: the token read from the answer, the HTTP error that carries over the status, the URL
+called and the body of Discord's answer, the unreachable Discord that says which and why, and the
+answer with no token.
 
-`tests/test_connection_browser.py` does the same on screen: the button offering to log in then
-showing the nickname, **the toolbar that does not grow by a pixel** once the avatar is in place —
-it is this test that led to an avatar sized in `em` — the very long nickname that does not push the
-buttons out of sight, the table dialog, the greying outside one's turn, the message a refused move
-displays, and above all **two browsers open at the same time**: one passes its phase or takes a
-seat, the other learns of it without reloading anything.
+`tests/application/test_connection_browser.py` does the same on screen: the button offering to log
+in then showing the nickname, **the toolbar that does not grow by a pixel** once the avatar is in
+place — it is this test that led to an avatar sized in `em` — the very long nickname that does not
+push the buttons out of sight, the table dialog, the greying outside one's turn, the message a
+refused move displays, and above all **two browsers open at the same time**: one passes its phase or
+takes a seat, the other learns of it without reloading anything.
 
-`tests/test_ai.py` exercises the game against the AI on the server side: creation refused to the
-anonymous visitor, to the player with no seat and when the other side is held by a human, the AI
-seated and shown as "IA" at the table, its opening turn played straight away when it holds the
-Alliance, its turn triggered by the `POST /phase/next` that hands it play — the die fixed by
-`monkeypatch`, as everywhere — and its seat that nobody can take. The strategy itself is exercised
-in the engine (`engine/tests/test_artificial_opponent.py`); the persistence of its seat, in
-`tests/test_persistence.py`. `tests/test_ai_browser.py` goes round again on screen: the button
-hidden from whoever is not seated, the opposing side entrusted to the AI with one click, and the
-opening of the scenario played by it before play comes back to the player.
+`tests/application/test_ai.py` exercises the game against the AI on the server side: creation
+refused to the anonymous visitor, to the player with no seat and when the other side is held by a
+human, the AI seated and shown as "IA" at the table, its opening turn played straight away when it
+holds the Alliance, its turn triggered by the `POST /phase/next` that hands it play — the die fixed
+by `monkeypatch`, as everywhere — and its seat that nobody can take. The strategy itself is
+exercised in the engine (`tests/engine/test_artificial_opponent.py`); the persistence of its seat,
+in `tests/application/test_persistence.py`. `tests/application/test_ai_browser.py` goes round again
+on screen: the button hidden from whoever is not seated, the opposing side entrusted to the AI with
+one click, and the opening of the scenario played by it before play comes back to the player.
 
-`tests/test_view.py` and `tests/test_view_browser.py` cover the **map view**. The first without a
-browser: `#view` at `null` for the anonymous visitor as for whoever has adjusted nothing, the view
-stored then returned, the anonymous visitor refused, no seat required, six unreadable bodies
-refused with a 400, two players who do not share their view, the second adjustment overwriting the
-first — and above all what it is **not**: the version does not rise, nothing is deposited with a
-stream subscriber, and `/game/state` says nothing of it. The second, in Chromium: the map opening
-fitted when nothing is stored, the zoom and the scroll each stored on their own, the anonymous
-visitor storing nothing, the reload finding the scale **and** the point one had at the centre, and
-the fitted view found fitted again — at the size of the new window, and not at the old one's scale.
-What MongoDB makes of it is in `tests/test_persistence.py`.
+`tests/application/test_view.py` and `tests/application/test_view_browser.py` cover the **map
+view**. The first without a browser: `#view` at `null` for the anonymous visitor as for whoever has
+adjusted nothing, the view stored then returned, the anonymous visitor refused, no seat required,
+six unreadable bodies refused with a 400, two players who do not share their view, the second
+adjustment overwriting the first — and above all what it is **not**: the version does not rise,
+nothing is deposited with a stream subscriber, and `/game/state` says nothing of it. The second, in
+Chromium: the map opening fitted when nothing is stored, the zoom and the scroll each stored on
+their own, the anonymous visitor storing nothing, the reload finding the scale **and** the point one
+had at the centre, and the fitted view found fitted again — at the size of the new window, and not
+at the old one's scale. What MongoDB makes of it is in `tests/application/test_persistence.py`.
 
 **The whole suite plays logged in.** The `conftest.py`'s `client` fixture opens a session and seats
 the test player **at both sides** — that is what lets the tests written before players existed

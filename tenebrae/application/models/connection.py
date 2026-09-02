@@ -1,7 +1,7 @@
 """The connection: the link between a Flask session and the engine's player.
 
 This is the only model the application keeps for itself. It does not duplicate
-`engine.models.player` - it keeps neither nickname, nor avatar, nor date: it keeps only a
+`tenebrae.engine.models.player` - it keeps neither nickname, nor avatar, nor date: it keeps only a
 **Discord identifier**, the one the session carries, and goes and re-reads the player from the
 repository each time it is asked. A nickname change is thus visible from the very next request,
 and there is still a single notion of identity in the project.

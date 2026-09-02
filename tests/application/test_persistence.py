@@ -13,14 +13,14 @@ mongomock = pytest.importorskip("mongomock")
 
 import mongoengine  # noqa: E402
 
-import app  # noqa: E402
-from config import TestingConfig  # noqa: E402
-from discord_client import DEFAULT_IDENTITY  # noqa: E402
+from tenebrae.application import app  # noqa: E402
+from tenebrae.application.config import TestingConfig  # noqa: E402
+from tenebrae.application.discord_client import DEFAULT_IDENTITY  # noqa: E402
 from tenebrae.engine.hexagon import Hex  # noqa: E402
 from tenebrae.engine.phase import COMBAT, MOVEMENT  # noqa: E402
 from tenebrae.engine.piece import CATALOGUE  # noqa: E402
 
-from test_server import read_hidden_field  # noqa: E402
+from tests.application.test_server import read_hidden_field  # noqa: E402
 
 # The same squares and the same counters as test_server.py: two neighbouring plains, a dwarf of
 # strength 12 and an orc of strength 8 - enough to fight a combat leaving nothing to chance.
@@ -56,7 +56,7 @@ def mongo_application():
     application = app.create_app(MongomockConfig)
     from tenebrae.engine.models.game import Game
     from tenebrae.engine.models.player import Player
-    from models.view import View
+    from tenebrae.application.models.view import View
     Game.objects.delete()
     Player.objects.delete()
     View.objects.delete()
@@ -447,7 +447,7 @@ class TestPersistedView:
 
     def test_adjusting_ones_view_writes_it_to_base(self, mongo_client):
         mongo_client.post("/view", json=self.VIEW)
-        from models.view import View
+        from tenebrae.application.models.view import View
         stored = View.objects.first()
         assert stored.discord_id == DEFAULT_IDENTITY["discord_id"]
         assert (stored.scale, stored.x, stored.y, stored.fitted) \
@@ -464,7 +464,7 @@ class TestPersistedView:
         """No zoom history is kept: one document per player."""
         mongo_client.post("/view", json=self.VIEW)
         mongo_client.post("/view", json={**self.VIEW, "scale": 1.0})
-        from models.view import View
+        from tenebrae.application.models.view import View
         assert View.objects.count() == 1
         assert View.objects.first().scale == 1.0
 
@@ -508,7 +508,7 @@ def real_mongo_client(seat_the_player):
     application = app.create_app(RealMongoConfig)
     from tenebrae.engine.models.game import Game
     from tenebrae.engine.models.player import Player
-    from models.view import View
+    from tenebrae.application.models.view import View
     Game.objects.delete()
     Player.objects.delete()
     View.objects.delete()

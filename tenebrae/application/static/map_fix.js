@@ -2,7 +2,7 @@
 //
 // The server has passed the whole map in a hidden field: hovering reads inside it, without asking
 // the server anything. Only choosing a terrain makes a round trip, to go and write itself into
-// game_box/map_fix.json. The transcribed map itself is never touched.
+// tenebrae/game_box/map_fix.json. The transcribed map itself is never touched.
 //
 // Everything the administrator reads stays in French, terrain names included: they are the
 // vocabulary of the data files.

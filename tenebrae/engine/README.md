@@ -1,17 +1,17 @@
-# `engine/` — the heart of the game
+# `tenebrae/engine/` — the heart of the game
 
-The rules of *Ave Tenebrae* in Python, with nothing that touches the web: `application/` only
-serves what this package decides. A move is never judged legal by the browser.
+The rules of *Ave Tenebrae* in Python, with nothing that touches the web: `tenebrae/application/`
+only serves what this package decides. A move is never judged legal by the browser.
 
 The code is English; the game data it reads is not — terrain names, piece keys and side names stay
-French, as they are in `game_box/`.
+French, as they are in `tenebrae/game_box/`.
 
 | File | Contents |
 | --- | --- |
 | `hexagon.py` | the map read as a constant, and the `Hex` class |
 | `piece.py` | the piece catalogue read as a constant, and the `Piece` class |
 | `board.py` | the game state: which pieces are placed, where, on which side, and at what angle |
-| `scenario.py` | the set-ups fixed in `scenarios/`, and the `Board` they yield |
+| `scenario.py` | the set-ups fixed in `tenebrae/scenarios/`, and the `Board` they yield |
 | `phase.py` | the state machine of a turn: which side plays, and at what (`Turn`) |
 | `combat.py` | combat resolution after the booklet's Table I |
 | `ai.py` | the artificial opponent: the side the server plays on its own |
@@ -39,11 +39,11 @@ stored field would orphan the games and accounts already in base.
 
 **One file per model**, and the `__init__.py` re-exports nothing: `Seats` needs only the standard
 library, whereas the two documents require mongoengine. The precise module is therefore imported,
-absolutely — `from engine.models.seats import Seats` — never a relative import.
+absolutely — `from tenebrae.engine.models.seats import Seats` — never a relative import.
 
 The engine does **not** know the *connected* player. There is no session here, no cookie, no
 request, not the least Flask import: the link between a visitor and their `Player` is held by the
-application, in `application/models/connection.py`, which designates the player by their
+application, in `tenebrae/application/models/connection.py`, which designates the player by their
 `discord_id`. The dependency runs one way only.
 
 ```python
@@ -96,14 +96,14 @@ Two keyword arguments add the opponent — `enemies` and `under_control`, sets o
 terrain.
 
 The map is read **once, at module import** — the board is printed, it does not change mid-game. It
-is `game_box/carte_details.json` that is read, and not `carte.json`: the head of its list gives the
-same main terrain, but it alone keeps the 58 roads and paths that the map's priority rule hides
-under a wood or a massif. Without it, the northern black road would not exist for movement.
+is `tenebrae/game_box/carte_details.json` that is read, and not `carte.json`: the head of its list
+gives the same main terrain, but it alone keeps the 58 roads and paths that the map's priority rule
+hides under a wood or a massif. Without it, the northern black road would not exist for movement.
 
 ## The game map — the transcription, fixed
 
 The automatic transcription contains errors, noticed by eye on the application's `/admin/map_fix`
-page and written into `game_box/map_fix.json`. The engine applies them on top:
+page and written into `tenebrae/game_box/map_fix.json`. The engine applies them on top:
 
 | Constant | Contents |
 | --- | --- |
@@ -129,7 +129,7 @@ until it is restarted. The admin page says so.
 ## The `Piece` class
 
 ```python
-from tenebrae.engine import CATALOGUE, piece
+from tenebrae.engine.piece import CATALOGUE, piece
 
 cavalry = piece("reissland-02-8-cavaleries")
 cavalry.strength  # 5 — top left of the counter
@@ -145,10 +145,10 @@ cavalry.exerts_a_zone_of_control  # True
 Hex(1, 26, -27).moves(cavalry.movement_points)
 ```
 
-The values come from `game_box/pions/pions.json`, read by eye off the 127 photographs in
-`game_box/pions/` (see `game_box/pions/README.md`). Its field names are French, and are read as
-such. The file is read **once, at import**: like the map, the counters are printed, they do not
-change mid-game.
+The values come from `tenebrae/game_box/pions/pions.json`, read by eye off the 127 photographs in
+`tenebrae/game_box/pions/` (see `tenebrae/game_box/pions/README.md`). Its field names are French,
+and are read as such. The file is read **once, at import**: like the map, the counters are printed,
+they do not change mid-game.
 
 A value absent from the counter — or illegible on the photograph — is `None`, and `remarks` says
 which. Only `movement_points` commits, because movement needs a number:
@@ -165,7 +165,7 @@ which. Only `movement_points` commits, because movement needs a number:
 ### The sides
 
 The side is **not** in `pions.json`: it is not printed on the counter. It comes from the "Camps"
-section of `game_box/pions/README.md`, held here in `SIDES`, faction by faction:
+section of `tenebrae/game_box/pions/README.md`, held here in `SIDES`, faction by faction:
 
 | Side | Factions | Pieces |
 | --- | --- | --- |
@@ -201,7 +201,8 @@ The booklet fits in three lines, and the walk in three rules:
 
 A unit that **begins** its move under control therefore leaves it, but through a free square: the
 figure of the booklet's example, where C goes round X1 to reach X2 and "will therefore spend 4
-movement points instead of 2", is found as it stands in `engine/tests/test_zone_of_control.py`.
+movement points instead of 2", is found as it stands in
+`tests/engine/test_zone_of_control.py`.
 
 ## The `Board` class
 
@@ -239,9 +240,9 @@ the side gives the opponents, the opponents give the zones of control.
 ## The scenarios
 
 ```python
-from tenebrae.engine import scenario
+from tenebrae.engine.scenario import scenario
 
-war_of_the_dwarves = scenario(4)  # read from scenarios/scenario-04-….json
+war_of_the_dwarves = scenario(4)  # read from tenebrae/scenarios/scenario-04-….json
 war_of_the_dwarves.armies  # one entry per player: side, instruction, anchor, magic
 war_of_the_dwarves.sides  # ('alliance', 'tenebres')
 war_of_the_dwarves.placement  # "q,r,s" → piece key
@@ -249,11 +250,11 @@ len(war_of_the_dwarves)  # 48 units
 war_of_the_dwarves.board()  # a fresh Board, each piece on its square
 ```
 
-The booklet describes a set-up in a sentence — "the dwarf army masses south of the volcano of
-Toth" — and never says which counter goes on which square. The step from the sentence to the
-hexagons was taken once and for all, outside the code, and lives in `scenarios/*.json`: **the
-engine only reads that file**. The format, the detail of scenario no. 4 and the caveats that go
-with it are in `scenarios/README.md`.
+The booklet describes a set-up in a sentence — "the dwarf army masses south of the volcano of Toth"
+— and never says which counter goes on which square. The step from the sentence to the hexagons was
+taken once and for all, outside the code, and lives in `tenebrae/scenarios/*.json`: **the engine
+only reads that file**. The format, the detail of scenario no. 4 and the caveats that go with it are
+in `tenebrae/scenarios/README.md`.
 
 `board()` returns a **fresh** `Board` at each call: two games do not share their positions. A piece
 key unknown to the catalogue, or a square off the map, stops the read — better a refused scenario
@@ -261,7 +262,7 @@ than an army quietly cut short.
 
 ## Movement cost
 
-After the booklet's *Tableau des terrains* (`game_box/ave_tenebrae_regles.md`):
+After the booklet's *Tableau des terrains* (`tenebrae/game_box/ave_tenebrae_regles.md`):
 
 | Terrain | Entry cost |
 | --- | --- |
@@ -292,7 +293,7 @@ In the heart of a wood, where each square costs 2 points, count three to four ti
 ## The game phases
 
 ```python
-from tenebrae.engine import Turn
+from tenebrae.engine.phase import Turn
 
 turn = Turn(("alliance", "tenebres"), {"alliance": "Nains", "tenebres": "Orques"})
 turn.label  # "Phase de mouvement — Nains"
@@ -302,11 +303,11 @@ turn.advance()  # steps to the Dwarves' combat; magic is stepped over by itself
 turn.number  # 1, then 2 when the sequence comes round again
 ```
 
-The booklet (`game_box/ave_tenebrae_regles.md`, "Phases de jeu") fixes the order: each player goes
-through **movement → magic → combat**, then it is the next player's turn, round and round. `Turn`
-holds that cursor. The **magic phase is not implemented**: `advance()` skips it, it is never the
-current one. `allows_movement` / `allows_combat` say whether a given side may act now — that is
-what the application consults to block a move outside its phase.
+The booklet (`tenebrae/game_box/ave_tenebrae_regles.md`, "Phases de jeu") fixes the order: each
+player goes through **movement → magic → combat**, then it is the next player's turn, round and
+round. `Turn` holds that cursor. The **magic phase is not implemented**: `advance()` skips it, it is
+never the current one. `allows_movement` / `allows_combat` say whether a given side may act now —
+that is what the application consults to block a move outside its phase.
 
 `Turn` knows neither the board nor the pieces: it only orders the phases. The application keeps one
 instance of it, reset at every load of the map, beside its `Board`.
@@ -363,8 +364,8 @@ is consulted**: `resolve` and `fight` both go through it, and therefore cannot s
 things about it. `result.ratio` and `result.die` are the breakdown's.
 
 The engine builds **no sentence**: it returns numbers and a terrain name. Putting it into French is
-the application's business (`describe_the_ratio` in `application/app.py`), which makes it the log
-line `Rapport 2-1 : attaque 12 + 8 = 20 contre défense 8 × 3 = 24 (montagne) — dé 4`.
+the application's business (`describe_the_ratio` in `tenebrae/application/app.py`), which makes it
+the log line `Rapport 2-1 : attaque 12 + 8 = 20 contre défense 8 × 3 = 24 (montagne) — dé 4`.
 
 **Only three outcomes change the board**, and `fight` applies them by removing pieces: `AE`
 (attacker eliminated), `DE` (defender eliminated), `EX` (both). `AR` and `DR` — the retreats — are
@@ -430,7 +431,7 @@ The strategy comes down to three points:
 the combat register emptied — plays the combat phase, and hands play back. The die stays at the
 edge of the engine: `roll` is a **callable**, called once per combat fought. Every tie-break is
 made by square keys: at equal die, two identical games replay identically — that is what makes the
-AI testable (`engine/tests/test_artificial_opponent.py`).
+AI testable (`tests/engine/test_artificial_opponent.py`).
 
 On the application's side, the AI occupies its seat under the `AI_PLAYER` sentinel (`"ia"`, which
 no Discord identifier — strings of digits — can carry) and is displayed under `AI_NAME`. The
@@ -443,9 +444,9 @@ As for the map and the counter inventory, doubts are kept, not settled.
 - **The ruins' "× 2" is read as a surcharge**, whereas the same column of the table notes "× 2" for
   paths and "× 3" for roads, where the factor multiplies movement. Taking the ruins for fast
   terrain makes no sense; they are therefore treated like woods and hills, at 2 points.
-- **Rivers and walls are hexagon terrains**, not edges: that is how they were transcribed (see
-  `game_box/map.md`). The bridges not being recorded, no river is crossable — including the access
-  to Morgenstern.
+- - **Rivers and walls are hexagon terrains**, not edges: that is how they were transcribed (see
+  `tenebrae/game_box/map.md`). The bridges not being recorded, no river is crossable — including the
+  access to Morgenstern.
 - **The hills are an interpretation of the scan**, not a drawn terrain: access to the mountains
   depends directly on them. 42 of the 128 mountain hexagons border a hill or carry a way; the
   others stay unreachable on the ground.
@@ -456,7 +457,7 @@ As for the map and the counter inventory, doubts are kept, not settled.
   leaves them, one does not enter them.
 - **A fix bears only on the main terrain.** A road wrongly detected under a wood survives that
   wood's fix and stays practicable at ⅓ of a point: `map_fix.json` cannot remove a secondary
-  element. That is settled in `game_box/extract_map.py`.
+  element. That is settled in `tenebrae/game_box/extract_map.py`.
 - **Combat reads only the strength.** `pions.json` also carries fire and range: `combat.py` uses
   them only for an archer's engagement range, never for fire resolved separately. A missile attack
   follows the same Table I as a melee.
@@ -465,7 +466,7 @@ As for the map and the counter inventory, doubts are kept, not settled.
   (2 points) under the same terrain rules. Flying over a lake or a mountain remains impossible.
 - **Five movement values could not be read** on the counter's photograph (a cropped counter, an
   illegible figure): they are noted in `pions.json` and repeated in the caveats of
-  `game_box/pions/README.md`.
+  `tenebrae/game_box/pions/README.md`.
 - **Every unit exerts a zone of control**, whereas the booklet exempts leaders and spellcasters,
   demons and ordinary undead — only the three demon princes and the three lords on dragons exert
   one among them — and units holding a fortress. Those exceptions are readable in `pions.json`

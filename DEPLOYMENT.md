@@ -1,19 +1,19 @@
 # Deployment — what the SSE stream will require
 
-The game runs only in development today: `python3 app.py`, a single process, no server in front.
-This document is therefore not a how-to for going into production — it is the list of what will
-have to be settled **the day** there is one, and which does not show locally.
+The game runs only in development today: `python3 -m tenebrae.application.app`, a single process,
+no server in front. This document is therefore not a how-to for going into production — it is the
+list of what will have to be settled **the day** there is one, and which does not show locally.
 
-Everything hinges on one thing: since the game is followed through an **event stream**
-(`GET /stream`, Server-Sent Events — see `application/stream.py` and the "Following the opponent's
-game" section of `application/README.md`), every open tab holds an **HTTP request that never
-ends**. Everything that, in an ordinary web stack, assumes a response is short — concurrency,
-buffering, timeouts — has to be revisited.
+Everything hinges on one thing: since the game is followed through an **event stream** (`GET
+/stream`, Server-Sent Events — see `tenebrae/application/stream.py` and the "Following the
+opponent's game" section of `tenebrae/application/README.md`), every open tab holds an **HTTP
+request that never ends**. Everything that, in an ordinary web stack, assumes a response is short —
+concurrency, buffering, timeouts — has to be revisited.
 
 The places in the code concerned all carry the `TODO: PRODUCTION` marker:
 
 ```
-grep -rn "TODO: PRODUCTION" application/
+grep -rn "TODO: PRODUCTION" tenebrae/application/
 ```
 
 ---
@@ -29,7 +29,7 @@ synchronous worker holds only one per process: two players, and the server stops
 
 ```
 pip install gunicorn gevent
-gunicorn -k gevent -w 1 'app:create_app()'
+gunicorn -k gevent -w 1 'tenebrae.application.app:create_app()'
 ```
 
 Two remarks on that line:
@@ -38,11 +38,11 @@ Two remarks on that line:
   and fares badly on recent Pythons. `gevent` does the same thing and is still looked after. If one
   insists on `eventlet`, `-k eventlet` works the same way — to be checked against the Python
   version in use.
-- **`'app:create_app()'` and not `app:app`.** This repository has no global application: `app.py`
-  exposes only the `game` blueprint and the factory. Gunicorn knows how to call a factory if it is
-  written that way.
-- **Launch from `application/`**, or set `--pythonpath application`: the project's imports are
-  absolute and assume `application/` is on the path (see `CLAUDE.md`).
+- **`'…:create_app()'` and not `…:app`.** This repository has no global application:
+  `tenebrae/application/app.py` exposes only the `game` blueprint and the factory. Gunicorn knows
+  how to call a factory if it is written that way.
+- **Launch from the root of the repository**, or set `--pythonpath /path/to/tenebrae`: nothing is
+  installed, and every import is written from the root (see `CLAUDE.md`).
 
 An alternative to asynchronous workers, if one wants to stay synchronous: `-k gthread` with enough
 threads (`--threads 32`). It is simpler to reason about, and enough for a two-player game; but
@@ -68,8 +68,8 @@ location /stream {
 }
 ```
 
-**The `X-Accel-Buffering: no` header is already set by the Flask response** (in the `/stream`
-route, `application/app.py`), and it tells Nginx the same thing as `proxy_buffering off;` — for
+**The `X-Accel-Buffering: no` header is already set by the Flask response** (in the `/stream` route,
+`tenebrae/application/app.py`), and it tells Nginx the same thing as `proxy_buffering off;` — for
 that response only. Both together, and not one or the other: the header protects if the
 configuration is forgotten, the configuration protects if an intermediary ignores the header.
 
@@ -80,9 +80,9 @@ well. Hence the separate `location /stream` rather than a global setting.
 
 ## c) The timeouts to watch
 
-A silent stream looks like a dead connection. The server therefore sends an SSE comment
-(`: battement`) every **20 seconds** (`HEARTBEAT` in `application/app.py`): that is what keeps the
-connection alive across intermediaries.
+A silent stream looks like a dead connection. The server therefore sends an SSE comment (`:
+battement`) every **20 seconds** (`HEARTBEAT` in `tenebrae/application/app.py`): that is what keeps
+the connection alive across intermediaries.
 
 Every intermediary has its own timeout, and **the shortest wins**:
 
@@ -103,9 +103,9 @@ intermediary's timeout to lowering the heartbeat**: a shorter heartbeat is traff
 ## d) Several workers — the limit to know about
 
 **The registry of open streams is in memory, in the process** (`Broadcaster`, in
-`application/stream.py`). The same is true of the whole game state: the board, the turn, the combat
-register and the seating table are module globals of `application/app.py`. The game therefore
-assumes **a single process** — which was already the case long before the stream.
+`tenebrae/application/stream.py`). The same is true of the whole game state: the board, the turn,
+the combat register and the seating table are module globals of `tenebrae/application/app.py`. The
+game therefore assumes **a single process** — which was already the case long before the stream.
 
 With `gunicorn -w 2` or more, two things would break, and not only the stream:
 

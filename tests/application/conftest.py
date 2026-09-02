@@ -1,17 +1,13 @@
 """Shared fixtures: a logged-in Flask client, a test player, and a real server for the browser."""
 
-import sys
 import threading
-from pathlib import Path
 
 import pytest
 from werkzeug.serving import make_server
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from app import BOARD, REGISTER, SCENARIO, SEATS, TURN, create_app  # noqa: E402
-from config import TestingConfig  # noqa: E402
-from discord_client import DEFAULT_IDENTITY  # noqa: E402
+from tenebrae.application.app import BOARD, REGISTER, SCENARIO, SEATS, TURN, create_app
+from tenebrae.application.config import TestingConfig
+from tenebrae.application.discord_client import DEFAULT_IDENTITY
 
 
 @pytest.fixture(scope="session")
@@ -94,8 +90,8 @@ def server(application):
     """Serves the application on a free port, for the length of the test session.
 
     `threaded=True` is not a convenience: since the page holds an open **SSE stream** (`/stream`,
-    see `application/stream.py`), a request stays in progress for as long as the tab lives. A
-    single-threaded server - which is what `make_server` gives by default - would serve that
+    see `tenebrae/application/stream.py`), a request stays in progress for as long as the tab lives.
+    A single-threaded server - which is what `make_server` gives by default - would serve that
     stream and nothing else ever again, and the whole Playwright suite would stop there. Werkzeug's
     threads are daemons: shutting down does not wait for the streams still open.
     """

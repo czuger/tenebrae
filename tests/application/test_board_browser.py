@@ -7,7 +7,7 @@ import math
 
 import pytest
 
-import app
+from tenebrae.application import app
 from tenebrae.engine.hexagon import MAP, Hex
 from tenebrae.engine.piece import CATALOGUE, OPPONENTS
 
@@ -134,7 +134,7 @@ def test_the_pieces_keep_their_tilt_when_the_scene_is_laid_out_again(board, serv
     """What used to be disturbing: the counters spun at every poll of the game state.
 
     The tilt is part of the game state - the server draws it when placing and keeps it (see
-    `engine/board.py`) - so the page lays it out again as it is.
+    `tenebrae/engine/board.py`) - so the page lays it out again as it is.
     """
     before = angles_by_square(board)
     let_the_opponent_play(board, server)
@@ -819,7 +819,8 @@ def an_uncovered_hexagon(page, forbidden):
     raise AssertionError("no free hexagon is clickable")
 
 
-# --- Locating the last clicked piece ---------------------------------------------------------------
+# --- Locating the last clicked piece
+# ---------------------------------------------------------------
 
 
 def a_centrable_piece(page):

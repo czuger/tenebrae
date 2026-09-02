@@ -1,16 +1,16 @@
 """Combat resolution in Ave Tenebrae: Table I of the booklet, and nothing more.
 
-The booklet (`game_box/ave_tenebrae_regles.md`, "Combats") gives a two-way table - the strength
-ratio in columns, the die roll in rows - each cell of which gives the outcome of the battle:
-attacker eliminated, defender eliminated, exchange, or one of the two retreats. This module
-transcribes that table, computes the strength ratio ("always rounded in the defender's favour")
-and applies the terrain modifiers from the *Terrain table*.
+The booklet (`tenebrae/game_box/ave_tenebrae_regles.md`, "Combats") gives a two-way table - the
+strength ratio in columns, the die roll in rows - each cell of which gives the outcome of the
+battle: attacker eliminated, defender eliminated, exchange, or one of the two retreats. This module
+transcribes that table, computes the strength ratio ("always rounded in the defender's favour") and
+applies the terrain modifiers from the *Terrain table*.
 
 Retreats are not played: `AR` and `DR` leave the board untouched. `EX` removes the engaged units,
 without the booklet's "attackers totalling a strength at least equal" sorting - but **missile
 troops escape it**: "a unit firing missiles can in no case suffer a retreat or exchange result".
 Special abilities, the cavalry charge, phalanxes and the day/night alternation are out of reach -
-see `engine/README.md`.
+see `tenebrae/engine/README.md`.
 
 `CombatRegister` keeps separately what a combat phase has already consumed: a unit attacks only
 once, a unit is attacked only once. It is a register, not a resolution - it touches neither the
@@ -106,8 +106,8 @@ class RatioBreakdown:
     resolved. This object keeps them all.
 
     It builds no sentence: it returns numbers and a terrain name, and it is the application that
-    puts them into French (see `describe_the_ratio` in `application/app.py`). The engine, for its
-    part, has no business knowing that a log exists.
+    puts them into French (see `describe_the_ratio` in `tenebrae/application/app.py`). The engine,
+    for its part, has no business knowing that a log exists.
     """
 
     __slots__ = ("strengths", "target_strength", "terrain", "multiplier", "die_bonus", "roll")

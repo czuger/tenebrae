@@ -1,9 +1,9 @@
-"""The scenarios: a fixed set-up, read from `scenarios/`.
+"""The scenarios: a fixed set-up, read from `tenebrae/scenarios/`.
 
 The booklet describes each scenario in a sentence - "the dwarf army masses south of the volcano of
 Toth" - without saying which piece goes on which square. The step from the sentence to the
-hexagons was taken once and for all, and the result lives in `scenarios/*.json` (see
-`scenarios/README.md`): the engine only reads it.
+hexagons was taken once and for all, and the result lives in `tenebrae/scenarios/*.json` (see
+`tenebrae/scenarios/README.md`): the engine only reads it.
 
 Those files are data, and their field names stay in French like the rest of the box; they are read
 as such here.

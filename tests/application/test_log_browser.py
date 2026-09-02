@@ -5,7 +5,7 @@ These engine require Chromium (`python3 -m playwright install chromium`).
 
 import pytest
 
-import app
+from tenebrae.application import app
 from tenebrae.engine.hexagon import Hex
 from tenebrae.engine.piece import CATALOGUE
 

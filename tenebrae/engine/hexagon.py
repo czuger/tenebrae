@@ -1,14 +1,14 @@
 """The hexagon grid of Ave Tenebrae and the moves it allows.
 
-The game map is the transcription of the scan (`game_box/carte_details.json`) overlaid with the
-fixes recorded by eye (`game_box/map_fix.json`). Both files are read once, when the module is
-imported, and the result is held to be constant: the board was printed in 1986, it does not
-change mid-game. Fixing the map therefore requires restarting the program.
+The game map is the transcription of the scan (`tenebrae/game_box/carte_details.json`) overlaid with
+the fixes recorded by eye (`tenebrae/game_box/map_fix.json`). Both files are read once, when the
+module is imported, and the result is held to be constant: the board was printed in 1986, it does
+not change mid-game. Fixing the map therefore requires restarting the program.
 
 Movement cost follows the booklet's *Terrain table*; the interpretation caveats are recorded in
-`engine/README.md`. The movement budget itself comes from the piece: `engine.piece` reads it off
-the counter, and `moves()` receives it as an argument. At this stage every unit is a ground unit:
-no flight, no powers, no stacking beyond one piece per square.
+`tenebrae/engine/README.md`. The movement budget itself comes from the piece:
+`tenebrae.engine.piece` reads it off the counter, and `moves()` receives it as an argument. At this
+stage every unit is a ground unit: no flight, no powers, no stacking beyond one piece per square.
 
 Terrain names stay in French (`plaine`, `bois`, `montagne`, …): they are the vocabulary of the
 transcribed data files, which are the source of truth and are not translated. Only the code around
@@ -89,8 +89,9 @@ MOUNTAIN_ACCESS = frozenset({"colline", "montagne"})
 # not among them: they are not crossed, but they can be garrisoned.
 UNINHABITABLE = frozenset({"lac", "riviere", "faille"})
 
-# Flat movement rate, for callers that do not say which piece they mean: counter values run from
-# 1 to 20 points, and 5 is the value used before we started reading them (see `engine.piece`).
+# Flat movement rate, for callers that do not say which piece they mean: counter values run from 1
+# to 20 points, and 5 is the value used before we started reading them (see
+# `tenebrae.engine.piece`).
 DEFAULT_MOVEMENT = 5
 
 

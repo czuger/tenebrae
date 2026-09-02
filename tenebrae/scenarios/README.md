@@ -1,10 +1,10 @@
-# `scenarios/` — the set-ups, fixed once and for all
+# `tenebrae/scenarios/` — the set-ups, fixed once and for all
 
 The booklet describes each scenario in a sentence — "the dwarf army masses south of the volcano of
 Toth" — and never says which counter goes on which square. The step from the sentence to the
 hexagons is a work of interpretation: it was taken **once**, and its result lives here, one JSON
-file per scenario. The engine only reads it (`engine/scenario.py`), and the application lays it out
-on the map when `/` is loaded.
+file per scenario. The engine only reads it (`tenebrae/engine/scenario.py`), and the application
+lays it out on the map when `/` is loaded.
 
 That is what replaced the random draw of ten counters: moves are now exercised on a known position,
 the same at every reload.
@@ -21,7 +21,7 @@ Scenarios 1, 2, 3 and 5 of the booklet are not fixed yet.
 ## The format
 
 Naming: `scenario-NN-<slugified-title>.json`, `NN` on two digits — that is where
-`engine.scenario.available_scenarios()` takes the number from.
+`tenebrae.engine.scenario.available_scenarios()` takes the number from.
 
 | Key | Contents |
 | --- | --- |
@@ -31,13 +31,13 @@ Naming: `scenario-NN-<slugified-title>.json`, `NN` on two digits — that is whe
 | `placement` | `"q,r,s"` → piece key: **the set-up itself**, one unit per square |
 
 Each `armees` entry carries the `joueur`, their `camp` (`alliance` / `tenebres`, the one
-`engine.piece` gives to the faction), the name of the `armee`, the booklet's `consigne` copied
-word for word, the `ancre` — the hexagon the deployment starts from, the one the instruction
+`tenebrae.engine.piece` gives to the faction), the name of the `armee`, the booklet's `consigne`
+copied word for word, the `ancre` — the hexagon the deployment starts from, the one the instruction
 designates —, the number of `unites` placed, the side's `magie` potential and its `jeteur_de_sorts`
 (`null` if no counter represents it).
 
-The piece keys are those of `game_box/pions/pions.json`; a counter named several times is placed
-that many times, one square each — the box really does carry 15 orc infantry counters under a
+The piece keys are those of `tenebrae/game_box/pions/pions.json`; a counter named several times is
+placed that many times, one square each — the box really does carry 15 orc infantry counters under a
 single photograph.
 
 ## Scenario no. 4 — La guerre des nains
@@ -53,9 +53,9 @@ army — 5 infantry, 4 crossbowmen, 4 heavy crossbowmen and 5 phalanxes — and 
 the box: the engine gives them no effect — no command, no combat bonus, no rally, no spell — and a
 unit that does nothing more than another has no business in a battle line. Both sides therefore
 fight on equal terms, by counter and by terrain. The three corresponding counters
-(`nains-05-2-leaders`, `nains-06-1-mage-vorgtd`, `orques-08-1-leader`) stay in `game_box/pions/`:
-putting them back the day the engine gives them an effect will only take adding them to the
-placement.
+(`nains-05-2-leaders`, `nains-06-1-mage-vorgtd`, `orques-08-1-leader`) stay in
+`tenebrae/game_box/pions/`: putting them back the day the engine gives them an effect will only take
+adding them to the placement.
 
 ### The deployment
 
@@ -105,7 +105,7 @@ in a dead end.
 
 The dwarves hold 15 squares of plain and 3 of path. The orcs hold plain (15), the hills coming down
 from the lake (8), the path crossing the Orcreich (6) and the fort at `51,-13,-38` — that fort is a
-fix recorded by hand in `game_box/map_fix.json`.
+fix recorded by hand in `tenebrae/game_box/map_fix.json`.
 
 ### Caveats on this set-up
 
@@ -120,7 +120,7 @@ As elsewhere in the repository, uncertainties are kept, not resolved.
   the scenario refuses them: the booklet gives a leader to each side and Vorgtd to the dwarves.
 - **The orc minor necromancer is not placed** either, but for another reason: the scenario gives it
   to player no. 2 (20 magic points) and **no counter represents it** —
-  `game_box/pions/11-orques/` contains none, and `19-magiciens/` has only two overviews.
+  `tenebrae/game_box/pions/11-orques/` contains none, and `19-magiciens/` has only two overviews.
 - **Both magic potentials stay noted** in `armees` (45 for the dwarves, 20 for the orcs) even
   though the `jeteur_de_sorts` of both sides is `null`: those numbers come from the booklet, and
   they are what will have to be spent the day magic is played.
@@ -133,10 +133,10 @@ As elsewhere in the repository, uncertainties are kept, not resolved.
 
 ## Tests
 
-`engine/tests/test_scenario.py`, from the repository root:
+`tests/engine/test_scenario.py`, from the repository root:
 
 ```
-python3 -m pytest engine/tests/test_scenario.py
+python3 -m pytest tests/engine/test_scenario.py
 ```
 
 It exercises the reading of the files, the announced numbers against the counters actually placed,

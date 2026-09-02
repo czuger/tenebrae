@@ -172,6 +172,8 @@ No packaging, no CI. Do not introduce any without being asked. The only scaffold
 | `make test` | brings up a test MongoDB in a Docker container (port 27018, database `tenebrae_test`), waits for it to answer, then runs the whole suite |
 | `make test-fast` | the same suite without a base: the tests requiring a real MongoDB skip themselves |
 | `make test-browser` | the Chromium tests only |
+| `make coverage` | the whole suite, measuring what it covers of `tenebrae/`: the missing lines in the terminal, the source coloured in `htmlcov/index.html` |
+| `make coverage-fast` | the same measurement without a base, as `test-fast` is to `test`; `ARGS="--ignore-glob=*browser*"` drops Chromium too, for a quick pass |
 | `make mongo-stop` | removes the container (it stays up between two `make test`) |
 | `make browser` | installs Chromium for Playwright |
 | `make test ARGS="-k persistence -v"` | `ARGS` is passed to pytest as it stands |
@@ -181,6 +183,14 @@ request), mirroring the package they exercise, and are run **from the root** —
 `conftest.py` puts the repository on `sys.path`, no package being installed, and every test imports
 its subject by its full path (`from tenebrae.application.app import create_app`). `python3 -m
 pytest` therefore works too, but without the base: prefer `make test`.
+
+**Coverage is measured over `tenebrae/`, never over `tests/`**, and `.coveragerc` sets out what is
+left out and why: the map extraction script, which no test may launch, and the `__init__.py` files,
+which carry a docstring and re-export nothing. The figure is not a target to be met — a line is
+covered because a test had a reason to exercise it, never so that the percentage should rise — but
+a line nobody reaches is worth knowing about, and that is what the report is read for. Measure with
+the browser tests in: dropping them can only lower the figure, and a report is worth reading only
+if what it calls unreached really is.
 
 The other executable is the map extraction script, to be run **from `tenebrae/game_box/`** (it works
 in relative paths):

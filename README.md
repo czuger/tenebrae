@@ -169,6 +169,8 @@ Every check goes through the test suite — we do not launch the server to see w
 | `make test` | brings up a test MongoDB in Docker, then runs the whole suite |
 | `make test-fast` | the same suite without a database: the tests that need one skip themselves |
 | `make test-browser` | the Chromium (Playwright) tests only |
+| `make coverage` | the whole suite, and what it covers of `tenebrae/` (`htmlcov/index.html`) |
+| `make coverage-fast` | the same measurement without a database: what `make test-fast` is to `make test` |
 | `make browser` | installs Chromium for Playwright |
 | `make mongo-stop` | removes the test container |
 

@@ -23,6 +23,7 @@ python-dotenv   # reads the `.env` where the connection details live
 pytest
 pytest-playwright   # the `page` fixture of the browser engine; then: python3 -m playwright install chromium
 mongomock           # MongoDB in memory: the persistence engine require no server
+pytest-cov          # `make coverage`: what the suite covers of tenebrae/, configured in .coveragerc
 
 # --- Map regeneration (tenebrae/game_box/extract_map.py, never rerun in practice) ---
 Pillow

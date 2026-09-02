@@ -776,6 +776,14 @@ Without Docker, `make test-fast` runs the same suite without a base: the tests r
 MongoDB skip themselves. `make mongo-stop` removes the container, which otherwise stays up from one
 series to the next. `ARGS` passes arguments to pytest: `make test ARGS="-k persistence -v"`.
 
+`make coverage` runs that same suite and reports what it covers of `tenebrae/` — the missing lines
+in the terminal, the source coloured in `htmlcov/index.html`. Chromium is measured with the rest:
+the browser tests reach the routes through the page that serves them, and dropping them can only
+lower the figure. `make coverage-fast` measures the same thing without a base, as `test-fast` is to
+`test`; adding `ARGS="--ignore-glob=*browser*"` drops Chromium as well, which turns the minutes
+into seconds and under-estimates the application further — that pass says where to look, not where
+one stands.
+
 **Nothing is checked by hand**: no server launched to go and look, no `curl`. What we want to
 exercise is written as a test, and what shows in a page is exercised in Chromium through Playwright.
 

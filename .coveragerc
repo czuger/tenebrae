@@ -1,0 +1,38 @@
+# What `make coverage` measures, and what it deliberately leaves out.
+#
+# The subject is the `tenebrae` package - the rules, the server, the entities - and nothing else.
+# `tests/` is not measured: a suite that reports on itself inflates the figure with lines that
+# exist only to exercise other lines, and says nothing about the game.
+
+[run]
+source = tenebrae
+branch = True
+
+# Two things in the package are not code the suite can run:
+#
+# - `extract_map.py` is the map extraction script. It runs for about ten minutes, wants some 2 GB
+#   of memory and Pillow, numpy and scipy with it, and regenerates `carte.json` from a 6173 x 5102
+#   scan. It has never been rerun in practice, and no test may launch it; measuring it would only
+#   sink the figure by some three hundred statements nobody intends to cover.
+# - `__init__.py` files carry a docstring and nothing else - the packages re-export nothing, which
+#   is the rule set out in `CLAUDE.md`. They would count as covered without ever being exercised.
+omit =
+    */game_box/extract_map.py
+    */__init__.py
+
+[report]
+# The one line a run cannot reach and whose absence from the report is not a gap:
+# `if __name__ == "__main__"` is the development launch, which the suite never takes. Nothing else
+# is excluded - the package has no abstract method and no `TYPE_CHECKING` block, and an exclusion
+# written for a case that does not exist would quietly hide the day it does.
+exclude_also =
+    if __name__ == .__main__.:
+
+# The report is read to find what is not exercised, so it names the missing lines.
+show_missing = True
+skip_covered = False
+precision = 1
+
+[html]
+directory = htmlcov
+title = Ave Tenebrae — test coverage

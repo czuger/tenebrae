@@ -67,14 +67,14 @@ def texts(lines):
 def test_a_logged_line_carries_its_time_and_its_text():
     """And what is served is a copy: the queue goes on turning while the message travels, and we
     do not hand out the reference it turns in."""
-    app.LOG.info("Phase : %s (tour %s)", "Phase de combat — Nains", 3)
+    app.LOG.info("Phase: %s (turn %s)", "Phase de combat — Nains", 3)
     line = app.log_lines()[-1]
-    assert line["text"] == "Phase : Phase de combat — Nains (tour 3)"
+    assert line["text"] == "Phase: Phase de combat — Nains (turn 3)"
     assert len(line["time"].split(":")) == 3
 
     served = app.log_lines()
-    app.LOG.info("une ligne de plus")
-    assert texts(served)[-1] == "Phase : Phase de combat — Nains (tour 3)"
+    app.LOG.info("one line more")
+    assert texts(served)[-1] == "Phase: Phase de combat — Nains (turn 3)"
 
 
 def test_the_log_keeps_only_its_last_lines():
@@ -92,9 +92,9 @@ def test_the_log_keeps_only_its_last_lines():
 def test_the_page_and_the_state_both_carry_the_log(client):
     """The page carries it so a tab opens with the game already told; `/game/state` carries it so
     the fallback poll keeps up with it."""
-    app.LOG.info("Nouvelle partie : scénario 4")
+    app.LOG.info("New game: scenario 4")
     carried = read_hidden_field(client.get("/").get_data(as_text=True), "initial-log")
-    assert "Nouvelle partie : scénario 4" in texts(carried)
+    assert "New game: scenario 4" in texts(carried)
 
     app.LOG.info("Combat résolu : Défenseur Éliminé — dé 1, rapport 6-1")
     state = client.get("/game/state").json
@@ -104,8 +104,8 @@ def test_the_page_and_the_state_both_carry_the_log(client):
 
 def test_the_shared_snapshot_carries_the_log():
     """It is that snapshot which travels in the stream: the log is in it, like the pieces."""
-    app.LOG.info("Phase : Phase de combat — Nains (tour 1)")
-    assert texts(app.shared_snapshot()["log"]) == ["Phase : Phase de combat — Nains (tour 1)"]
+    app.LOG.info("Phase: Phase de combat — Nains (turn 1)")
+    assert texts(app.shared_snapshot()["log"]) == ["Phase: Phase de combat — Nains (turn 1)"]
 
 
 # --- The breakdown of the ratio computation ------------------------------------------------------
@@ -163,7 +163,7 @@ def subscriber():
 def test_the_phase_change_leaves_with_its_line(client, subscriber):
     client.post("/phase/next")
     assert texts(last_published(subscriber)["log"])[-1] \
-        == "Phase : Phase de combat — Nains (tour 1)"
+        == "Phase: Phase de combat — Nains (turn 1)"
 
 
 def test_the_combat_leaves_with_its_computation_and_its_result(client, subscriber, monkeypatch):
@@ -191,12 +191,12 @@ def test_the_seat_taken_leaves_with_its_line(application, anonymous_client, subs
     answer = anonymous_client.post("/game/seat", json={"side": "alliance"})
     assert answer.json["seated"] is True
     assert texts(last_published(subscriber)["log"])[-1] \
-        == f"Place prise : alliance par {identity['nickname']}"
+        == f"Seat taken: alliance by {identity['nickname']}"
 
 
 def test_the_fresh_game_leaves_with_its_line(client, subscriber):
     client.post("/game/new")
-    assert "Nouvelle partie : scénario 4" in texts(last_published(subscriber)["log"])
+    assert "New game: scenario 4" in texts(last_published(subscriber)["log"])
 
 
 # --- The log on disk: files of a thousand lines, three archives behind ---

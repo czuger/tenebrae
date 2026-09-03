@@ -18,8 +18,8 @@
 // which the server does not do.
 const MAXIMUM_ROTATION = 5; // degrees, forwards or backwards
 
-// The counter's numeric values, in the order the card gives them to read (see the "Valeurs lues
-// sur les pions" section of tenebrae/game_box/pions/README.md). "Mouvement" is the movement budget
+// The counter's numeric values, in the order the card gives them to read (see the "Values read
+// off the counters" section of tenebrae/game_box/pions/README.md). "Mouvement" is the movement budget
 // the server retained, the very one the engine uses. The symbol and the remarks are not in it:
 // they are words, not numbers, and they have a line of their own. The labels are French, like
 // everything the player reads.

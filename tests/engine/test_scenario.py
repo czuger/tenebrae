@@ -45,7 +45,7 @@ class TestWarOfTheDwarves:
     def test_it_introduces_itself(self, war_of_the_dwarves):
         assert war_of_the_dwarves.number == WAR_OF_THE_DWARVES
         assert war_of_the_dwarves.name == "La guerre des nains"
-        assert "ave_tenebrae_regles.md" in war_of_the_dwarves.source
+        assert "ave_tenebrae_regles_fr.md" in war_of_the_dwarves.source
 
     def test_two_armies_face_to_face(self, war_of_the_dwarves):
         assert [army["armee"] for army in war_of_the_dwarves.armies] == ["Nains", "Orques"]

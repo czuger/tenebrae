@@ -139,7 +139,7 @@ def test_an_up_to_date_browser_receives_only_a_comment(client):
     the browser's `EventSource` to the "open" state.
     """
     answer = open_the_stream(client, version=app.VERSION)
-    assert read(answer) == [": partie suivie\n\n"]
+    assert read(answer) == [": game followed\n\n"]
 
 
 def test_a_browser_behind_receives_the_whole_game(client):
@@ -168,7 +168,7 @@ def test_the_last_event_prevails_over_the_parameter(client):
     decides.
     """
     answer = open_the_stream(client, version=app.VERSION - 1, last_event=str(app.VERSION))
-    assert read(answer) == [": partie suivie\n\n"]
+    assert read(answer) == [": game followed\n\n"]
 
 
 def test_an_unreadable_last_event_makes_everything_be_sent_back(client):
@@ -192,7 +192,7 @@ def test_a_move_played_is_pushed_to_the_stream(client):
     answer = open_the_stream(client, version=app.VERSION)
     iterator = answer.response
     try:
-        assert next(iterator).decode() == ": partie suivie\n\n"
+        assert next(iterator).decode() == ": game followed\n\n"
 
         # The subscription only exists once the generator has started: the move is played after.
         assert client.post("/phase/next").status_code == 200
@@ -208,8 +208,8 @@ def test_a_move_played_is_pushed_to_the_stream(client):
 def test_the_stream_beats_when_nothing_happens(client):
     """The keepalive: without it, an intermediary would close a connection it believes dead."""
     answer = open_the_stream(client, version=app.VERSION)
-    assert read(answer, how_many=3) == [": partie suivie\n\n", ": battement\n\n",
-                                        ": battement\n\n"]
+    assert read(answer, how_many=3) == [": game followed\n\n", ": heartbeat\n\n",
+                                        ": heartbeat\n\n"]
 
 
 def test_a_move_pushes_the_board(client, deserted_map):

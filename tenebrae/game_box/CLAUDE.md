@@ -6,14 +6,17 @@ and their values. This is where the code reads — `tenebrae/engine/` takes the 
 — and this is where a game datum is to be looked for, never in `material/base_material/`.
 
 The file names and the vocabulary here are French, and stay that way: this is 1986 material,
-transcribed as it stands. Only the code around it is English.
+transcribed as it stands. Only the code around it is English — and the English translation of
+the rules, `ave_tenebrae_regles_en.md`, which exists for whoever writes that code.
 
 Before touching the data:
 
 - **The map** — read `map.md` first. `carte.json` and `carte_details.json` come out of
   `extract_map.py` and are not edited by hand: a terrain fix is recorded in `map_fix.json` through
   `/admin/map_fix`, a site fix is made in the script.
-- **The rules** — `ave_tenebrae_regles.md` carries its transcription conventions in its own header
+- **The rules** — `ave_tenebrae_regles_en.md` is the file to read and cite; `ave_tenebrae_regles_fr.md`
+  is the booklet itself, transcribed as it stands, and the two mirror each other section for
+  section. Each carries its conventions in its own header
   (text only, Markdown tables, modernised spelling).
 - **The counters** — `pions/README.md` is the master index; every copy added is noted there with
   its source photograph.

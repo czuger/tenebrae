@@ -9,20 +9,27 @@ Marcela-Froideval (Jeux Descartes, 2nd ed. 1986): turning raw sources (a scanned
 blog page, photographs) into Markdown documents and usable data, **and then making a game of it**.
 The game exists: a rules engine in Python, a Flask server, a two-player game saved in MongoDB.
 
-**The code is in English; the game content is not.** Identifiers, docstrings, comments and
-documentation are English. What stays French, and must stay French:
+**The code is in English; the game content is not.** Identifiers, docstrings, comments,
+documentation and **the log** are English. What stays French, and must stay French:
 
 - - the **game data** — `tenebrae/game_box/` and `tenebrae/scenarios/`: file names, JSON field
   names, terrain names (`plaine`, `bois`, `montagne`), piece keys (`nains-01-5-infanteries`), side
   names (`alliance`, `tenebres`). This is 1986 material, transcribed as it stands; translating it
   would put a second version of the game between the code and its source. New slugs there follow the
   existing convention: no accents, no apostrophes (`morts-vivants-01-20-unites-de-squelettes.jpg`);
-- everything the **player reads** — button labels, phase names, log lines, refusal messages;
+- everything the **player reads** — button labels, page titles, phase names, refusal messages,
+  and the combat sentences (`COMBAT_MESSAGES`, `describe_the_ratio`), which the browser shows as
+  much as the log does. The log's own lines — what the AI played, a login refused, a seat taken, a
+  new game, a phase change — are **English**: they exist for whoever reads `logs/battle_log.log`,
+  and the browser's column carries them along. A line built from both, such as
+  `Phase: Phase de combat — Nains (turn 1)`, therefore mixes the two, and that is intended;
 - the **Mongo collections and stored field names** (`parties`, `joueurs`, `vues`, `camp_actif`,
   `inclinaisons`, …), which the models pin through `db_field`: renaming a stored field would
   orphan the games and accounts already in base;
 - the **session keys** (`joueur`, `etat_oauth`), which are already in browsers' cookies;
-- `tenebrae/game_box/ave_tenebrae_regles.md`, the transcribed booklet, which is the source itself.
+- `tenebrae/game_box/ave_tenebrae_regles_fr.md`, the transcribed booklet, which is the source
+  itself. Its English translation, `ave_tenebrae_regles_en.md`, sits beside it: that is the file
+  to read and cite in ordinary work, the French one being opened only to check a passage.
 
 Commit messages are in English, as they always were.
 
@@ -136,7 +143,8 @@ and write in the derived files, and only go back to the source to check.
 | `material/base_material/ave_tenebrae_regles.pdf` | Scanned rules booklet, 16 pages |
 | `material/base_material/vintageboard-1-ave-tenebrae.html` | Archived blog article ("Vintageboard 1", R-One Chaff, irlboardgames.blogspot.com); contains the breakdown of the counter sheets |
 | `material/base_material/images/` | 144 photographs of the box, the map and the counter sheets |
-| `tenebrae/game_box/ave_tenebrae_regles.md` | Transcription of the rules |
+| `tenebrae/game_box/ave_tenebrae_regles_fr.md` | Transcription of the rules, in French, as the booklet stands |
+| `tenebrae/game_box/ave_tenebrae_regles_en.md` | English translation of that transcription, section for section — **the rules reference for the code** |
 | `tenebrae/game_box/map.jpg` | The game map (10 MB) |
 | `tenebrae/game_box/carte.json` | 2280 hexagons, `"q,r,s"` → terrain |
 | `tenebrae/game_box/carte_details.json` | `"q,r,s"` → every element of the hexagon |
@@ -231,27 +239,45 @@ Read it before touching the map data.
   out right: do not touch them without rechecking `carte_controle.jpg`.
 - The script's numeric settings are tuned on this precise scan (6173 × 5102 px) and are not
   generic.
-- **Uncertainties are kept, not resolved**: the "Réserves sur la transcription" section of `map.md`
+- **Uncertainties are kept, not resolved**: the "Caveats on the transcription" section of `map.md`
   documents the hills (absent from the map, hence interpreted), the rivers treated as hexagon
   terrain instead of edges, the vague extent of the ruins of Ghaarth, an illegible village name.
   Add any new doubt there rather than settle it without a source.
 - Check a change by looking at `carte_controle.jpg`, not by rereading the JSON.
 
-## `tenebrae/game_box/ave_tenebrae_regles.md` — transcription conventions
+## `tenebrae/game_box/ave_tenebrae_regles_fr.md` and `_en.md` — the rules, and their conventions
 
-This file stays in French: it *is* the booklet. Follow these conventions for any correction or
-completion (they are set out in the file's own header):
+The booklet exists twice: `ave_tenebrae_regles_fr.md` is the transcription, and stays in French
+because it *is* the booklet; `ave_tenebrae_regles_en.md` is its English translation, and **is the
+source of truth for the code**: a rule is read there, a docstring or a README cites it there (with
+its English section title: "Game phases", "Combats", "Terrain table"). The French file is opened
+only to check a passage against the booklet, and the scenario JSONs, being French game data, keep
+pointing at it.
+
+**The two files mirror each other section for section**: same headings, same tables, same order,
+same `---` separators, so that a place in one is found at the same place in the other. A
+correction therefore lands in both — a transcription fix in the French file first, then its
+translation. The translation is faithful, oddities included: where the booklet contradicts itself
+or is vague, the English says the same thing and does not settle it. The only additions of the
+English file are its own header and, in brackets, the names the code uses (the combat codes of
+Table I, the terrain keys of `carte.json`).
+
+Conventions common to both (set out in each file's own header):
 
 - **Text only**: the booklet's illustrations are not reproduced, but their informative content is
-  restated — the "Anatomie d'un pion" diagram is rendered as an ASCII block *and* as a table, the
-  counter symbols as a table of two double columns with Unicode approximations (`⊠ Infanterie`,
-  `↑ Phalange`) or a description in brackets when no glyph will do (`(créature ailée) Volants`).
+  restated — the "Anatomy of a counter" diagram is rendered as an ASCII block *and* as a table, the
+  counter symbols as a table of two double columns with Unicode approximations (`⊠ Infantry`,
+  `↑ Phalanx`) or a description in brackets when no glyph will do (`(winged creature) Flyers`).
 - **Every table in the booklet is converted into a Markdown table** (never into preformatted text).
 - **Modernised spelling**: the booklet is set in gothic type where the glyph "b" stands for "v";
-  the text is restored to modern French.
-- Structure: `#` for the major parts (Règles, Unités spéciales, Magie, Livre des sortilèges, Points
-  d'achat, Scénarios, Tableau des terrains), `##`/`###` below. Spells carry in their title the
-  initials of the casters allowed: `### Boule de feu — *M, N*` (M = mage, C = cleric,
+  the French text is restored to modern French, and the English translates that.
+- **Proper nouns keep their original form** in the translation: Orvarth, Tsaroth, Ghaarth,
+  Morgenstern, Orcreich, Reissland, Yzent, Val de Froy, Krak de Reiss. The combat codes (`AE`,
+  `AR`, `DE`, `DR`, `EX`) are the booklet's and the engine's, and are not translated.
+- Structure: `#` for the major parts (Rules, Special units, Magic, Book of spells, Purchase
+  points, Scenarios, Terrain table — Règles, Unités spéciales, Magie, Livre des sortilèges, Points
+  d'achat, Scénarios, Tableau des terrains in French), `##`/`###` below. Spells carry in their
+  title the initials of the casters allowed: `### Fireball — *M, N*` (M = mage, C = cleric,
   N = necromancer).
 - `---` separators between the major sections.
 
@@ -269,8 +295,8 @@ the values read by eye off the counters, which `tenebrae.engine.piece` reads at 
   file with its contents **and with its source photograph**. Every new copy must be added to those
   tables with its provenance.
 - **The source's uncertainties are kept, not resolved**: the `(renforts ?)` labels and the
-  interpretations of initials (`K` = kobolds?) keep their question mark, and the "Réserves sur
-  l'inventaire" section at the end of the README documents the known gaps (the missing photograph
+  interpretations of initials (`K` = kobolds?) keep their question mark, and the "Caveats on the
+  inventory" section at the end of the README documents the known gaps (the missing photograph
   of the Chaos heavy cavalry, the non-human initials unexplained by the rules, five illegible
   movement values). Do not settle those points without a source; add to that section if new doubts
   appear.

@@ -548,13 +548,13 @@ def let_the_ai_play():
         return
     moves, combats = ai.play_turn(BOARD, TURN, REGISTER, roll_the_die)
     for origin, destination in moves:
-        LOG.info("IA : déplacement %s → %s", origin.key, destination.key)
+        LOG.info("AI: move %s → %s", origin.key, destination.key)
     for target, attackers, result in combats:
         message = COMBAT_MESSAGES.get(result.outcome, "Combat résolu : sans effet")
         if result.breakdown is not None:
-            LOG.info("IA : %s", describe_the_ratio(result))
-        LOG.info("IA : %s attaquant(s) sur %s — %s", len(attackers), target.key, message)
-    LOG.info("IA : tour joué — %s (tour %s)", TURN.label, TURN.number)
+            LOG.info("AI: %s", describe_the_ratio(result))
+        LOG.info("AI: %s attacker(s) on %s — %s", len(attackers), target.key, message)
+    LOG.info("AI: turn played — %s (turn %s)", TURN.label, TURN.number)
     save_the_game()
 
 
@@ -734,12 +734,12 @@ def oauth_state_diagnosis(expected, received):
     whether a session cookie arrived at all - without ever writing the states themselves.
     """
     if not expected:
-        cause = "état d'authentification absent de la session"
+        cause = "authentication state absent from the session"
     elif not received:
-        cause = "état d'authentification absent de la requête"
+        cause = "authentication state absent from the request"
     else:
-        cause = "état d'authentification différent de celui de la session"
-    return f"{cause} (hôte {request.host}, {session_cookie_state()})"
+        cause = "authentication state different from the session's"
+    return f"{cause} (host {request.host}, {session_cookie_state()})"
 
 
 def warn_if_the_return_lands_on_another_host():
@@ -755,8 +755,8 @@ def warn_if_the_return_lands_on_another_host():
     """
     expected = urlparse(current_app.config["DISCORD_REDIRECT_URI"])
     if expected.netloc and request.host != expected.netloc:
-        LOG.info("Connexion : départ depuis %s, mais Discord renverra sur %s — le cookie de "
-                 "session posé ici ne reviendra pas ; ouvrir la carte sur %s",
+        LOG.info("Login: departure from %s, but Discord will send back to %s — the session "
+                 "cookie set here will not come back; open the map on %s",
                  request.host, expected.netloc, f"{expected.scheme}://{expected.netloc}/")
 
 
@@ -772,13 +772,13 @@ def session_cookie_state():
     """
     cookie = request.cookies.get(current_app.config["SESSION_COOKIE_NAME"])
     if cookie is None:
-        return "cookie de session absent"
+        return "session cookie absent"
     try:
         current_app.session_interface.get_signing_serializer(current_app).loads(cookie)
     except BadSignature:
-        return "cookie de session présent mais illisible — signé par une autre SECRET_KEY ?"
+        return "session cookie present but unreadable — signed by another SECRET_KEY?"
     contents = ", ".join(sorted(session.keys()))
-    return f"cookie de session lisible, session {'portant ' + contents if contents else 'vide'}"
+    return f"session cookie readable, session {'carrying ' + contents if contents else 'empty'}"
 
 
 @game.route("/login")
@@ -804,11 +804,11 @@ def login_return():
     expected = connection.take_oauth_state()
     received = request.args.get("state")
     if not expected or not received or not secrets.compare_digest(expected, received):
-        LOG.info("Connexion refusée : %s", oauth_state_diagnosis(expected, received))
+        LOG.info("Login refused: %s", oauth_state_diagnosis(expected, received))
         abort(400, "état d'authentification absent ou inattendu")
     code = request.args.get("code")
     if not code:
-        LOG.info("Connexion refusée : code d'autorisation absent de la requête")
+        LOG.info("Login refused: authorization code absent from the request")
         abort(400, "code d'autorisation absent")
 
     # No `try` around the two exchanges: a `DiscordError` comes back up as it is, with the status
@@ -818,7 +818,7 @@ def login_return():
     identity = discord_client().identity(token)
 
     player = connection.open(identity)
-    LOG.info("Connexion : %s", player["nickname"])
+    LOG.info("Login: %s", player["nickname"])
     return redirect(url_for("game.board"))
 
 
@@ -855,7 +855,7 @@ def take_a_seat():
         return {"seated": False, "message": "Ce camp est déjà tenu."} | the_table(), 409
 
     SEATS.seat(side, player)
-    LOG.info("Place prise : %s par %s", side, current_player()["nickname"])
+    LOG.info("Seat taken: %s by %s", side, current_player()["nickname"])
     save_the_game()
     return {"seated": True, "side": side} | the_table()
 
@@ -948,10 +948,10 @@ def new_game():
     if against_ai:
         for side in opposing_sides:
             SEATS.seat(side, ai.AI_PLAYER)
-        LOG.info("Nouvelle partie contre l'IA : scénario %s, l'IA tient %s",
+        LOG.info("New game against the AI: scenario %s, the AI holds %s",
                  SCENARIO_NUMBER, ", ".join(opposing_sides))
     else:
-        LOG.info("Nouvelle partie : scénario %s", SCENARIO_NUMBER)
+        LOG.info("New game: scenario %s", SCENARIO_NUMBER)
     lay_out_the_scenario()
     game_repository().new_game(snapshot_the_game())
     let_the_ai_play()
@@ -1054,12 +1054,12 @@ def game_stream(application, identifier, known_version):
         # moves its `EventSource` to the "open" state. If it is not - the opponent played during
         # the outage, or the server restarted and its version started again from zero - it catches
         # up on everything at once.
-        yield ": partie suivie\n\n" if known_version == VERSION \
+        yield ": game followed\n\n" if known_version == VERSION \
             else compose(shared_snapshot())
 
         while True:
             state = subscriber.wait(HEARTBEAT)
-            yield ": battement\n\n" if state is None else compose(state)
+            yield ": heartbeat\n\n" if state is None else compose(state)
 
 
 @game.route("/stream")
@@ -1179,7 +1179,7 @@ def next_phase():
     """
     TURN.advance()
     REGISTER.reset()
-    LOG.info("Phase : %s (tour %s)", TURN.label, TURN.number)
+    LOG.info("Phase: %s (turn %s)", TURN.label, TURN.number)
     save_the_game()
     let_the_ai_play()
     return current_phase()

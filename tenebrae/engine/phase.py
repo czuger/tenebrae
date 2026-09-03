@@ -1,6 +1,6 @@
 """How a turn of Ave Tenebrae unfolds: a state machine of the phases.
 
-The booklet (`tenebrae/game_box/ave_tenebrae_regles.md`, "Phases de jeu") fixes the order: each
+The booklet (`tenebrae/game_box/ave_tenebrae_regles_en.md`, "Game phases") fixes the order: each
 player goes through movement, magic then combat, and play passes to the next player, round and
 round. The engine knew nothing of this until now - a scenario was only a starting position.
 

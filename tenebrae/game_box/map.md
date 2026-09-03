@@ -172,7 +172,7 @@ Thresholds per hexagon: `lac` ≥ 40 %, `montagne` ≥ 45 %, `colline` 15–45 %
 `riviere` ≥ 7 %, `route` ≥ 6 %, `chemin` ≥ 5 %. `carte_details.json` uses lower thresholds
 (12 %, 45 %, 15 %, 18 %, 4 %, 3.5 %, 3.5 %) to report everything that shows.
 
-## Réserves sur la transcription (caveats on the transcription)
+## Caveats on the transcription
 
 The errors noticed by eye since, hexagon by hexagon, are **not corrected here**: they are written
 into `map_fix.json` (`"q,r,s" → terrain`, the fixed squares only), through the application's

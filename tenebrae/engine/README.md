@@ -262,7 +262,7 @@ than an army quietly cut short.
 
 ## Movement cost
 
-After the booklet's *Tableau des terrains* (`tenebrae/game_box/ave_tenebrae_regles.md`):
+After the booklet's *Terrain table* (`tenebrae/game_box/ave_tenebrae_regles_en.md`):
 
 | Terrain | Entry cost |
 | --- | --- |
@@ -303,7 +303,7 @@ turn.advance()  # steps to the Dwarves' combat; magic is stepped over by itself
 turn.number  # 1, then 2 when the sequence comes round again
 ```
 
-The booklet (`tenebrae/game_box/ave_tenebrae_regles.md`, "Phases de jeu") fixes the order: each
+The booklet (`tenebrae/game_box/ave_tenebrae_regles_en.md`, "Game phases") fixes the order: each
 player goes through **movement → magic → combat**, then it is the next player's turn, round and
 round. `Turn` holds that cursor. The **magic phase is not implemented**: `advance()` skips it, it is
 never the current one. `allows_movement` / `allows_combat` say whether a given side may act now —

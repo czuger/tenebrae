@@ -1,6 +1,6 @@
 """Combat resolution in Ave Tenebrae: Table I of the booklet, and nothing more.
 
-The booklet (`tenebrae/game_box/ave_tenebrae_regles.md`, "Combats") gives a two-way table - the
+The booklet (`tenebrae/game_box/ave_tenebrae_regles_en.md`, "Combats") gives a two-way table - the
 strength ratio in columns, the die roll in rows - each cell of which gives the outcome of the
 battle: attacker eliminated, defender eliminated, exchange, or one of the two retreats. This module
 transcribes that table, computes the strength ratio ("always rounded in the defender's favour") and

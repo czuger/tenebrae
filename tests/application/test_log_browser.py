@@ -63,7 +63,7 @@ def test_the_column_shows_what_the_server_logs(board):
     pass_a_phase(board, 1)
     assert board.locator("#log").is_visible()
     time, text = read_lines(board)[0]
-    assert text == "Phase : Phase de combat — Nains (tour 1)"
+    assert text == "Phase: Phase de combat — Nains (turn 1)"
     assert len(time.split(":")) == 3
 
 
@@ -73,8 +73,8 @@ def test_the_last_line_is_at_the_top(board):
     pass_a_phase(board, 1)
     pass_a_phase(board, 2)
     assert [text for _, text in read_lines(board)] == [
-        "Phase : Phase de mouvement — Orques (tour 1)",
-        "Phase : Phase de combat — Nains (tour 1)",
+        "Phase: Phase de mouvement — Orques (turn 1)",
+        "Phase: Phase de combat — Nains (turn 1)",
     ]
 
 
@@ -127,7 +127,7 @@ def test_the_combat_shows_the_breakdown_of_its_computation(board, monkeypatch):
     assert [text for _, text in read_lines(board)] == [
         "Combat résolu : Défenseur Éliminé",
         "Rapport 6-1 : attaque 12 contre défense 2 (plaine) — dé 1",
-        "Phase : Phase de combat — Nains (tour 1)",
+        "Phase: Phase de combat — Nains (turn 1)",
     ]
 
 

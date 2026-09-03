@@ -51,7 +51,8 @@ vocabulary are French: this is 1986 material, transcribed as it stands.
 
 | File | Contents |
 | --- | --- |
-| `ave_tenebrae_regles.md` | the transcribed booklet: rules, magic, spells, scenarios, tables |
+| `ave_tenebrae_regles_fr.md` | the transcribed booklet: rules, magic, spells, scenarios, tables |
+| `ave_tenebrae_regles_en.md` | its English translation, section for section — the one to read and cite |
 | `map.jpg` | the game map, scanned |
 | `carte.json` | 2280 hexagons, `"q,r,s"` → one terrain |
 | `carte_details.json` | the same, but with **every** element of each square |
@@ -182,7 +183,8 @@ register, `tests/application/test_connection_model.py` the connection model.
 
 | File | Subject |
 | --- | --- |
-| `tenebrae/game_box/ave_tenebrae_regles.md` | the game rules (in French) |
+| `tenebrae/game_box/ave_tenebrae_regles_en.md` | the game rules, translated from the booklet |
+| `tenebrae/game_box/ave_tenebrae_regles_fr.md` | the booklet transcribed as it stands, in French |
 | `tenebrae/game_box/map.md` | how the map was transcribed, and its caveats |
 | `tenebrae/game_box/pions/README.md` | the inventory of the 127 counters |
 | `tenebrae/engine/README.md` | the engine's classes and the interpretation of the rules |

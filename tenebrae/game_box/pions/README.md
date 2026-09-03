@@ -345,7 +345,7 @@ the photograph concerned.
 | `vues-d-ensemble-04-pions-en-vrac-vue-2.jpg` | pions en vrac (vue 2) | `20170403_163157.jpg` |
 ---
 
-## Réserves sur l'inventaire (caveats on the inventory)
+## Caveats on the inventory
 
 - **Chaos — heavy cavalry**: the blog source reuses the same photograph
   (`20170718_125449.jpg`) for "6 infanteries de puissance 10" and for

@@ -617,7 +617,7 @@ opens the stream on a plain comment; otherwise it sends the whole game. That is 
 restarted server, a cut network or a woken laptop catch up all by themselves, without a line of
 code for it.
 
-**A heartbeat** — an SSE comment, `: battement` — crosses the connection every 20 seconds. Without
+**A heartbeat** — an SSE comment, `: heartbeat` — crosses the connection every 20 seconds. Without
 it, a firewall, a proxy or the browser would end up closing a connection it believes dead.
 
 **A closed tab frees its place.** The page closes its stream on `beforeunload` and `pagehide`, and
@@ -659,7 +659,7 @@ The OAuth2 flow comes in four steps, and everything that speaks to Discord is in
 that of `DISCORD_REDIRECT_URI` and, if they differ — the map opened on `localhost:5000` when the
 URI says `127.0.0.1:5000` — writes that the cookie set here will not come back: the browser holds
 those two hosts to be two sites. On the return, a `state` that does not pass returns 400, and the
-log's "Connexion refusée" line distinguishes the three cases, which are not cured the same way:
+log's "Login refused" line distinguishes the three cases, which are not cured the same way:
 *absent from the session* — the cookie set on the way out did not come back: a different host
 between the outward and return trips (`localhost` against `127.0.0.1` in `DISCORD_REDIRECT_URI`), a
 `Secure` cookie over http, a session emptied meanwhile —, *absent from the request*, or *different
@@ -694,7 +694,8 @@ session is permanent (`SESSION_REFRESH_EACH_REQUEST = False`). This is a bug liv
 request that left with the old session before `/login` — a fallback poll, a stream reconnection
 from another tab — answered afterwards, and its cookie, without the `state`, overwrote the one
 `/login` had just set; the return from Discord then found nothing left to compare against. The log
-put it thus: "état absent de la session, cookie lisible, session portant _permanent, joueur". What
+put it thus: "authentication state absent from the session (host localhost, session cookie
+readable, session carrying _permanent, joueur)". What
 is lost by it fits in one line: the cookie's expiry (31 days) runs from the login and not from the
 last visit.
 

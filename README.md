@@ -146,7 +146,7 @@ versions — MongoDB, and the base-less counterpart the test configuration plugs
 ## Installing
 
 ```
-python3 -m pip install -r requirements.txt
+python3 -m pip install --group dev   # pip >= 25.1; add --group map to regenerate the map
 cp .env.example .env       # then fill in SECRET_KEY and the Discord credentials
 ```
 

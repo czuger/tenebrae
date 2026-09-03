@@ -7,3 +7,5 @@ logs/
 .coverage
 coverage.xml
 htmlcov/
+/build/
+/tenebrae.egg-info/

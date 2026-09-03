@@ -2,7 +2,7 @@
 
 The OAuth2 protocol fits in two round trips: a form POST to `/oauth2/token`, which exchanges the
 single-use code for an access token, then a GET bearing that token to `/users/@me`. `urllib.request`
-does both perfectly well. **We therefore add nothing to `requirements.txt`**: this is the same
+does both perfectly well. **We therefore add nothing to `pyproject.toml`**: this is the same
 stance as `tenebrae/application/extensions.py`, which rewrote Flask-MongoEngine's interface rather
 than install a dead extension. `requests` is indeed lying around in the virtualenv, but pulled in by
 Playwright - and the server cannot depend at runtime on a testing tool.

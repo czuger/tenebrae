@@ -1,0 +1,63 @@
+# Ave Tenebrae's dependencies. Installation: python3 -m pip install --group dev
+#
+# The [project] table exists so that the repository is a well-formed project (editable install,
+# tooling), but nothing needs installing (see CLAUDE.md): the repository is imported from its root.
+# The setuptools find directive is restricted to `tenebrae*` so that neither `tests/` nor
+# `material/` are ever taken for packages. Dependencies are PEP 735 dependency groups, which pip
+# installs (pip >= 25.1) without touching the repository.
+#
+# The engine (tenebrae/engine/) and the application (tenebrae/application/) only run with Flask;
+# everything else serves the engine or the regeneration of the map.
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tenebrae"
+version = "0.1.0"
+description = "Ave Tenebrae (Jeux Descartes, 1986): transcription of the game and a playable rules engine with a Flask server"
+requires-python = ">=3.13"
+
+[tool.setuptools.packages.find]
+include = ["tenebrae*"]
+
+[dependency-groups]
+
+# --- Runtime: the server and the engine ---
+#
+# Discord authentication adds nothing here, and that is deliberate: the session rests on
+# `flask.session` (a cookie signed by itsdangerous, which Flask already installs) and the two
+# OAuth2 calls on `urllib.request` from the standard library.
+# See tenebrae/application/discord_client.py.
+#
+# Game persistence (MongoDB): the todo asked for flask-mongoengine; its last version (1.0.0, 2022)
+# does not import under Flask 3 (it looks for `flask.json.JSONEncoder`, removed in 2.3).
+# tenebrae/application/extensions.py takes over its interface on top of mongoengine alone.
+runtime = [
+    "Flask",
+    "Werkzeug",       # shipped with Flask; imported directly in tests/application/conftest.py
+    "mongoengine",
+    "python-dotenv",  # reads the `.env` where the connection details live
+]
+
+# --- Tests ---
+test = [
+    "pytest",
+    "pytest-playwright",  # the `page` fixture of the browser engine; then: make browser
+    "mongomock",          # MongoDB in memory: the persistence engine requires no server
+    "pytest-cov",         # `make coverage`: what the suite covers of tenebrae/, configured in .coveragerc
+]
+
+# --- Map regeneration (tenebrae/game_box/extract_map.py, never rerun in practice) ---
+map = [
+    "Pillow",
+    "numpy",
+    "scipy",
+]
+
+# Everything needed to run the server and the suite; the map group is installed on its own.
+dev = [
+    {include-group = "runtime"},
+    {include-group = "test"},
+]

@@ -64,8 +64,8 @@ it over.
 A `.env` at the repository root is required (see `.env.example`): without `SECRET_KEY`, the
 application refuses to start, and without the Discord credentials nobody can log in.
 
-Dependencies: `Flask`, `mongoengine` and `python-dotenv` (plus `pytest`, `pytest-playwright` and
-`mongomock` for the tests). **Authentication adds none**: the session rests on `flask.session`, and
+Dependencies: `Flask`, `mongoengine` and `python-dotenv` (plus `pytest` and `pytest-playwright`
+for the tests). **Authentication adds none**: the session rests on `flask.session`, and
 the two calls to Discord on `urllib` from the standard library.
 
 ## Game persistence
@@ -103,20 +103,12 @@ cp .env.example .env
 ```
 
 `.env` is not versioned: it is the only place where the connection details and the secrets live, and
-`tenebrae/application/config.py` reads them there once at start-up. `MONGODB_URI` and `PERSISTENCE`
-for the database; `SECRET_KEY`, the three `DISCORD_*`, `ADMIN_DISCORD_IDS` and `SECURE_COOKIE` for
+`tenebrae/application/config.py` reads them there once at start-up. `MONGODB_URI` for the database; `SECRET_KEY`, the three `DISCORD_*`, `ADMIN_DISCORD_IDS` and `SECURE_COOKIE` for
 the players (see "Logging in through Discord").
 
-**Playing without MongoDB**: `PERSISTENCE=none` in `.env`. The server then plugs in a repository
-that keeps nothing, and the application behaves as it did before persistence — every load of `/`
-lays the scenario's set-up out again. That is also what the test configuration does, which lets the
-whole suite run without a database.
-
-The **player** repository, on the other hand, then keeps **in memory** instead of keeping nothing.
-The nuance matters: the game state already has a home in `current_game.py`'s module globals, a
-player has none, and a repository keeping nothing would not impoverish the service — it would
-forbid it, nobody being able to open a session any more, hence take a seat, hence play. The
-promise of `PERSISTENCE=none` is kept in the same way: nothing outlives the server.
+**There is no playing without MongoDB**: the game is saved at every move, and the players and
+their views have no other home. The test suite runs on a base of its own, the one `make test`
+brings up (`MONGODB_URI_TEST`, see "Tests"), emptied before each test.
 
 | Route | Effect |
 | --- | --- |
@@ -771,7 +763,7 @@ again at the first load of `/` — or at each, if persistence is unplugged.
   deployment and its caveats are in `tenebrae/scenarios/README.md`.
 - **The starting position is reproducible.** A fresh game always puts the 48 units back on the same
   squares: that is what makes it possible to exercise a move twice in a row and get the same
-  result. `POST /game/new` — and, without persistence, a simple reload — brings it back.
+  result. `POST /game/new` brings it back.
 - - **The movement is the counter's**: each piece carries its points, read off the photograph and
   stored in `tenebrae/game_box/pions/pions.json`. The **strength** now serves in combat; fire and
   range serve only for an archer's engagement distance.
@@ -794,9 +786,9 @@ make test
 
 `make test` brings up a test MongoDB in a container itself — port 27018, database `tenebrae_test`,
 separate from the game's — waits for it to answer, then runs the whole suite pointing it at it.
-Without Docker, `make test-fast` runs the same suite without a base: the tests requiring a real
-MongoDB skip themselves. `make mongo-stop` removes the container, which otherwise stays up from one
-series to the next. `ARGS` passes arguments to pytest: `make test ARGS="-k persistence -v"`.
+Every test runs against it — there is no base-less mode — and `conftest.py` empties it before each
+test. `make mongo-stop` removes the container, which otherwise stays up from one series to the
+next. `ARGS` passes arguments to pytest: `make test ARGS="-k persistence -v"`.
 
 The suite also runs the two static checks, flake8 (`.flake8`) and mypy (`[tool.mypy]` in
 `pyproject.toml`), as tests of their own (`tests/test_static_checks.py`): a line too long or a
@@ -805,10 +797,9 @@ type that does not add up fails it with the tool's report. `make lint` runs the 
 `make coverage` runs that same suite and reports what it covers of `tenebrae/` — the missing lines
 in the terminal, the source coloured in `htmlcov/index.html`. Chromium is measured with the rest:
 the browser tests reach the routes through the page that serves them, and dropping them can only
-lower the figure. `make coverage-fast` measures the same thing without a base, as `test-fast` is to
-`test`; adding `ARGS="--ignore-glob=*browser*"` drops Chromium as well, which turns the minutes
-into seconds and under-estimates the application further — that pass says where to look, not where
-one stands.
+lower the figure. Adding `ARGS="--ignore-glob=*browser*"` drops Chromium, which turns the minutes
+into seconds and under-estimates the application — that pass says where to look, not where one
+stands.
 
 **Nothing is checked by hand**: no server launched to go and look, no `curl`. What we want to
 exercise is written as a test, and what shows in a page is exercised in Chromium through Playwright.
@@ -879,24 +870,24 @@ highlights fall away — and **one combat per phase**: the engaged units greyed 
 server's register enters them, the click that does not take them up again, and the greying that
 falls at the next phase.
 
-`tests/application/test_persistence.py` is the only one to plug in persistence, on **mongomock** —
-an in-memory MongoDB: no server is required, and the file skips itself if mongomock is not
-installed. It covers the opening of a game at the first load, resumption after a simulated restart
-(the move found again, the phase found again, the combat register found again), the elimination that
-does not come back, the **tilts** written, resumed and rewritten on a move — and the save without
-that field that stays resumable — a save of another scenario discarded, `POST /game/new` which opens
-a second document without erasing the first — including when both share the same date, the
-identifier breaking the tie — and the repository's round trip alone. Everywhere else the test
-configuration installs the **null repository**: the other test files see no database, and `GET /`
-there lays the set-up out again as before.
+`tests/application/test_persistence.py` is the one that looks into the base — at the documents
+themselves — and plays the server's restart: memory emptied, only the base knows where the game
+stood. It covers the opening of a game at the first load, resumption after that restart (the move
+found again, the phase found again, the combat register found again), the elimination that does not
+come back, the **tilts** written, resumed and rewritten on a move — and the save without that field
+that stays resumable — a save of another scenario discarded, `POST /game/new` which opens a second
+document without erasing the first — including when both share the same date, the identifier
+breaking the tie — the repository's round trip alone, and what only a real base shows: the placement
+keys admitted as document keys, the dates that come back readable. Every other test file runs on
+the same base, emptied before each test, and `GET /` there lays the set-up out again on the empty
+base as before.
 
 `tests/application/test_resume_browser.py` exercises resumption **as seen from the screen**, in
 Chromium: move a piece then reload the page and find it at its new square, the phase likewise found
 again, `POST /game/new` which puts the 48 units back, and the counters that a reload finds lying at
-the same angle — the previous one for the motionless pieces, the new one for the moved piece. Each
-test there runs **twice** — on mongomock, and on the real MongoDB as soon as `MONGODB_URI_TEST`
-designates one that answers, which `make test` does — so that the full chain is exercised as it
-really runs, without having to launch the server oneself.
+the same angle — the previous one for the motionless pieces, the new one for the moved piece — on
+the shared server, so that the full chain is exercised as it really runs, without having to launch
+the server oneself.
 
 `tests/engine/test_seats.py` exercises the seating register alone, with no request and no
 base: taking a side, the seat that is not taken from its occupant, the round trip of serialisation,

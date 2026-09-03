@@ -3,8 +3,7 @@
 These engine bear on the class alone, with no request and no route - as
 `tenebrae/engine/engine/test_seats.py` does for the seating register. `Connection` only asks for a
 session (any mapping that also accepts the `permanent` attribute: Flask's real session is one) and a
-player repository; we give it here the engine's in-memory repository, which is the engine' real
-repository.
+player repository; we give it here the engine's repository, on the test base.
 
 What is checked comes down to three points, and they are the class's three reasons for existing:
 the session carries **only** the identifier, the player is **re-read** from the repository at every
@@ -14,7 +13,7 @@ request, and the OAuth2 state is **removed** from the session as soon as it is t
 import pytest
 
 from tenebrae.application.discord_client import DEFAULT_IDENTITY
-from tenebrae.engine.repositories.player import InMemoryPlayerRepository
+from tenebrae.engine.repositories.player import MongoPlayerRepository
 from tenebrae.application.models.connection import OAUTH_STATE_KEY, PLAYER_KEY, Connection
 
 
@@ -25,8 +24,10 @@ class FakeSession(dict):
 
 
 @pytest.fixture
-def players():
-    return InMemoryPlayerRepository()
+def players(application):
+    """The repository on the test base; the application is only there to have opened the
+    connection."""
+    return MongoPlayerRepository()
 
 
 @pytest.fixture
@@ -73,8 +74,7 @@ class TestTheDesignatedPlayer:
         assert connection.player()["nickname"] == "Renamed"
 
     def test_an_unknown_identifier_becomes_anonymous_again(self, session, players):
-        """Base emptied, in-memory repository of a restarted server: the visitor becomes anonymous
-        again."""
+        """Base emptied behind a session still open: the visitor becomes anonymous again."""
         session[PLAYER_KEY] = "100000000000000009"
         connection = Connection(session, players)
         assert connection.identifier == "100000000000000009"

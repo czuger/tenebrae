@@ -17,6 +17,8 @@ from tenebrae.application import current_game
 from tenebrae.engine.hexagon import Hex
 from tenebrae.engine.piece import CATALOGUE
 
+from tests.application.test_view_browser import wait_for_the_view
+
 # A move played must show in less time than the old poll would have taken: that is the only way to
 # tell "the stream pushed" from "something eventually asked again".
 STREAM_DELAY = 1500  # milliseconds; the fallback poll was at 3000
@@ -123,9 +125,15 @@ def test_the_page_no_longer_polls_the_state(page, server, opponent):
     assert polls == [], f"the page is still polling: {polls}"
 
 
-def test_the_stream_is_the_only_call_to_the_server_when_nothing_happens(page, server):
-    """A page opened and left alone must no longer ask for anything at all."""
+def test_the_stream_is_the_only_call_to_the_server_when_nothing_happens(page, server, application):
+    """A page opened and left alone must no longer ask for anything at all.
+
+    Nothing at all once it has stored its view: a player with nothing stored yet opens on the fit,
+    and the page sends that fit after its half-second of quiet (see `test_view_browser.py`). The
+    count starts once that one call has been made.
+    """
     open_the_board(page, server)
+    wait_for_the_view(application.extensions["view_repository"])
     calls = []
     page.on("request", lambda request: calls.append(request.url))
     page.wait_for_timeout(4000)
@@ -284,13 +292,12 @@ def test_a_closed_tab_frees_its_subscription(page, context, server, opponent):
     open_the_board(page, server)
 
     # The baseline is settled first, and that is not a precaution against slowness. A box left by
-    # the tab of an earlier test is only noticed when the server next tries to write to it: taken
-    # as it comes, the count would include debris that this test's own move is about to sweep
-    # away, the total would end up *below* the baseline, and the test would report a leak where
-    # there is none. So we provoke a write and wait for the count to come down to this test's
-    # single tab.
-    assert opponent.post("/phase/next").ok
-    wait_until(lambda: len(current_game.BROADCASTER) == 1)
+    # a tab that has gone - the tab of an earlier test, or the page the login landed on before
+    # `open_the_board` loaded the board again - is only noticed when the server next tries to
+    # write to it: taken as it comes, the count would include debris that this test's own moves
+    # are about to sweep away, the total would end up *below* the baseline, and the test would
+    # report a leak where there is none. So we provoke writes until only this test's tab is left.
+    wait_for_the_streams_to_come_down_to(1, opponent)
     subscribers = len(current_game.BROADCASTER)
 
     second = context.new_page()
@@ -298,18 +305,22 @@ def test_a_closed_tab_frees_its_subscription(page, context, server, opponent):
     assert len(current_game.BROADCASTER) == subscribers + 1
 
     second.close()
-    # The removal is noticed as soon as the server tries to write: the heartbeat is enough to
-    # trigger it, and it is shortened here by the first move played.
-    assert opponent.post("/phase/next").ok
-    wait_until(lambda: len(current_game.BROADCASTER) == subscribers)
+    wait_for_the_streams_to_come_down_to(subscribers, opponent)
 
 
-def wait_until(condition, seconds=10.0):
-    """Waits for a Python condition to become true - the removal happens in another thread."""
+def wait_for_the_streams_to_come_down_to(expected, opponent, seconds=10.0):
+    """Provokes writes to the open streams until only `expected` of them are left.
+
+    The removal of a closed tab's box happens in another thread, and only when the server tries to
+    write to it: the heartbeat would do, but a move played is quicker. One write is not always
+    enough - a socket its peer has closed takes the first write and refuses only the next -, so
+    the move is played again as long as the count has not come down.
+    """
     import time
     limit = time.monotonic() + seconds
     while time.monotonic() < limit:
-        if condition():
+        if len(current_game.BROADCASTER) == expected:
             return
-        time.sleep(0.05)
-    raise AssertionError("condition never met")
+        assert opponent.post("/phase/next").ok
+        time.sleep(0.2)
+    raise AssertionError(f"{len(current_game.BROADCASTER)} streams still open, {expected} expected")

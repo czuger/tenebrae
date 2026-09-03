@@ -24,8 +24,7 @@ from typing import Optional
 
 from flask.sessions import SessionMixin
 
-from tenebrae.engine.repositories.player import (InMemoryPlayerRepository, MongoPlayerRepository,
-                                                 PlayerRecord)
+from tenebrae.engine.repositories.player import MongoPlayerRepository, PlayerRecord
 
 # What the session carries, and nothing more. Already in browsers' cookies: not renamed.
 PLAYER_KEY = "joueur"
@@ -33,10 +32,6 @@ OAUTH_STATE_KEY = "etat_oauth"
 
 # The length of the OAuth2 anti-CSRF state, in bytes before encoding.
 STATE_BYTES = 32
-
-
-# The repository the player is re-read from, whichever the factory hooked onto the application.
-PlayerRepository = MongoPlayerRepository | InMemoryPlayerRepository
 
 
 class Connection:
@@ -48,7 +43,7 @@ class Connection:
 
     __slots__ = ("_session", "_players")
 
-    def __init__(self, session: SessionMixin, players: PlayerRepository) -> None:
+    def __init__(self, session: SessionMixin, players: MongoPlayerRepository) -> None:
         """Binds the session to the repository the player is re-read from.
 
         Args:

@@ -30,7 +30,9 @@ class Game(Document):
     """
 
     scenario = IntField(required=True)
-    placement = MapField(StringField(), required=True)
+    # Not required: a board that combat has emptied is still a game, and is saved as it stands - a
+    # required map refuses to be empty.
+    placement = MapField(StringField())
 
     # Same keys as `placement`. Not required: games saved before tilts were kept have none, and
     # their pieces lie down once when the game resumes.

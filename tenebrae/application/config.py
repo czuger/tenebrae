@@ -5,9 +5,8 @@ MongoDB connection details and Discord secrets never live in the code: they are 
 module is imported. `create_app` receives one of these classes and hands it to Flask; nothing else
 reads the environment.
 
-`PERSISTENCE` says what becomes of the game: `mongo` saves it after every move and resumes it on
-load, `none` plays with everything in memory, nothing outliving the server. It is also what makes
-it possible to play without MongoDB installed.
+The game is saved in MongoDB, always: `MONGODB_URI` says where. The test configuration writes into
+a base of its own, the one `make test` brings up, named by `MONGODB_URI_TEST`.
 
 `AUTHENTICATION` says where a player's identity comes from: from Discord, or from a fake client
 that answers by itself. **It is not read from the environment, and that is deliberate**: a `.env`
@@ -42,7 +41,6 @@ def _list(name: str) -> list[str]:
 class Config:
     """The ordinary game configuration: the game is saved in MongoDB."""
 
-    PERSISTENCE = os.environ.get("PERSISTENCE", "mongo")
     # The format the MongoEngine extension expects: everything fits in the URI.
     MONGODB_SETTINGS = {"host": os.environ.get("MONGODB_URI",
                                                "mongodb://localhost:27017/tenebrae")}
@@ -80,10 +78,14 @@ class Config:
 
 
 class TestingConfig(Config):
-    """The test configuration: no MongoDB, no Discord, a fixed secret key."""
+    """The test configuration: the test MongoDB, no Discord, a fixed secret key."""
 
     TESTING = True
-    PERSISTENCE = "none"
+
+    # The base `make test` brings up (see the Makefile): another port than the game's, and a
+    # database of its own, emptied before every test.
+    MONGODB_SETTINGS = {"host": os.environ.get("MONGODB_URI_TEST",
+                                               "mongodb://localhost:27018/tenebrae_test")}
 
     # The fake client closes the OAuth flow on our own return route (see `discord_client.py`):
     # nothing leaves the machine, and the whole flow is exercised.

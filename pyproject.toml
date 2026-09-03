@@ -45,7 +45,6 @@ runtime = [
 test = [
     "pytest",
     "pytest-playwright",  # the `page` fixture of the browser engine; then: make browser
-    "mongomock",          # MongoDB in memory: the persistence engine requires no server
     "pytest-cov",         # `make coverage`: what the suite covers of tenebrae/, configured in .coveragerc
     "flake8",             # style and unused names, configured in .flake8; run by the suite and `make lint`
     "mypy",               # the types, configured below; run by the suite and `make lint`

@@ -1,8 +1,8 @@
 """Where the player is on the map: the one route that has nothing to do with the game.
 
 It touches neither the board nor the version, and **publishes nothing** - pushing a view to the
-stream would make the other player's map jump. The view is kept per player, in base or in memory
-(`models/view.py`, `repositories/view.py`), and given back to "/" at the next visit.
+stream would make the other player's map jump. The view is kept per player (`models/view.py`,
+`repositories/view.py`), and given back to "/" at the next visit.
 """
 
 import math

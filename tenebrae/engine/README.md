@@ -63,12 +63,10 @@ state dicts — never a document.
 | Repository | File | Role |
 | --- | --- | --- |
 | `MongoGameRepository` | `repositories/game.py` | the most recent game prevails; the previous ones stay in base |
-| `NullGameRepository` | `repositories/game.py` | keeps nothing: the game state already lives in the server's module globals |
 | `MongoPlayerRepository` | `repositories/player.py` | one document per known Discord account |
-| `InMemoryPlayerRepository` | `repositories/player.py` | the accounts of the current run; keeping nothing would forbid playing |
 
-It is `create_app` that chooses the pair, from `PERSISTENCE` — and the routes know nothing of that
-choice.
+It is `create_app` that hooks them onto the application — and the routes know nothing of MongoDB.
+The tests go through the same repositories, on the base `make test` brings up.
 
 ## The `Hex` class
 

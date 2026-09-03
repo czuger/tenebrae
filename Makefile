@@ -5,11 +5,9 @@
 # written as a test and replayed by this command - the application is not launched by hand.
 #
 # The container is separate from the game's: it listens on another port (27018) and works in its
-# own database, `tenebrae_test`. It stays up between two `make test`, which makes series fast;
-# `make mongo-stop` removes it.
-#
-# Without Docker, `make test-fast` runs the same suite without a database: the tests that require
-# a real MongoDB skip themselves, all the others run (mongomock covers in-memory persistence).
+# own database, `tenebrae_test`, which the suite empties before every test. It stays up between two
+# `make test`, which makes series fast; `make mongo-stop` removes it. Every test needs it: there is
+# no base-less mode.
 
 CONTAINER ?= tenebrae-mongo-test
 IMAGE     ?= mongo:7
@@ -20,15 +18,13 @@ URI       := mongodb://localhost:$(PORT)/$(DATABASE)
 # Arguments passed to pytest: `make test ARGS="-k persistence -v"`.
 ARGS ?=
 
-.PHONY: test test-fast test-browser lint coverage coverage-fast mongo mongo-stop browser help
+.PHONY: test test-browser lint coverage mongo mongo-stop browser help
 
 help:
 	@echo "make test          — brings up MongoDB and runs the whole suite"
-	@echo "make test-fast     — the suite without MongoDB (the tests that need it skip themselves)"
 	@echo "make test-browser  — the Chromium tests only"
 	@echo "make lint          — flake8 then mypy alone, the two checks the suite also runs"
 	@echo "make coverage      — the whole suite, measuring what it covers of tenebrae/"
-	@echo "make coverage-fast — the same measurement without MongoDB"
 	@echo "make mongo         — brings up the test MongoDB and waits for it"
 	@echo "make mongo-stop    — removes the container"
 	@echo "make browser       — installs Chromium for Playwright"
@@ -37,9 +33,6 @@ help:
 
 test: mongo
 	MONGODB_URI_TEST=$(URI) python3 -m pytest $(ARGS)
-
-test-fast:
-	python3 -m pytest $(ARGS)
 
 test-browser: mongo
 	MONGODB_URI_TEST=$(URI) python3 -m pytest tests/application/test_board_browser.py \
@@ -68,28 +61,21 @@ lint:
 #
 # It is the whole suite that measures, Chromium included: dropping the browser tests can only lower
 # the figure, and a report is worth reading only if what it calls unreached really is. It therefore
-# costs the seven minutes the browser tests cost.
+# costs the minutes the browser tests cost. For the quick pass one wants while writing a test, drop
+# Chromium through ARGS - seconds instead of minutes, at the cost of a lower figure:
+#
+#     make coverage ARGS="--ignore-glob=*browser*"
 coverage: mongo
 	MONGODB_URI_TEST=$(URI) python3 -m pytest --cov --cov-report=term-missing \
 		--cov-report=html $(ARGS)
 	@echo "HTML report: htmlcov/index.html"
-
-# The same measurement without a base, as `test-fast` is to `test`: the tests requiring a real
-# MongoDB skip themselves, and the lines only they reach are then reported as missed.
-#
-# For the quick pass one wants while writing a test, drop Chromium through ARGS - seconds instead
-# of minutes, at the cost of a figure lower still:
-#
-#     make coverage-fast ARGS="--ignore-glob=*browser*"
-coverage-fast:
-	python3 -m pytest --cov --cov-report=term-missing $(ARGS)
 
 # Brings the container up if it is not already there, then waits for the database to really answer:
 # a container that is "Up" is not yet a server accepting connections, and pytest would then start
 # and skip the tests that require it.
 mongo:
 	@if ! command -v docker >/dev/null 2>&1; then \
-		echo "Docker is missing: use \"make test-fast\" (the MongoDB tests will skip)."; \
+		echo "Docker is missing: the suite needs the test MongoDB it brings up."; \
 		exit 1; \
 	fi
 	@if [ -z "$$(docker ps -q -f name=^/$(CONTAINER)$$)" ]; then \

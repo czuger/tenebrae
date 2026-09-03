@@ -43,9 +43,8 @@ def player_view() -> Optional[ViewRecord]:
 def board() -> ResponseReturnValue:
     """Serves the map, its pieces and the current phase.
 
-    The game is resumed where it was left. Failing a save - first visit, empty base, null
-    repository -, or if the save is that of another scenario, the set-up is rebuilt and a new game
-    opened.
+    The game is resumed where it was left. Failing a save - first visit, empty base -, or if the
+    save is that of another scenario, the set-up is rebuilt and a new game opened.
 
     Returns:
         The rendered `map.html`.

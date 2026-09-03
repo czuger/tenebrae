@@ -21,15 +21,6 @@ OTHER_IDENTITY = {"discord_id": "100000000000000002", "nickname": "Adversaire", 
 A_VIEW = {"scale": 0.42, "x": 1234.5, "y": 678.25, "fitted": False}
 
 
-@pytest.fixture(autouse=True)
-def empty_views(application):
-    """The view repository lives as long as the application, which the suite builds only once:
-    without this cleanup, every test would inherit the previous one's views."""
-    application.extensions["view_repository"].clear()
-    yield application.extensions["view_repository"]
-    application.extensions["view_repository"].clear()
-
-
 def page_view(client):
     return read_hidden_field(client.get("/").get_data(as_text=True), "view")
 

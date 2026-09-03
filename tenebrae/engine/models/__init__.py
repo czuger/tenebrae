@@ -11,8 +11,8 @@ player by its Discord identifier. The engine never has to know about sessions or
 
 This file re-exports nothing, and that is deliberate: `Seats` only needs the standard library,
 while `Game` and `Player` require mongoengine. Re-exporting all three here would make anyone who
-only wants a seating register pay for mongoengine - and so would the application mounted without
-persistence, which is built today without it. Each caller therefore imports the module it needs:
+only wants a seating register pay for mongoengine. Each caller therefore imports the module it
+needs:
 
     from tenebrae.engine.models.seats import Seats
     from tenebrae.engine.models.game import Game

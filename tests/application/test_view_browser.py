@@ -25,11 +25,8 @@ TOLERANCE = 2.0
 
 @pytest.fixture
 def views(application):
-    """The view repository, emptied before and after: it lives as long as the application."""
-    repository = application.extensions["view_repository"]
-    repository.clear()
-    yield repository
-    repository.clear()
+    """The view repository, on the base `conftest.py` empties before every test."""
+    return application.extensions["view_repository"]
 
 
 @pytest.fixture

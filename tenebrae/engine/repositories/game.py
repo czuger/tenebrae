@@ -5,18 +5,12 @@ A repository exchanges **state dicts** - `GameState`, the format of `snapshot_th
 of the routes: the application imports neither `tenebrae.engine.models` nor `mongoengine`, it
 calls `load`, `save` and `new_game`, and that is all.
 
-Two repositories, as for the players: the real one, on MongoDB, and its base-less counterpart that
-the test configuration plugs in. That one keeps **nothing** - the game state already lives in the
-module globals of `tenebrae/application/current_game.py`, there is simply no need to double it;
-that is how it differs from the in-memory player repository, which does keep (see
-`tenebrae/engine/repositories/player.py`).
 """
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional, TypedDict
+from typing import Optional, TypedDict
 
-if TYPE_CHECKING:
-    from tenebrae.engine.models.game import Game
+from tenebrae.engine.models.game import Game
 
 
 class GameState(TypedDict):
@@ -37,22 +31,13 @@ class GameState(TypedDict):
 class MongoGameRepository:
     """The current game in MongoDB: one document per game, the most recent prevails."""
 
-    def __init__(self) -> None:
-        """Binds the repository to the `Game` document.
-
-        The import is done here and not at the top: building a null repository must not require
-        mongoengine.
-        """
-        from tenebrae.engine.models.game import Game
-        self._Game = Game
-
-    def _most_recent(self) -> Optional["Game"]:
+    def _most_recent(self) -> Optional[Game]:
         """Finds the most recent game, by the model's `ordering`.
 
         Returns:
             The document, or `None` if the base is empty.
         """
-        return self._Game.objects.first()
+        return Game.objects.first()
 
     def load(self) -> Optional[GameState]:
         """Reads the state of the most recent game.
@@ -91,10 +76,10 @@ class MongoGameRepository:
         Args:
             state: The whole game state.
         """
-        game = self._Game(created_at=self._now())
+        game = Game(created_at=self._now())
         self._fill(game, state).save()
 
-    def _fill(self, game: "Game", state: GameState) -> "Game":
+    def _fill(self, game: Game, state: GameState) -> Game:
         """Copies the state into the document, seats included.
 
         The seats travel in the state dict rather than through methods of their own because the
@@ -127,33 +112,3 @@ class MongoGameRepository:
             Now, in UTC.
         """
         return datetime.now(timezone.utc)
-
-
-class NullGameRepository:
-    """The repository that keeps nothing: `load` never finds a game, saving does nothing.
-
-    Plugged in by the test configuration - and by `PERSISTENCE=none` -, it gives the application
-    its behaviour from before persistence: every load of "/" starts from the scenario.
-    """
-
-    def load(self) -> Optional[GameState]:
-        """Never finds a game.
-
-        Returns:
-            `None`.
-        """
-        return None
-
-    def save(self, state: GameState) -> None:
-        """Keeps nothing.
-
-        Args:
-            state: Ignored.
-        """
-
-    def new_game(self, state: GameState) -> None:
-        """Keeps nothing.
-
-        Args:
-            state: Ignored.
-        """

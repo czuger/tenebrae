@@ -127,7 +127,7 @@ def test_the_set_up_populates_the_servers_board(client):
 
 
 def test_reloading_the_page_puts_the_pieces_back(client):
-    """A moved piece returns to its starting square on reload: the set-up is fixed."""
+    """A move the base never saw is undone by a reload: "/" resumes the saved game, not memory."""
     origin = Hex.from_key(next(iter(current_game.SCENARIO.placement)))
     client.get("/")
     destination = current_game.BOARD.moves(origin)[0]
@@ -163,20 +163,12 @@ def test_the_grid_alignment_is_transmitted(client):
 def test_the_set_up_does_not_change_from_one_load_to_the_next(client):
     """A fixed scenario replays identically: that is what is asked of it.
 
-    The tilt is set aside: it belongs not to the scenario but to the placing, and without
-    persistence - the test configuration - every load of "/" rebuilds the set-up, hence drops the
-    counters onto the map again. A saved game, for its part, finds them as it left them (see
-    `test_persistence.py`).
+    Tilts included: the second load resumes the game the first one saved, and finds the counters
+    lying as it left them (see `test_persistence.py` for what happens across a restart).
     """
     first = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
     second = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
-    assert without_tilt(first) == without_tilt(second)
-
-
-def without_tilt(pieces):
-    """The pieces served, minus the placing angle."""
-    return [{field: value for field, value in piece.items() if field != "tilt"}
-            for piece in pieces]
+    assert first == second
 
 
 def test_the_map_is_served(client):

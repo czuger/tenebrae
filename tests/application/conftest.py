@@ -1,4 +1,5 @@
-"""Shared fixtures: a logged-in Flask client, a test player, and a real server for the browser."""
+"""Shared fixtures: a logged-in Flask client, a test player, an empty base, and a real server for
+the browser."""
 
 import threading
 
@@ -6,9 +7,12 @@ import pytest
 from werkzeug.serving import make_server
 
 from tenebrae.application.app import create_app
-from tenebrae.application.current_game import BOARD, REGISTER, SCENARIO, SEATS, TURN
 from tenebrae.application.config import TestingConfig
+from tenebrae.application.current_game import BOARD, REGISTER, SCENARIO, SEATS, TURN
 from tenebrae.application.discord_client import DEFAULT_IDENTITY
+from tenebrae.application.models.view import View
+from tenebrae.engine.models.game import Game
+from tenebrae.engine.models.player import Player
 
 
 @pytest.fixture(scope="session")
@@ -16,11 +20,25 @@ def application():
     """The test application, built once by the factory.
 
     A single instance for the whole session: the Flask client and the browser engine' server must
-    speak to the same object. The test configuration unplugs persistence (null repository) - the
-    game state stays in `current_game`'s module globals, which the fixtures and the engine
-    manipulate directly - and plugs in the fake Discord client.
+    speak to the same object. The test configuration plugs persistence into the test MongoDB
+    (`MONGODB_URI_TEST`, the base `make test` brings up) - the game state stays in `current_game`'s
+    module globals, which the fixtures and the engine manipulate directly - and plugs in the fake
+    Discord client.
     """
     return create_app(TestingConfig)
+
+
+@pytest.fixture(autouse=True)
+def empty_base(application):
+    """Starts every test from an empty base: no saved game, no player, no view.
+
+    The base outlives the tests as the application does, and a game saved by one test would be
+    resumed by the next one's load of "/". Emptied on the way in rather than on the way out, so
+    that the first test of a run does not inherit what a previous run left behind either.
+    """
+    Game.objects.delete()
+    Player.objects.delete()
+    View.objects.delete()
 
 
 @pytest.fixture

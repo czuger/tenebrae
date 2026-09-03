@@ -1,72 +1,28 @@
 """Resuming a game, seen from the browser: move a piece, reload, find it there.
 
 That is what persistence promises the user, and that is what is checked here - by playing in
-Chromium, not by launching the application by hand. The server runs in the engine' process, as for
-the other browser engine; what changes is its configuration: it is plugged into a database, where
-the shared server of `conftest.py` is not.
+Chromium, not by launching the application by hand. The server is the shared one of `conftest.py`,
+plugged into the test MongoDB like the rest of the suite, and the base is emptied before each test.
 
-Two possible databases, and the file runs on both:
-
-- **mongomock** by default, in memory: nothing to install, these engine run everywhere;
-- the **real MongoDB** that `make test` brings up, as soon as `MONGODB_URI_TEST` designates it and
-  it answers. That is the only way to exercise the full chain as it really runs.
-
-These engine require Chromium (`make browser`).
+These tests require Chromium (`make browser`).
 """
-
-import threading
 
 import pytest
 
-mongomock = pytest.importorskip("mongomock")
-
-import mongoengine  # noqa: E402
-from werkzeug.serving import make_server  # noqa: E402
-
-from tenebrae.application import current_game  # noqa: E402
-from tenebrae.application.app import create_app  # noqa: E402
-from tests.application.test_persistence import TEST_URI, MongomockConfig, RealMongoConfig, \
-    mongodb_is_reachable  # noqa: E402
+from tenebrae.application import current_game
 
 
-@pytest.fixture(params=["mongomock", "mongodb"])
-def persistent_server(request, seat_the_player):
-    """A server plugged into a database, served on a free port for the length of the test.
+@pytest.fixture(autouse=True)
+def isolated_board(deserted_map):
+    """Every test starts from a deserted map and the first phase, and leaves them so: the board
+    and the turn are shared by the whole session."""
 
-    The parameter runs each test twice: on mongomock, and on the real MongoDB if it is reachable.
-    The base is emptied before and after - and `current_game`'s module globals with it, since all
-    the test files share them.
-    """
-    if request.param == "mongodb":
-        if not mongodb_is_reachable():
-            pytest.skip(f"no MongoDB reachable at {TEST_URI}")
-        configuration = RealMongoConfig
-    else:
-        configuration = MongomockConfig
 
-    application = create_app(configuration)
-    from tenebrae.engine.models.game import Game
-    from tenebrae.engine.models.player import Player
-    Game.objects.delete()
-    Player.objects.delete()
-
-    # `threaded=True` for the same reason as in `conftest.py`: the page holds an open SSE stream,
-    # and a single-threaded server would serve nothing else ever again.
-    server = make_server("127.0.0.1", 0, application, threaded=True)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
+@pytest.fixture
+def persistent_server(server, application, seat_the_player):
+    """The shared server, the test player seated at both sides."""
     seat_the_player(application)
-    yield f"http://127.0.0.1:{server.server_port}"
-
-    server.shutdown()
-    thread.join()
-    Game.objects.delete()
-    Player.objects.delete()
-    mongoengine.disconnect_all()
-    current_game.BOARD.clear()
-    current_game.TURN.restart()
-    current_game.REGISTER.reset()
-    current_game.SEATS.clear()
+    return server
 
 
 @pytest.fixture

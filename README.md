@@ -79,7 +79,7 @@ read **once, at import**: the board is printed, it does not change mid-game.
 | `combat.py` | the booklet's Table I |
 | `combat_register.py` | `CombatRegister` — one combat per unit and per target, per phase |
 | `models/` | the game entities, **one file per model**: `game.py`, `player.py`, `seats.py` |
-| `repositories/` | database access to those entities: `game.py`, `player.py` — MongoDB, and the base-less counterpart |
+| `repositories/` | database access to those entities: `game.py`, `player.py` |
 
 `tenebrae/engine/README.md` details each class, the terrain costs, the zones of control, and the
 list of rules from the booklet that are not played yet.
@@ -141,8 +141,7 @@ it is the only link between the two worlds, and it runs one way only — the eng
 from the application.
 
 Database access to them goes through a repository, never through a route:
-`tenebrae/engine/repositories/game.py` and `tenebrae/engine/repositories/player.py`, each in two
-versions — MongoDB, and the base-less counterpart the test configuration plugs in.
+`tenebrae/engine/repositories/game.py` and `tenebrae/engine/repositories/player.py`.
 
 ## Installing
 
@@ -151,8 +150,8 @@ python3 -m pip install --group dev   # pip >= 25.1; add --group map to regenerat
 cp .env.example .env       # then fill in SECRET_KEY and the Discord credentials
 ```
 
-Without `SECRET_KEY`, the application refuses to start. Without MongoDB, set `PERSISTENCE=none` in
-the `.env`: the game then starts again from the set-up at every load.
+Without `SECRET_KEY`, the application refuses to start, and without a MongoDB to reach at
+`MONGODB_URI` nothing can be played: the game is saved there at every move.
 
 ## Running
 
@@ -169,11 +168,9 @@ Every check goes through the test suite — we do not launch the server to see w
 | Command | What it does |
 | --- | --- |
 | `make test` | brings up a test MongoDB in Docker, then runs the whole suite |
-| `make test-fast` | the same suite without a database: the tests that need one skip themselves |
 | `make test-browser` | the Chromium (Playwright) tests only |
 | `make lint` | flake8 then mypy alone; the suite runs both as tests |
 | `make coverage` | the whole suite, and what it covers of `tenebrae/` (`htmlcov/index.html`) |
-| `make coverage-fast` | the same measurement without a database: what `make test-fast` is to `make test` |
 | `make browser` | installs Chromium for Playwright |
 | `make mongo-stop` | removes the test container |
 

@@ -71,6 +71,7 @@ import secrets
 import time
 from functools import wraps
 from pathlib import Path
+from urllib.parse import urlparse
 
 from itsdangerous import BadSignature
 from flask import Blueprint, Flask, abort, current_app, g, redirect, render_template, \
@@ -741,6 +742,24 @@ def oauth_state_diagnosis(expected, received):
     return f"{cause} (hôte {request.host}, {session_cookie_state()})"
 
 
+def warn_if_the_return_lands_on_another_host():
+    """Says **at departure** that the session cookie will not come back.
+
+    The map opened on `localhost` while `DISCORD_REDIRECT_URI` names `127.0.0.1`: two sites for
+    the browser, so the cookie set here is not sent there, the state will be missing on the return
+    and the connection will be refused for a reason that has nothing to do with Discord.
+
+    `oauth_state_diagnosis` can only offer that as the first of three suspicions, once the return
+    has already failed. Here both hosts are known and neither has to be guessed, so the trap is
+    stated before it closes - and the line says which address to open the map on.
+    """
+    expected = urlparse(current_app.config["DISCORD_REDIRECT_URI"])
+    if expected.netloc and request.host != expected.netloc:
+        LOG.info("Connexion : départ depuis %s, mais Discord renverra sur %s — le cookie de "
+                 "session posé ici ne reviendra pas ; ouvrir la carte sur %s",
+                 request.host, expected.netloc, f"{expected.scheme}://{expected.netloc}/")
+
+
 def session_cookie_state():
     """The session cookie as it arrived: absent, unreadable, or readable and carrying what.
 
@@ -765,6 +784,7 @@ def session_cookie_state():
 @game.route("/login")
 def login():
     """Leaves for Discord, with a single-use state against CSRF."""
+    warn_if_the_return_lands_on_another_host()
     state = the_connection().set_oauth_state()
     return redirect(discord_client().authorization_url(state))
 

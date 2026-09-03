@@ -47,11 +47,16 @@ class MongomockConfig(TestingConfig):
 
 @pytest.fixture
 def mongo_application():
-    """An application whose repository writes into mongomock, and which leaves nothing behind.
+    """An application whose repository writes into mongomock, which starts from a known state and
+    leaves nothing behind.
 
     Mongoengine keeps a global registry of connections: we must disconnect on the way out, without
     which the other test files would inherit this one. `app`'s module globals are shared by the
-    whole session, and are reset the same way.
+    whole session, and are reset the same way - **on the way in as well as on the way out**. Only
+    cleaning up on the way out is not enough: the first test of this file would then inherit the
+    board and, above all, the phase left by whatever file ran before it, and a `/move` played
+    outside the movement phase comes back refused - which showed as an occasional failure of
+    `test_a_move_writes_the_new_tilt`, depending on the order the files were collected in.
     """
     application = app.create_app(MongomockConfig)
     from tenebrae.engine.models.game import Game
@@ -60,6 +65,10 @@ def mongo_application():
     Game.objects.delete()
     Player.objects.delete()
     View.objects.delete()
+    app.BOARD.clear()
+    app.TURN.restart()
+    app.REGISTER.reset()
+    app.SEATS.clear()
     yield application
     Game.objects.delete()
     Player.objects.delete()

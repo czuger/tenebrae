@@ -94,13 +94,21 @@ def test_each_placed_piece_carries_its_counter_values(client):
 
 
 def test_the_counter_values_are_those_read_off_the_photographs(client):
-    """Two pieces from the scenario, recorded in `tenebrae/game_box/pions/pions.json`."""
+    """Two counters of the set-up, as `tenebrae/game_box/pions/pions.json` records them.
+
+    Both must be **placed by scenario no. 4**: the page only carries what is on the board. The
+    dwarf leaders would have been the telling case - they are the only counter of the box to carry
+    a range of 10 - but the scenario leaves them in the box, along with the mage, since the engine
+    gives them no effect (see `tenebrae/scenarios/README.md` and
+    `tests/engine/test_scenario.py::test_neither_leader_nor_spellcaster_is_placed`). The heavy
+    crossbowmen carry the firing pair instead, and the orc infantry carries none.
+    """
     pieces = {piece["key"]: piece
               for piece in read_hidden_field(client.get("/").get_data(as_text=True), "pieces")}
 
-    leaders = pieces["nains-05-2-leaders"]
-    assert (leaders["strength"], leaders["fire"], leaders["range"]) == (25, 5, 10)
-    assert leaders["symbol"] == "leader"
+    crossbowmen = pieces["nains-03-4-arbaletriers-lourds"]
+    assert (crossbowmen["strength"], crossbowmen["fire"], crossbowmen["range"]) == (8, 5, 2)
+    assert crossbowmen["symbol"] == "arbaletrier-lourd"
 
     infantry = pieces["orques-01-15-infanteries"]
     assert infantry["symbol"] == "infanterie"

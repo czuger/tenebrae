@@ -93,8 +93,15 @@ def test_the_map_opens_fitted_when_nothing_is_stored(board):
 
 
 def test_zooming_in_stores_the_view(board, views):
+    """We wait for the view the **zoom** produced, and not simply for the first one stored.
+
+    A player who has nothing stored yet opens on the fit, and that fit is a scroll like any other:
+    it is sent after its half-second of quiet. Taking the first view that arrives would therefore
+    read that one, still fitted, and the zoom would be tested by nothing - the same precaution as
+    in `test_scrolling_stores_the_view` just below.
+    """
     zoom_in(board)
-    stored = wait_for_the_view(views)
+    stored = wait_for_the_view(views, lambda view: not view["fitted"])
     shown = read_view(board)
     assert stored["fitted"] is False
     assert stored["scale"] == pytest.approx(shown["scale"])

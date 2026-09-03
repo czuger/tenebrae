@@ -174,9 +174,13 @@ class TestFight:
         """The booklet exempts missile troops from retreat and exchange only, not from `AE`."""
         target, shooter = pair
         board = Board([(target, piece(DWARF)), (shooter, piece(CROSSBOWMAN))])
-        # CROSSBOWMAN 6 against DWARF 12 -> 1-2; die 2 -> AR.
-        result = combat.fight(board, target, [shooter], roll=2)
+        # CROSSBOWMAN 6 against DWARF 12 -> 1-2; die 3 -> AR, which the engine leaves without
+        # effect: the shooter stays where it is, as does the target.
+        result = combat.fight(board, target, [shooter], roll=3)
         assert result.outcome == AR
+        assert result.eliminated == []
+        assert board.piece_on(shooter) is not None
+
         board = Board([(target, piece(DWARF)), (shooter, piece(ARCHER))])
         # ARCHER 2 against DWARF 12 -> 1-5; die 2 -> AE: the shooter is indeed removed.
         result = combat.fight(board, target, [shooter], roll=2)

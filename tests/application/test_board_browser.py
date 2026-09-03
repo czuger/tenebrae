@@ -873,21 +873,53 @@ def test_locate_brings_the_last_clicked_piece_back_to_the_centre(board):
     assert offset[0] <= 2 and offset[1] <= 2, offset
 
 
+def a_movable_piece_that_can_be_centred(page):
+    """Among the units that have somewhere to go, the one furthest from the map's right edge.
+
+    The counterpart of `a_centrable_piece` for a unit that is going to move: scenario 4 places all
+    its units in the east, and the button can only bring to the middle of the window a piece with
+    half a window of map left on each side of it.
+
+    A **Dwarf**: the map opens on their movement phase, and clicking a unit of the other side
+    would show no ghost at all.
+    """
+    candidates = list(pieces_that_can_move(page, lambda piece: piece.side == "alliance"))
+    assert candidates, "no Dwarf of the scenario can move"
+    return min(candidates, key=lambda candidate: expected_centre(candidate[1].q, candidate[1].r)[0])
+
+
 def test_locate_follows_the_piece_that_has_moved(board):
     """The button keeps the counter, not the square: once moved, it is where it is that we find
-    it."""
-    piece, origin, _ = a_piece_that_can_move(board)
+    it.
+
+    The unit is looked up **by its square** once the move is played, and not through the rank it
+    held before: the move comes straight back through the stream, the scene is laid out again and
+    every image recreated, so the locator from before the click no longer designates the same unit
+    (the same precaution as in `test_clicking_a_ghost_moves_the_piece`).
+    """
+    piece, origin, reachable = a_movable_piece_that_can_be_centred(board)
     piece.click()
     board.wait_for_function("document.querySelectorAll('img.ghost').length > 0")
-    board.locator("img.ghost").last.click()
-    board.wait_for_function("document.querySelectorAll('img.ghost').length === 0")
-    assert piece.evaluate(
-        "p => [Number(p.dataset.q), Number(p.dataset.r), Number(p.dataset.s)]") \
-        != [origin.q, origin.r, origin.s]
 
-    zoom_in_until_it_can_be_centred(board, piece)
+    # Westernmost of the squares it can reach: scenario 4 crowds the east of the map, and a unit
+    # that ends its move against the edge could not be brought to the middle of the window - the
+    # scroll would stop first, and the test would measure the scroll's limit, not the button.
+    west = min(reachable, key=lambda hexagon: expected_centre(hexagon.q, hexagon.r)[0])
+    destination = [west.q, west.r, west.s]
+    ghost = board.locator(
+        f'img.ghost[data-q="{west.q}"][data-r="{west.r}"][data-s="{west.s}"]')
+    ghost.click()
+    board.wait_for_function("document.querySelectorAll('img.ghost').length === 0")
+    assert destination != [origin.q, origin.r, origin.s]
+
+    q, r, s = destination
+    moved = board.locator(
+        f'img.piece:not(.ghost)[data-q="{q}"][data-r="{r}"][data-s="{s}"]')
+    moved.wait_for()
+
+    zoom_in_until_it_can_be_centred(board, moved)
     board.locator("#locate").click()
-    offset = offset_from_the_centre(piece)
+    offset = offset_from_the_centre(moved)
     assert offset[0] <= 2 and offset[1] <= 2, offset
 
 

@@ -279,6 +279,15 @@ def test_the_page_reconnects_after_an_outage(page, server, opponent):
 def test_a_closed_tab_frees_its_subscription(page, context, server, opponent):
     """The leak we want to catch: the server must not keep a box for a tab that has gone."""
     open_the_board(page, server)
+
+    # The baseline is settled first, and that is not a precaution against slowness. A box left by
+    # the tab of an earlier test is only noticed when the server next tries to write to it: taken
+    # as it comes, the count would include debris that this test's own move is about to sweep
+    # away, the total would end up *below* the baseline, and the test would report a leak where
+    # there is none. So we provoke a write and wait for the count to come down to this test's
+    # single tab.
+    assert opponent.post("/phase/next").ok
+    wait_until(lambda: len(app.BROADCASTER) == 1)
     subscribers = len(app.BROADCASTER)
 
     second = context.new_page()

@@ -113,14 +113,25 @@ let attackers = new Set();
 // marker with it. The memory crosses phases; only elimination erases it.
 
 let lastClickedPiece = null;
+// The square the marker aims at, kept **beside** the image and not read back from it.
+//
+// A scene laid out again replaces every image, so the marker has to be found by square. Reading
+// that square off the image at the moment of the re-layout is not enough: the stream delivers our
+// own move back to us before the answer to it arrives (the server publishes inside the request),
+// so the image still carries the square it has just left, which is by then empty - and the button
+// went off exactly when one wants to find the unit one has just manoeuvred. `movePiece` therefore
+// moves this square as soon as the move is **asked for**, and puts it back if it is refused.
+let markedSquare = null;
 
 function rememberThePiece(image) {
   lastClickedPiece = image;
+  markedSquare = key(image.dataset);
   locateButton.disabled = false;
 }
 
 function forgetThePiece() {
   lastClickedPiece = null;
+  markedSquare = null;
   locateButton.disabled = true;
 }
 
@@ -248,6 +259,12 @@ async function showTheMoves(image) {
 }
 
 async function movePiece(image, hexagon) {
+  // The marker follows the piece from here, before the request leaves: see `markedSquare`. A
+  // refused move puts it back where it was.
+  const wasMarked = lastClickedPiece === image;
+  const squareLeft = markedSquare;
+  if (wasMarked) markedSquare = key(hexagon);
+
   const answer = await send("/move", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -257,9 +274,15 @@ async function movePiece(image, hexagon) {
       piece: image.piece.key,
     }),
   });
-  if (!answer) return;
+  if (!answer) {
+    if (wasMarked) markedSquare = squareLeft;
+    return;
+  }
   const { allowed, destination, tilt } = await answer.json();
-  if (!allowed) return;
+  if (!allowed) {
+    if (wasMarked) markedSquare = squareLeft;
+    return;
+  }
 
   clearTheGhosts();
   // The piece has been picked up: it lies down askew again, differently from last time. It is the
@@ -782,11 +805,12 @@ function layThePiecesOut(fresh) {
   clearTheGhosts();
   clearTheCombat();
   // The "localiser" marker aims at an image that is about to be removed from the board: we keep
-  // its **square**, and put the marker back on the image that takes it over. Without that, the
-  // button went off at every scene laid out again - hence, since the stream made them
-  // instantaneous, just after each of one's own moves, at the precise moment when one wants to
-  // find the unit one has just manoeuvred.
-  const marker = lastClickedPiece ? key(lastClickedPiece.dataset) : null;
+  // its **square** - `markedSquare`, which a move moves as soon as it is asked for - and put the
+  // marker back on the image that takes that square over. Without that, the button went off at
+  // every scene laid out again - hence, since the stream made them instantaneous, just after each
+  // of one's own moves, at the precise moment when one wants to find the unit one has just
+  // manoeuvred.
+  const marker = markedSquare;
 
   for (const image of placedPieces) image.remove();
   placedPieces.length = 0;

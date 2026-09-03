@@ -6,7 +6,7 @@ fake Discord client closes the authorization on our own return route.
 
 import pytest
 
-from tenebrae.application import app
+from tenebrae.application import current_game
 from tenebrae.application.discord_client import DEFAULT_IDENTITY
 from tenebrae.engine import ai
 
@@ -16,9 +16,9 @@ ALLIANCE, DARKNESS = "alliance", "tenebres"
 @pytest.fixture(autouse=True)
 def empty_table(application):
     """Every test starts from a lifted table; the board lays itself out again at every load."""
-    app.SEATS.clear()
+    current_game.SEATS.clear()
     yield
-    app.SEATS.clear()
+    current_game.SEATS.clear()
 
 
 def open_the_board(page, server, logged_in=True):
@@ -28,7 +28,7 @@ def open_the_board(page, server, logged_in=True):
         page.goto(f"{server}/login")
     page.goto(server)
     page.wait_for_function(
-        "document.querySelectorAll('img.piece').length === %d" % len(app.SCENARIO))
+        "document.querySelectorAll('img.piece').length === %d" % len(current_game.SCENARIO))
     page.wait_for_function("document.getElementById('scale').textContent !== '—'")
     return page
 
@@ -59,21 +59,21 @@ def test_the_button_entrusts_the_opposing_side_to_the_ai(page, server):
 
     click_the_against_ai_button(page)
 
-    assert app.SEATS.occupant(DARKNESS) == ai.AI_PLAYER
+    assert current_game.SEATS.occupant(DARKNESS) == ai.AI_PLAYER
     # The table reopened shows the seat occupied by "IA".
     page.locator("#player").click()
     assert ai.AI_NAME in page.locator(f"#table-seats .side[data-side='{DARKNESS}']").inner_text()
 
 
 def test_the_ai_opens_the_scenario_when_it_holds_the_alliance(page, server):
-    app.SEATS.seat(DARKNESS, DEFAULT_IDENTITY["discord_id"])
+    current_game.SEATS.seat(DARKNESS, DEFAULT_IDENTITY["discord_id"])
     open_the_board(page, server)
 
     click_the_against_ai_button(page)
 
     # The AI got the Alliance, played its opening turn, and handed play back to the Darkness.
-    assert app.SEATS.occupant(ALLIANCE) == ai.AI_PLAYER
-    assert (app.TURN.active_side, app.TURN.phase_type) == (DARKNESS, "mouvement")
-    assert app.BOARD.to_dict() != app.SCENARIO.placement
+    assert current_game.SEATS.occupant(ALLIANCE) == ai.AI_PLAYER
+    assert (current_game.TURN.active_side, current_game.TURN.phase_type) == (DARKNESS, "mouvement")
+    assert current_game.BOARD.to_dict() != current_game.SCENARIO.placement
     # And the page shows it: the phase displayed is the human player's.
     assert "Orques" in page.locator("#phase-label").inner_text()

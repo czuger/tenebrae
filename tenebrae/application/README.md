@@ -32,6 +32,23 @@ declared in `ADMIN_DISCORD_IDS`.
 The code is English; everything the player reads on screen is French, and so is the game data the
 application serves.
 
+## Layout
+
+| Module | What it holds |
+| --- | --- |
+| `app.py` | the factory `create_app`: the configuration, persistence, authentication, then the blueprints |
+| `config.py` | the configuration classes, read from `.env` |
+| `current_game.py` | the current game — `BOARD`, `TURN`, `REGISTER`, `SEATS`, `VERSION` —, its snapshots, saving and restoring it, the AI's turn |
+| `players.py` | the session's player, the table, the identity client |
+| `persistence.py` | the repositories hooked onto the application, and how the routes reach them |
+| `routes/` | the routes, one blueprint per subject, with the guards (`authorization.py`) and the request readers (`reading.py`) |
+| `logs/` | the game log: the logger, its two handlers, the combat sentences |
+| `stream.py` | the broadcaster behind `/stream` |
+| `discord_client.py` | the OAuth2 flow, and the fake client of the tests |
+| `pieces.py`, `grid.py` | the pieces and the grid alignment, as the browser receives them |
+| `extensions.py` | the MongoDB extension |
+| `models/`, `repositories/` | what is not the game: the connection and the map view (see "The models") |
+
 ## Running
 
 From the root of the repository, with the pyenv virtualenv `tenebrae`:
@@ -96,10 +113,10 @@ lays the scenario's set-up out again. That is also what the test configuration d
 whole suite run without a database.
 
 The **player** repository, on the other hand, then keeps **in memory** instead of keeping nothing.
-The nuance matters: the game state already has a home in `app.py`'s module globals, a player has
-none, and a repository keeping nothing would not impoverish the service — it would forbid it,
-nobody being able to open a session any more, hence take a seat, hence play. The promise of
-`PERSISTENCE=none` is kept in the same way: nothing outlives the server.
+The nuance matters: the game state already has a home in `current_game.py`'s module globals, a
+player has none, and a repository keeping nothing would not impoverish the service — it would
+forbid it, nobody being able to open a session any more, hence take a seat, hence play. The
+promise of `PERSISTENCE=none` is kept in the same way: nothing outlives the server.
 
 | Route | Effect |
 | --- | --- |
@@ -364,8 +381,8 @@ the **squares** of that register that still carry a piece, so that the page can 
 (`.piece.unavailable`). The register designates units by their square and not by their counter: see
 `tenebrae/engine/README.md` § "One combat per unit and per phase" for what that assumes.
 
-**The log is written in two places at once** (`battle_log.py`, which configures the logger once, at
-import) — one line per event: a phase change, a seat taken, a unit out of range, a combat result
+**The log is written in two places at once** (`logs/battle_log.py`, which configures the logger
+once, at import) — one line per event: a phase change, a seat taken, a unit out of range, a combat result
 in French, the AI's moves.
 
 A combat writes **two**: the ratio computation, then its outcome.
@@ -377,7 +394,8 @@ Combat résolu : Défenseur Éliminé
 
 The computation first, the outcome next — the browser's column reading the other way round from
 the file, that is what puts the outcome at the top and its breakdown just below. The sentence is
-composed by `describe_the_ratio`, from the numbers `combat.RatioBreakdown` kept (see
+composed by `describe_the_ratio` (`logs/combat_sentences.py`), from the numbers
+`combat.RatioBreakdown` kept (see
 `tenebrae/engine/README.md` § "The breakdown of the computation"): the engine builds no sentence,
 and the application recomputes nothing. The **defender's terrain is always named**, including when
 it multiplies nothing — it is what one came for; the three terms, for their part, are only spelled
@@ -389,13 +407,13 @@ raises are written as a single number).
   **rotating**: after `LINES_PER_FILE` lines (a thousand) it is set aside as `battle_log.log.1`,
   the archives shifting behind it up to `LOGS_KEPT` (three) — that is at most four thousand lines
   kept, the oldest archive being erased next. The threshold is counted in **lines** and not in
-  bytes (`RotatingLog`, `rotating_log.py`, which redefines `RotatingFileHandler`'s
+  bytes (`RotatingLog`, `logs/rotating_log.py`, which redefines `RotatingFileHandler`'s
   `shouldRollover`): it is in lines
   that this log is read, one per game event. The counter picks up from what the file already
   carries, so that a server restarted ten times in a day does not write ten times a thousand lines
   into the same file;
-- a **bounded in-memory queue** (`InMemoryLog`, `in_memory_log.py`, `LINES_KEPT` lines), which the
-  browser turns into
+- a **bounded in-memory queue** (`InMemoryLog`, `logs/in_memory_log.py`, `LINES_KEPT` lines),
+  which the browser turns into
   its column. It is a *handler* plugged onto the same logger, and not a call added beside each
   `LOG.info`: there is only one point of writing, and the column cannot say anything other than the
   file.
@@ -597,9 +615,9 @@ to the **others**.
   stacked. Nobody needs a stale state: a request that raises the version three times (that is the
   case of `/game/new`, which lays the scenario out again then lets the AI play) wakes the
   subscriber only once, and on the last state;
-- `mark_a_move`, in `app.py`, which publishes. **It is the only point of publication**, and it is
-  also the compulsory passage of everything that moves: no move can be played without the open
-  streams learning of it.
+- `mark_a_move`, in `current_game.py`, which publishes. **It is the only point of publication**,
+  and it is also the compulsory passage of everything that moves: no move can be played without
+  the open streams learning of it.
 
 **Why the snapshot is taken at the moment of publishing.** The board, the turn and the combat
 register are module globals, and nothing protects them. If a stream's generator went and re-read

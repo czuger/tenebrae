@@ -365,7 +365,7 @@ is consulted**: `resolve` and `fight` both go through it, and therefore cannot s
 things about it. `result.ratio` and `result.die` are the breakdown's.
 
 The engine builds **no sentence**: it returns numbers and a terrain name. Putting it into French is
-the application's business (`describe_the_ratio` in `tenebrae/application/app.py`), which makes it
+the application's business (`describe_the_ratio` in `tenebrae/application/logs/combat_sentences.py`), which makes it
 the log line `Rapport 2-1 : attaque 12 + 8 = 20 contre défense 8 × 3 = 24 (montagne) — dé 4`.
 
 **Only three outcomes change the board**, and `fight` applies them by removing pieces: `AE`

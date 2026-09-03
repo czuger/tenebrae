@@ -5,14 +5,15 @@ repository - a rotating file of a thousand lines, kept in three archives behind 
 in-memory queue, which the browser turns into a column under the unit card. The lines the routes
 write are English; what the player reads in them (phase names, combat sentences) is French.
 
-Configured once, at import: the logger is a module global, like the game state in `app.py`.
+Configured once, at import: the logger is a module global, like the game state in
+`current_game.py`.
 """
 
 import logging
 
 from tenebrae.application.config import ROOT
-from tenebrae.application.in_memory_log import InMemoryLog
-from tenebrae.application.rotating_log import RotatingLog
+from tenebrae.application.logs.in_memory_log import InMemoryLog
+from tenebrae.application.logs.rotating_log import RotatingLog
 
 LOG_PATH = ROOT / "logs" / "battle_log.log"
 

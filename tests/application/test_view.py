@@ -10,7 +10,7 @@ MongoDB makes of it, in `test_persistence.py`.
 
 import pytest
 
-from tenebrae.application import app
+from tenebrae.application import current_game
 
 from tests.application.test_server import read_hidden_field
 
@@ -118,18 +118,18 @@ def test_adjusting_ones_view_is_not_a_move_played(client):
     """Neither does the version rise, nor is anything pushed to the streams: one player's view must
     not make the other's map jump."""
     client.get("/")
-    subscriber = app.BROADCASTER.subscribe()
+    subscriber = current_game.BROADCASTER.subscribe()
     try:
-        version = app.VERSION
+        version = current_game.VERSION
         assert client.post("/view", json=A_VIEW).status_code == 200
-        assert app.VERSION == version
+        assert current_game.VERSION == version
         assert subscriber.wait(0) is None
     finally:
-        app.BROADCASTER.unsubscribe(subscriber)
+        current_game.BROADCASTER.unsubscribe(subscriber)
 
 
 def test_the_view_does_not_travel_with_the_game(client):
     """`/game/state` says what **all** spectators have in common; the view is not part of it."""
     client.post("/view", json=A_VIEW)
     assert "view" not in client.get("/game/state").json
-    assert "view" not in app.shared_snapshot()
+    assert "view" not in current_game.shared_snapshot()

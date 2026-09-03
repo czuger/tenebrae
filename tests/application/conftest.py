@@ -5,7 +5,8 @@ import threading
 import pytest
 from werkzeug.serving import make_server
 
-from tenebrae.application.app import BOARD, REGISTER, SCENARIO, SEATS, TURN, create_app
+from tenebrae.application.app import create_app
+from tenebrae.application.current_game import BOARD, REGISTER, SCENARIO, SEATS, TURN
 from tenebrae.application.config import TestingConfig
 from tenebrae.application.discord_client import DEFAULT_IDENTITY
 
@@ -16,8 +17,8 @@ def application():
 
     A single instance for the whole session: the Flask client and the browser engine' server must
     speak to the same object. The test configuration unplugs persistence (null repository) - the
-    game state stays in `app`'s module globals, which the fixtures and the engine manipulate
-    directly - and plugs in the fake Discord client.
+    game state stays in `current_game`'s module globals, which the fixtures and the engine
+    manipulate directly - and plugs in the fake Discord client.
     """
     return create_app(TestingConfig)
 

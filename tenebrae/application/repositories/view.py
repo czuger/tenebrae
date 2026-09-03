@@ -2,7 +2,7 @@
 
 A repository exchanges **dicts** - `ViewRecord`, `{scale, x, y, fitted}` -, never a MongoEngine
 Document: that is the form in which the view arrives from the browser, is stored, and goes back to
-the template. `app.py` therefore has to know neither `tenebrae.application.models.view` nor
+the template. The routes therefore have to know neither `tenebrae.application.models.view` nor
 mongoengine.
 
 Both repositories **keep**, like the player ones and unlike the game one: a view has no other home

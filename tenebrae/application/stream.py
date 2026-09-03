@@ -12,12 +12,12 @@ game to it at the moment it changes - not before, not after. The mechanism has t
   taken**.
 
 That last point is what rules out races on the game state: the board, the turn and the combat
-register are module globals of `app.py`, and nothing protects them. The snapshot is taken once, in
-the thread that has just written, and it is the snapshot that travels. The only shared state left is
-the subscriber registry, and it has its lock.
+register are module globals of `current_game.py`, and nothing protects them. The snapshot is taken
+once, in the thread that has just written, and it is the snapshot that travels. The only shared
+state left is the subscriber registry, and it has its lock.
 
 This module knows neither Flask nor the game: it only carries the snapshots it is handed. The SSE
-formatting and the route are in `app.py`.
+formatting and the route are in `routes/stream.py`.
 
 TODO: PRODUCTION - the registry is in memory, in the process. With more than one worker, each would
 only broadcast to its own subscribers; an external pub/sub (Redis) would then be needed. See
@@ -29,7 +29,7 @@ import threading
 from collections.abc import Mapping
 from typing import Optional
 
-# What travels to the streams: the shared snapshot `app.py` takes after each move.
+# What travels to the streams: the shared snapshot `current_game.py` takes after each move.
 Snapshot = Mapping[str, object]
 
 
@@ -85,8 +85,8 @@ class Subscriber:
 class Broadcaster:
     """The registry of open streams, and the sending of a state to all of them.
 
-    One instance per process (`BROADCASTER` in `app.py`), like the board and the turn: there is
-    only one game, and everyone watching it watches it together.
+    One instance per process (`BROADCASTER` in `current_game.py`), like the board and the turn:
+    there is only one game, and everyone watching it watches it together.
     """
 
     _subscribers: set[Subscriber]

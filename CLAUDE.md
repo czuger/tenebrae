@@ -35,7 +35,7 @@ tenebrae/                       the package: nothing is installed, imported from
 ├── game_box/                   the game material — source of truth (has its own CLAUDE.md)
 ├── engine/                     the rules in Python, plus models/ and repositories/
 ├── scenarios/                  one JSON per fixed set-up (only no. 4 so far)
-└── application/                the Flask server (create_app factory)
+└── application/                the Flask server: create_app in app.py, routes/, logs/
 tests/engine/, tests/application/   mirror the package
 material/base_material/         raw sources: PDF, blog page, 144 photos — DO NOT USE (own CLAUDE.md)
 conftest.py                     puts the repository on sys.path
@@ -81,13 +81,15 @@ Secrets (MongoDB URI, Discord application, `SECRET_KEY`) live in `.env`, not ver
 The base is never touched from a route: everything goes through a repository. Mongo collections
 and `db_field` names stay as they are unless there is an explicit reason to change them.
 
-Key facts about the application, detailed in its README: the game is played by two, one per side,
-through Discord OAuth2 with no extra dependency; the second seat can go to the AI (`POST /game/new`
-with `{"against_ai": true}`), which then plays its whole turn inside that request; each browser
-follows the other's moves through SSE (`GET /stream`, `stream.py`), `mark_a_move` being the only
-point of publication; the log goes to `logs/battle_log.log` and to an in-memory queue shown in the
-page, hence the rule **log before marking the move**. `/admin/map_fix` is reserved to
-`ADMIN_DISCORD_IDS`.
+Key facts about the application, detailed in its README: the routes are one blueprint per subject
+under `routes/`, registered by `create_app`, and the game state — one game per process — lives in
+the module globals of `current_game.py`; the game is played by two, one per side, through Discord
+OAuth2 with no extra dependency; the second seat can go to the AI (`POST /game/new` with
+`{"against_ai": true}`), which then plays its whole turn inside that request; each browser follows
+the other's moves through SSE (`GET /stream`, `routes/stream.py` over the broadcaster of
+`stream.py`), `mark_a_move` being the only point of publication; the log (`logs/`) goes to
+`logs/battle_log.log` and to an in-memory queue shown in the page, hence the rule **log before
+marking the move**. `/admin/map_fix` is reserved to `ADMIN_DISCORD_IDS`.
 
 ## Code style
 

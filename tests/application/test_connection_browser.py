@@ -7,7 +7,7 @@ session cookie just as it would have one from Discord.
 
 import pytest
 
-from tenebrae.application import app
+from tenebrae.application import current_game
 from tenebrae.application.discord_client import DEFAULT_IDENTITY
 
 ALLIANCE, DARKNESS = "alliance", "tenebres"
@@ -26,10 +26,10 @@ ORC = {"discord_id": "100000000000000002", "nickname": "Grishnak",
 @pytest.fixture(autouse=True)
 def empty_table(application):
     """Every test starts from a lifted table and a fake client reset to its original account."""
-    app.SEATS.clear()
+    current_game.SEATS.clear()
     application.extensions["discord"].served_identity = dict(DEFAULT_IDENTITY)
     yield
-    app.SEATS.clear()
+    current_game.SEATS.clear()
     application.extensions["discord"].served_identity = dict(DEFAULT_IDENTITY)
 
 
@@ -40,7 +40,7 @@ def open_the_board(page, server, logged_in=True):
         page.goto(f"{server}/login")
     page.goto(server)
     page.wait_for_function(
-        "document.querySelectorAll('img.piece').length === %d" % len(app.SCENARIO))
+        "document.querySelectorAll('img.piece').length === %d" % len(current_game.SCENARIO))
     page.wait_for_function("document.getElementById('scale').textContent !== '—'")
     return page
 
@@ -110,7 +110,7 @@ def test_taking_a_side_closes_the_dialog_and_hands_play_over(page, server):
 
     page.wait_for_function("() => !document.getElementById('table-dialog').open")
     page.wait_for_function("() => !document.getElementById('next-phase').disabled")
-    assert app.SEATS.occupant(ALLIANCE) == DEFAULT_IDENTITY["discord_id"]
+    assert current_game.SEATS.occupant(ALLIANCE) == DEFAULT_IDENTITY["discord_id"]
 
 
 def test_the_side_held_reads_in_the_table(page, server):
@@ -140,13 +140,13 @@ def test_a_side_already_held_is_not_offered(page, server, application, seat_the_
 
 def test_the_action_buttons_are_off_when_it_is_not_ones_turn(page, server):
     """The Darkness player opens the game: the first phase is the Alliance's."""
-    app.SEATS.seat(DARKNESS, DEFAULT_IDENTITY["discord_id"])
+    current_game.SEATS.seat(DARKNESS, DEFAULT_IDENTITY["discord_id"])
     open_the_board(page, server)
     assert page.locator("#next-phase").is_disabled()
 
 
 def test_the_action_buttons_are_on_at_ones_turn(page, server):
-    app.SEATS.seat(ALLIANCE, DEFAULT_IDENTITY["discord_id"])
+    current_game.SEATS.seat(ALLIANCE, DEFAULT_IDENTITY["discord_id"])
     open_the_board(page, server)
     assert page.locator("#next-phase").is_enabled()
 
@@ -162,10 +162,10 @@ def test_a_refused_move_says_so_to_the_player(page, server, deserted_map):
     Here the player holds the Alliance, but play passed to the Darkness while they were thinking:
     the page does not know it yet, and their click goes out all the same.
     """
-    app.SEATS.seat(ALLIANCE, DEFAULT_IDENTITY["discord_id"])
+    current_game.SEATS.seat(ALLIANCE, DEFAULT_IDENTITY["discord_id"])
     open_the_board(page, server)
-    app.TURN.advance()  # the server moves to the other side, without the page knowing
-    app.TURN.advance()
+    current_game.TURN.advance()  # the server moves to the other side, without the page knowing
+    current_game.TURN.advance()
 
     page.evaluate("() => document.getElementById('next-phase').disabled = false")
     page.locator("#next-phase").click()

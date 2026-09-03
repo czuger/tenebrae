@@ -5,7 +5,9 @@ import re
 
 import pytest
 
-from tenebrae.application import app, pieces
+from tenebrae.application import current_game, pieces
+from tenebrae.application.grid import GRID_MATRIX, GRID_ORIGIN, PIECE_SIZE
+from tenebrae.application.routes import combat as combat_routes
 from tenebrae.engine.board import MAXIMUM_TILT
 from tenebrae.engine.hexagon import DEFAULT_MOVEMENT, MAP, Hex
 from tenebrae.engine.piece import ALLIANCE, CATALOGUE, DARKNESS
@@ -34,7 +36,7 @@ def read_hidden_field(page, identifier):
 def test_the_page_carries_both_armies_of_the_scenario(client):
     """Scenario no. 4 puts 18 dwarves against 30 orcs: the page carries them all."""
     pieces = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
-    assert len(pieces) == len(app.SCENARIO) == 48
+    assert len(pieces) == len(current_game.SCENARIO) == 48
     sides = [piece["side"] for piece in pieces]
     assert sides.count(ALLIANCE) == 18
     assert sides.count(DARKNESS) == 30
@@ -52,7 +54,7 @@ def test_the_page_places_each_piece_on_the_scenarios_square(client):
     """
     pieces = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
     placed = {f"{piece['q']},{piece['r']},{piece['s']}": piece["key"] for piece in pieces}
-    assert placed == app.SCENARIO.placement
+    assert placed == current_game.SCENARIO.placement
     for piece in pieces:
         assert piece["q"] + piece["r"] + piece["s"] == 0
 
@@ -118,22 +120,22 @@ def test_the_counter_values_are_those_read_off_the_photographs(client):
 def test_the_set_up_populates_the_servers_board(client):
     """The server keeps what it has placed: that is where the zones of control come from."""
     pieces = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
-    assert len(app.BOARD) == len(pieces)
+    assert len(current_game.BOARD) == len(pieces)
     for piece in pieces:
-        placed = app.BOARD.piece_on(Hex(piece["q"], piece["r"], piece["s"]))
+        placed = current_game.BOARD.piece_on(Hex(piece["q"], piece["r"], piece["s"]))
         assert placed is not None and placed.key == piece["key"]
 
 
 def test_reloading_the_page_puts_the_pieces_back(client):
     """A moved piece returns to its starting square on reload: the set-up is fixed."""
-    origin = Hex.from_key(next(iter(app.SCENARIO.placement)))
+    origin = Hex.from_key(next(iter(current_game.SCENARIO.placement)))
     client.get("/")
-    destination = app.BOARD.moves(origin)[0]
-    assert app.BOARD.move(origin, destination)
+    destination = current_game.BOARD.moves(origin)[0]
+    assert current_game.BOARD.move(origin, destination)
 
     client.get("/")
-    assert app.BOARD.piece_on(destination) is None
-    assert app.BOARD.pieces.keys() == app.SCENARIO.placement.keys()
+    assert current_game.BOARD.piece_on(destination) is None
+    assert current_game.BOARD.pieces.keys() == current_game.SCENARIO.placement.keys()
 
 
 def test_the_catalogues_movements_are_those_of_the_counters():
@@ -153,9 +155,9 @@ def test_the_piece_images_exist(client):
 
 def test_the_grid_alignment_is_transmitted(client):
     grid = read_hidden_field(client.get("/").get_data(as_text=True), "grid")
-    assert grid["origin"] == app.GRID_ORIGIN
-    assert grid["matrix"] == app.GRID_MATRIX
-    assert grid["piece_size"] == app.PIECE_SIZE
+    assert grid["origin"] == GRID_ORIGIN
+    assert grid["matrix"] == GRID_MATRIX
+    assert grid["piece_size"] == PIECE_SIZE
 
 
 def test_the_set_up_does_not_change_from_one_load_to_the_next(client):
@@ -286,7 +288,7 @@ ORC = "orques-01-15-infanteries"       # darkness, 4 points
 
 def place(hexagon, key):
     """Places a piece on the server's board, as a layout would."""
-    app.BOARD.place(Hex(**hexagon), CATALOGUE[key])
+    current_game.BOARD.place(Hex(**hexagon), CATALOGUE[key])
 
 
 def test_the_placed_piece_prevails(client):
@@ -331,17 +333,17 @@ def test_an_accepted_move_changes_the_board(client):
     """The piece really leaves its square: the next move's zones take account of it."""
     place(PLAIN, ELF)
     assert client.post("/move", json={"origin": PLAIN, "destination": NEIGHBOUR}).json["allowed"]
-    assert app.BOARD.piece_on(Hex(**PLAIN)) is None
-    assert app.BOARD.piece_on(Hex(**NEIGHBOUR)).key == ELF
+    assert current_game.BOARD.piece_on(Hex(**PLAIN)) is None
+    assert current_game.BOARD.piece_on(Hex(**NEIGHBOUR)).key == ELF
 
 
 def test_a_move_returns_the_new_tilt(client):
     """Picked up, the piece lies down again - and it is the server that says how."""
     place(PLAIN, ELF)
-    before = app.BOARD.tilt_on(Hex(**PLAIN))
+    before = current_game.BOARD.tilt_on(Hex(**PLAIN))
     answer = client.post("/move", json={"origin": PLAIN, "destination": NEIGHBOUR}).json
     assert answer["allowed"] is True
-    assert answer["tilt"] == app.BOARD.tilt_on(Hex(**NEIGHBOUR))
+    assert answer["tilt"] == current_game.BOARD.tilt_on(Hex(**NEIGHBOUR))
     assert answer["tilt"] != before
 
 
@@ -349,16 +351,16 @@ def test_a_move_does_not_lay_the_other_pieces_down_again(client):
     """Only the moved piece changes angle: the others have not been touched."""
     place(PLAIN, ELF)
     place(DISTANT, ELF)
-    motionless = app.BOARD.tilt_on(Hex(**DISTANT))
+    motionless = current_game.BOARD.tilt_on(Hex(**DISTANT))
     client.post("/move", json={"origin": PLAIN, "destination": NEIGHBOUR})
-    assert app.BOARD.tilt_on(Hex(**DISTANT)) == motionless
+    assert current_game.BOARD.tilt_on(Hex(**DISTANT)) == motionless
 
 
 def test_a_refused_move_leaves_the_board_in_place(client):
     place(PLAIN, ELF)
     assert client.post("/move",
                        json={"origin": PLAIN, "destination": DISTANT}).json["allowed"] is False
-    assert app.BOARD.piece_on(Hex(**PLAIN)).key == ELF
+    assert current_game.BOARD.piece_on(Hex(**PLAIN)).key == ELF
 
 
 def test_unreadable_coordinates_are_refused(client):
@@ -433,7 +435,7 @@ def test_movement_is_blocked_outside_its_phase(client):
     client.post("/phase/next")  # the Dwarves' combat phase
     refused = client.post("/move", json={"origin": PLAIN, "destination": NEIGHBOUR}).json
     assert refused["allowed"] is False
-    assert app.BOARD.piece_on(Hex(**PLAIN)).key == DWARF
+    assert current_game.BOARD.piece_on(Hex(**PLAIN)).key == DWARF
 
 
 def test_movement_is_blocked_for_the_inactive_side(client):
@@ -465,7 +467,7 @@ def test_a_combat_outside_its_phase_is_refused(client):
 
 
 def test_a_won_combat_removes_the_defender(client, monkeypatch):
-    monkeypatch.setattr(app, "roll_the_die", lambda: 1)
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
     place(PLAIN, DWARF)       # strength 12
     place(NEIGHBOUR, ARCHER)  # strength 2, darkness -> ratio 6-1, die 1 -> DE
     client.post("/phase/next")  # the Dwarves' combat phase
@@ -474,19 +476,19 @@ def test_a_won_combat_removes_the_defender(client, monkeypatch):
     assert answer["outcome"] == "DE"
     assert answer["message"] == "Combat résolu : Défenseur Éliminé"
     assert answer["eliminated"] == [{**NEIGHBOUR, "terrain": "plaine"}]
-    assert app.BOARD.piece_on(Hex(**NEIGHBOUR)) is None
-    assert app.BOARD.piece_on(Hex(**PLAIN)).key == DWARF
+    assert current_game.BOARD.piece_on(Hex(**NEIGHBOUR)) is None
+    assert current_game.BOARD.piece_on(Hex(**PLAIN)).key == DWARF
 
 
 def test_a_retreat_changes_nothing_on_the_board(client, monkeypatch):
-    monkeypatch.setattr(app, "roll_the_die", lambda: 1)
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
     place(PLAIN, DWARF)                       # strength 12
     place(NEIGHBOUR, ORC)                     # strength 8 -> ratio 1-1, die 1 -> DR
     client.post("/phase/next")
     answer = client.post("/combat", json={"target": NEIGHBOUR, "attackers": [PLAIN]}).json
     assert answer["outcome"] in ("AR", "DR")
-    assert app.BOARD.piece_on(Hex(**NEIGHBOUR)).key == ORC
-    assert app.BOARD.piece_on(Hex(**PLAIN)).key == DWARF
+    assert current_game.BOARD.piece_on(Hex(**NEIGHBOUR)).key == ORC
+    assert current_game.BOARD.piece_on(Hex(**PLAIN)).key == DWARF
 
 
 def test_an_attacker_out_of_range_does_not_resolve_the_combat(client):
@@ -495,7 +497,7 @@ def test_an_attacker_out_of_range_does_not_resolve_the_combat(client):
     client.post("/phase/next")
     answer = client.post("/combat", json={"target": NEIGHBOUR, "attackers": [DISTANT]}).json
     assert answer["resolved"] is False
-    assert app.BOARD.piece_on(Hex(**NEIGHBOUR)).key == ORC
+    assert current_game.BOARD.piece_on(Hex(**NEIGHBOUR)).key == ORC
 
 
 def test_the_target_must_be_an_opponent(client):
@@ -521,7 +523,7 @@ A_RETREAT = 1
 @pytest.fixture
 def combat_phase(client, monkeypatch):
     """Moves to the Dwarves' combat phase, the die fixed on a retreat: nobody is eliminated."""
-    monkeypatch.setattr(app, "roll_the_die", lambda: A_RETREAT)
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: A_RETREAT)
     client.post("/phase/next")
     return client
 
@@ -537,8 +539,8 @@ def test_an_attacker_cannot_attack_twice(combat_phase):
 
     second = combat_phase.post("/combat", json={"target": CONTACT, "attackers": [PLAIN]}).json
     assert second["resolved"] is False
-    assert app.ALREADY_ATTACKED in second["messages"]
-    assert app.BOARD.piece_on(Hex(**CONTACT)).key == ORC
+    assert combat_routes.ALREADY_ATTACKED in second["messages"]
+    assert current_game.BOARD.piece_on(Hex(**CONTACT)).key == ORC
 
 
 def test_a_target_cannot_be_attacked_twice(combat_phase):
@@ -551,7 +553,7 @@ def test_a_target_cannot_be_attacked_twice(combat_phase):
 
     second = combat_phase.post("/combat", json={"target": NEIGHBOUR, "attackers": [SUPPORT]}).json
     assert second["resolved"] is False
-    assert second["message"] == app.ALREADY_TARGETED
+    assert second["message"] == combat_routes.ALREADY_TARGETED
 
 
 def test_the_whole_group_of_attackers_is_marked(combat_phase):
@@ -583,7 +585,7 @@ def test_two_units_of_the_same_counter_are_tracked_apart(combat_phase):
 
 def test_the_next_phase_frees_the_units(client, monkeypatch):
     """Each combat phase starts again with all its units - the other side's, and the next turn."""
-    monkeypatch.setattr(app, "roll_the_die", lambda: A_RETREAT)
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: A_RETREAT)
     place(PLAIN, DWARF)
     place(NEIGHBOUR, ORC)
     client.post("/phase/next")  # the Dwarves' combat
@@ -613,7 +615,7 @@ def test_the_range_check_refuses_an_already_engaged_attacker(combat_phase):
     combat_phase.post("/combat", json={"target": NEIGHBOUR, "attackers": [PLAIN]})
     after = combat_phase.get("/combat/range", query_string=query).json
     assert after["available"] is False
-    assert after["message"] == app.ALREADY_ATTACKED
+    assert after["message"] == combat_routes.ALREADY_ATTACKED
 
 
 def test_the_target_check_refuses_an_already_attacked_unit(combat_phase):
@@ -626,7 +628,7 @@ def test_the_target_check_refuses_an_already_attacked_unit(combat_phase):
     combat_phase.post("/combat", json={"target": NEIGHBOUR, "attackers": [PLAIN]})
     after = combat_phase.get("/combat/target", query_string=query).json
     assert after["available"] is False
-    assert after["message"] == app.ALREADY_TARGETED
+    assert after["message"] == combat_routes.ALREADY_TARGETED
 
 
 def test_the_unavailable_are_told_to_the_browser(combat_phase):
@@ -657,8 +659,8 @@ def test_the_state_returns_the_game_to_whoever_knows_no_version(client):
     client.get("/")
     answer = client.get("/game/state").json
     assert answer["changed"] is True
-    assert len(answer["pieces"]) == len(app.SCENARIO)
-    assert answer["phase"]["side"] == app.TURN.active_side
+    assert len(answer["pieces"]) == len(current_game.SCENARIO)
+    assert answer["phase"]["side"] == current_game.TURN.active_side
 
 
 def test_the_state_returns_only_the_number_while_nothing_moves(client):
@@ -684,16 +686,16 @@ def test_the_state_tells_the_phase_the_opponent_reached(client):
     answer = client.get("/game/state", query_string={"version": version}).json
 
     assert answer["changed"] is True
-    assert answer["phase"]["label"] == app.TURN.label
+    assert answer["phase"]["label"] == current_game.TURN.label
 
 
 def test_a_move_shows_in_the_state(client, deserted_map):
     client.get("/")
-    origin = Hex.from_key(next(iter(app.SCENARIO.placement)))
-    destination = app.BOARD.moves(origin)[0]
+    origin = Hex.from_key(next(iter(current_game.SCENARIO.placement)))
+    destination = current_game.BOARD.moves(origin)[0]
     version = client.get("/game/state").json["version"]
     client.post("/move", json={"origin": origin.to_dict(), "destination": destination.to_dict(),
-                               "piece": app.BOARD.piece_on(origin).key})
+                               "piece": current_game.BOARD.piece_on(origin).key})
 
     squares = {(piece["q"], piece["r"], piece["s"])
                for piece in client.get("/game/state",
@@ -718,13 +720,13 @@ def test_the_state_returns_the_same_tilts_every_time(client):
 
 def test_only_the_moved_piece_changes_tilt_in_the_state(client):
     client.get("/")
-    origin = Hex.from_key(next(iter(app.SCENARIO.placement)))
-    destination = app.BOARD.moves(origin)[0]
+    origin = Hex.from_key(next(iter(current_game.SCENARIO.placement)))
+    destination = current_game.BOARD.moves(origin)[0]
     before = {(piece["q"], piece["r"], piece["s"]): piece["tilt"]
               for piece in client.get("/game/state").json["pieces"]}
 
     client.post("/move", json={"origin": origin.to_dict(), "destination": destination.to_dict(),
-                               "piece": app.BOARD.piece_on(origin).key})
+                               "piece": current_game.BOARD.piece_on(origin).key})
 
     after = {(piece["q"], piece["r"], piece["s"]): piece["tilt"]
              for piece in client.get("/game/state").json["pieces"]}
@@ -741,4 +743,4 @@ def test_the_state_is_public(anonymous_client):
 def test_the_state_says_who_holds_which_side(client):
     client.get("/")
     table = client.get("/game/state").json["table"]
-    assert table["seats"] == {side: "Joueuse d'essai" for side in app.SCENARIO.sides}
+    assert table["seats"] == {side: "Joueuse d'essai" for side in current_game.SCENARIO.sides}

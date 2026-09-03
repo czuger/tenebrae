@@ -1,14 +1,15 @@
 """The game repository: the access layer to the saved game.
 
 A repository exchanges **state dicts** - `GameState`, the format of `snapshot_the_game()` in
-`tenebrae/application/app.py` - never a MongoEngine Document. That is what keeps Mongo out of the
-routes: `app.py` imports neither `tenebrae.engine.models` nor `mongoengine`, it calls `load`,
-`save` and `new_game`, and that is all.
+`tenebrae/application/current_game.py` - never a MongoEngine Document. That is what keeps Mongo out
+of the routes: the application imports neither `tenebrae.engine.models` nor `mongoengine`, it
+calls `load`, `save` and `new_game`, and that is all.
 
 Two repositories, as for the players: the real one, on MongoDB, and its base-less counterpart that
 the test configuration plugs in. That one keeps **nothing** - the game state already lives in the
-module globals of `app.py`, there is simply no need to double it; that is how it differs from the
-in-memory player repository, which does keep (see `tenebrae/engine/repositories/player.py`).
+module globals of `tenebrae/application/current_game.py`, there is simply no need to double it;
+that is how it differs from the in-memory player repository, which does keep (see
+`tenebrae/engine/repositories/player.py`).
 """
 
 from datetime import datetime, timezone

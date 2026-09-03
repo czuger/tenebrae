@@ -10,9 +10,13 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from tenebrae.application import app, battle_log
+from tenebrae.application import current_game
+from tenebrae.application.app import create_app
+from tenebrae.application.logs import battle_log
 from tenebrae.application.config import TestingConfig
 from tenebrae.application.discord_client import DEFAULT_IDENTITY, DiscordError
+from tenebrae.engine.hexagon import Hex
+from tenebrae.engine.piece import CATALOGUE
 
 # A second account, to seat someone opposite. Its identifier is not in
 # `TestingConfig.ADMINISTRATORS`: it is the ordinary player of the administration engine.
@@ -34,10 +38,10 @@ def empty_table(deserted_map, application):
     The fake Discord client is carried by the application, of session scope: a test that made it
     serve another account would leave it that way for everyone.
     """
-    app.SEATS.clear()
+    current_game.SEATS.clear()
     application.extensions["discord"].served_identity = dict(DEFAULT_IDENTITY)
     yield
-    app.SEATS.clear()
+    current_game.SEATS.clear()
     application.extensions["discord"].served_identity = dict(DEFAULT_IDENTITY)
 
 
@@ -234,7 +238,7 @@ def test_logging_out_empties_the_session_but_keeps_the_seat(client):
     assert client.post("/logout").json == {"connected": False}
     with client.session_transaction() as session:
         assert "joueur" not in session
-    assert app.SEATS.occupant(ALLIANCE) == DEFAULT_IDENTITY["discord_id"]
+    assert current_game.SEATS.occupant(ALLIANCE) == DEFAULT_IDENTITY["discord_id"]
 
 
 # --- What an anonymous visitor sees ---------------------------------------------------------------
@@ -247,11 +251,11 @@ def test_an_anonymous_visitor_sees_the_map_and_consults_it(anonymous_client):
 
 
 def test_an_anonymous_visitor_moves_nothing(anonymous_client, deserted_map):
-    deserted_map.place(app.Hex(**PLAIN), app.CATALOGUE["nains-01-5-infanteries"])
+    deserted_map.place(Hex(**PLAIN), CATALOGUE["nains-01-5-infanteries"])
     answer = anonymous_client.post("/move", json={
         "origin": PLAIN, "destination": NEIGHBOUR, "piece": "nains-01-5-infanteries"})
     assert answer.status_code == 401
-    assert deserted_map.piece_on(app.Hex(**PLAIN)) is not None
+    assert deserted_map.piece_on(Hex(**PLAIN)) is not None
 
 
 def test_everything_that_changes_something_asks_for_a_session(anonymous_client):
@@ -271,14 +275,14 @@ def test_one_does_not_play_the_side_one_does_not_hold(application, seat_the_play
     """The Darkness player moves nothing during the Alliance's phase."""
     client = application.test_client()
     seat_the_player(application, client, identity=OTHER_PLAYER, sides=[DARKNESS])
-    deserted_map.place(app.Hex(**PLAIN), app.CATALOGUE["nains-01-5-infanteries"])
+    deserted_map.place(Hex(**PLAIN), CATALOGUE["nains-01-5-infanteries"])
 
     answer = client.post("/move", json={
         "origin": PLAIN, "destination": NEIGHBOUR, "piece": "nains-01-5-infanteries"})
 
     assert answer.status_code == 403
     assert "de jouer" in answer.json["message"]
-    assert deserted_map.piece_on(app.Hex(**PLAIN)) is not None
+    assert deserted_map.piece_on(Hex(**PLAIN)) is not None
 
 
 def test_a_logged_in_player_without_a_seat_does_not_play(application, seat_the_player):
@@ -310,7 +314,7 @@ def test_sitting_down_takes_the_side(seatless_client):
     assert answer.status_code == 200
     assert answer.json["seated"] is True
     assert answer.json["sides"] == [ALLIANCE]
-    assert app.SEATS.occupant(ALLIANCE) == DEFAULT_IDENTITY["discord_id"]
+    assert current_game.SEATS.occupant(ALLIANCE) == DEFAULT_IDENTITY["discord_id"]
 
     assert answer.json["seats"] == {ALLIANCE: DEFAULT_IDENTITY["nickname"], DARKNESS: None}
     assert DEFAULT_IDENTITY["discord_id"] not in answer.get_data(as_text=True)
@@ -327,7 +331,7 @@ def test_one_seat_each_and_sitting_back_down_in_it_makes_no_fuss(seatless_client
 
     refused = seatless_client.post("/game/seat", json={"side": DARKNESS})
     assert refused.status_code == 409
-    assert app.SEATS.is_free(DARKNESS)
+    assert current_game.SEATS.is_free(DARKNESS)
 
     assert seatless_client.post("/game/seat", json={"side": ALLIANCE}).status_code == 200
 
@@ -339,7 +343,7 @@ def test_an_occupied_seat_is_not_taken_over(application, seat_the_player, seatle
     answer = seatless_client.post("/game/seat", json={"side": ALLIANCE})
 
     assert answer.status_code == 409
-    assert app.SEATS.occupant(ALLIANCE) == OTHER_PLAYER["discord_id"]
+    assert current_game.SEATS.occupant(ALLIANCE) == OTHER_PLAYER["discord_id"]
 
 
 def test_both_sides_are_taken_by_two_players(application, seat_the_player, seatless_client):
@@ -357,13 +361,14 @@ def test_both_sides_are_taken_by_two_players(application, seat_the_player, seatl
 def test_leaving_gives_the_seat_back(client):
     answer = client.post("/game/seat/leave")
     assert answer.json["seated"] is False
-    assert app.SEATS.is_free(ALLIANCE) and app.SEATS.is_free(DARKNESS)
+    assert current_game.SEATS.is_free(ALLIANCE) and current_game.SEATS.is_free(DARKNESS)
 
 
 def test_restarting_keeps_both_players_at_the_table(client):
     """Starting again from the set-up sends nobody away: they are the same two people."""
     client.post("/game/new")
-    assert app.SEATS.sides_of(DEFAULT_IDENTITY["discord_id"]) == list(app.SCENARIO.sides)
+    assert (current_game.SEATS.sides_of(DEFAULT_IDENTITY["discord_id"])
+            == list(current_game.SCENARIO.sides))
 
 
 # --- Fixing the map ------------------------------------------------------------------------------
@@ -405,13 +410,13 @@ class GameConfig(TestingConfig):
 
 def test_the_game_configuration_plugs_in_the_real_discord_client():
     from tenebrae.application.discord_client import DiscordClient
-    application = app.create_app(GameConfig)
+    application = create_app(GameConfig)
     assert isinstance(application.extensions["discord"], DiscordClient)
 
 
 def test_the_real_client_really_sends_to_discord():
     """The authorization URL, the only thing that can be checked without calling Discord."""
-    application = app.create_app(GameConfig)
+    application = create_app(GameConfig)
     with application.test_request_context():
         url = application.extensions["discord"].authorization_url("a-state")
     assert url.startswith("https://discord.com/oauth2/authorize?")
@@ -451,4 +456,4 @@ def test_without_a_secret_key_the_application_refuses_to_start():
         SECRET_KEY = None
 
     with pytest.raises(RuntimeError, match="SECRET_KEY"):
-        app.create_app(WithoutAKey)
+        create_app(WithoutAKey)

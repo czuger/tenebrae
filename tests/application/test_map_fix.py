@@ -12,7 +12,8 @@ import json
 
 import pytest
 
-from tenebrae.application import app
+from tenebrae.application.grid import GRID_MATRIX, GRID_ORIGIN
+from tenebrae.application.routes import map_fix
 from tenebrae.engine import hexagon as engine_hexagon
 from tenebrae.engine.hexagon import TRANSCRIBED_MAP
 
@@ -55,7 +56,7 @@ def test_the_page_carries_the_whole_map(client, fixes):
     hexagons = read_hidden_field(client.get("/admin/map_fix").get_data(as_text=True), "hexagons")
     assert len(hexagons) == len(TRANSCRIBED_MAP)
     assert hexagons[PLAIN] == TRANSCRIBED_MAP[PLAIN][0]
-    assert set(hexagons.values()) <= set(app.TERRAINS)
+    assert set(hexagons.values()) <= set(map_fix.TERRAINS)
 
 
 def test_the_terrain_list_covers_the_map(client, fixes):
@@ -67,7 +68,7 @@ def test_the_terrain_list_covers_the_map(client, fixes):
 
 def test_the_page_carries_the_grid_alignment(client, fixes):
     grid = read_hidden_field(client.get("/admin/map_fix").get_data(as_text=True), "grid")
-    assert grid == {"origin": app.GRID_ORIGIN, "matrix": app.GRID_MATRIX}
+    assert grid == {"origin": GRID_ORIGIN, "matrix": GRID_MATRIX}
 
 
 def test_the_page_recalls_the_fixes_already_made(client, fixes):

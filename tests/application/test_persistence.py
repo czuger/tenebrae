@@ -13,7 +13,8 @@ mongomock = pytest.importorskip("mongomock")
 
 import mongoengine  # noqa: E402
 
-from tenebrae.application import app  # noqa: E402
+from tenebrae.application import current_game, persistence  # noqa: E402
+from tenebrae.application.app import create_app  # noqa: E402
 from tenebrae.application.config import TestingConfig  # noqa: E402
 from tenebrae.application.discord_client import DEFAULT_IDENTITY  # noqa: E402
 from tenebrae.engine.hexagon import Hex  # noqa: E402
@@ -51,33 +52,33 @@ def mongo_application():
     leaves nothing behind.
 
     Mongoengine keeps a global registry of connections: we must disconnect on the way out, without
-    which the other test files would inherit this one. `app`'s module globals are shared by the
+    which the other test files would inherit this one. `current_game`'s globals are shared by the
     whole session, and are reset the same way - **on the way in as well as on the way out**. Only
     cleaning up on the way out is not enough: the first test of this file would then inherit the
     board and, above all, the phase left by whatever file ran before it, and a `/move` played
     outside the movement phase comes back refused - which showed as an occasional failure of
     `test_a_move_writes_the_new_tilt`, depending on the order the files were collected in.
     """
-    application = app.create_app(MongomockConfig)
+    application = create_app(MongomockConfig)
     from tenebrae.engine.models.game import Game
     from tenebrae.engine.models.player import Player
     from tenebrae.application.models.view import View
     Game.objects.delete()
     Player.objects.delete()
     View.objects.delete()
-    app.BOARD.clear()
-    app.TURN.restart()
-    app.REGISTER.reset()
-    app.SEATS.clear()
+    current_game.BOARD.clear()
+    current_game.TURN.restart()
+    current_game.REGISTER.reset()
+    current_game.SEATS.clear()
     yield application
     Game.objects.delete()
     Player.objects.delete()
     View.objects.delete()
     mongoengine.disconnect_all()
-    app.BOARD.clear()
-    app.TURN.restart()
-    app.REGISTER.reset()
-    app.SEATS.clear()
+    current_game.BOARD.clear()
+    current_game.TURN.restart()
+    current_game.REGISTER.reset()
+    current_game.SEATS.clear()
 
 
 @pytest.fixture
@@ -97,7 +98,7 @@ def games():
 
 
 def place(hexagon, key):
-    app.BOARD.place(Hex(**hexagon), CATALOGUE[key])
+    current_game.BOARD.place(Hex(**hexagon), CATALOGUE[key])
 
 
 class TestOpeningTheGame:
@@ -105,9 +106,9 @@ class TestOpeningTheGame:
         mongo_client.get("/")
         assert games.objects.count() == 1
         game = games.objects.first()
-        assert game.scenario == app.SCENARIO_NUMBER
-        assert dict(game.placement) == app.SCENARIO.placement
-        assert (game.active_side, game.phase_type) == (app.TURN.active_side, MOVEMENT)
+        assert game.scenario == current_game.SCENARIO_NUMBER
+        assert dict(game.placement) == current_game.SCENARIO.placement
+        assert (game.active_side, game.phase_type) == (current_game.TURN.active_side, MOVEMENT)
         assert game.turn_number == 1
         assert game.engaged_attackers == [] and game.engaged_targets == []
         assert game.created_at is not None and game.updated_at is not None
@@ -121,31 +122,31 @@ class TestResumingTheGame:
     def test_a_move_is_resumed_after_a_restart(self, mongo_client, games):
         """The heart of persistence: the piece is found at its destination, not at its origin."""
         mongo_client.get("/")
-        origin = Hex.from_key(next(iter(app.SCENARIO.placement)))
-        destination = app.BOARD.moves(origin)[0]
+        origin = Hex.from_key(next(iter(current_game.SCENARIO.placement)))
+        destination = current_game.BOARD.moves(origin)[0]
         answer = mongo_client.post("/move", json={
             "origin": origin.to_dict(), "destination": destination.to_dict(),
-            "piece": app.BOARD.piece_on(origin).key})
+            "piece": current_game.BOARD.piece_on(origin).key})
         assert answer.json["allowed"] is True
 
         # The server restarts: memory is empty, only the base knows where the game stood.
-        app.BOARD.clear()
-        app.TURN.restart()
+        current_game.BOARD.clear()
+        current_game.TURN.restart()
         mongo_client.get("/")
 
-        assert app.BOARD.piece_on(origin) is None
-        assert app.BOARD.piece_on(destination) is not None
+        assert current_game.BOARD.piece_on(origin) is None
+        assert current_game.BOARD.piece_on(destination) is not None
         assert dict(games.objects.first().placement)[destination.key] is not None
 
     def test_a_refused_move_does_not_touch_the_saved_game(self, mongo_client, games):
         mongo_client.get("/")
         before = dict(games.objects.first().placement)
-        origin = Hex.from_key(next(iter(app.SCENARIO.placement)))
+        origin = Hex.from_key(next(iter(current_game.SCENARIO.placement)))
         # A square at the other end of the map: out of reach, the move is refused.
         distant = {"q": 30, "r": 2, "s": -32}
         answer = mongo_client.post("/move", json={
             "origin": origin.to_dict(), "destination": distant,
-            "piece": app.BOARD.piece_on(origin).key})
+            "piece": current_game.BOARD.piece_on(origin).key})
         assert answer.json["allowed"] is False
         assert dict(games.objects.first().placement) == before
 
@@ -154,9 +155,9 @@ class TestResumingTheGame:
         mongo_client.post("/phase/next")
         assert games.objects.first().phase_type == COMBAT
 
-        app.TURN.restart()
+        current_game.TURN.restart()
         mongo_client.get("/")
-        assert app.TURN.phase_type == COMBAT
+        assert current_game.TURN.phase_type == COMBAT
 
     def test_a_saved_game_of_another_scenario_is_discarded(self, mongo_client, games):
         """Changing scenario does not resume a game that no longer relates to it."""
@@ -164,19 +165,19 @@ class TestResumingTheGame:
         games.objects.update(set__scenario=99)
         mongo_client.get("/")
         assert games.objects.count() == 2
-        assert games.objects.first().scenario == app.SCENARIO_NUMBER
+        assert games.objects.first().scenario == current_game.SCENARIO_NUMBER
 
 
 class TestPersistedCombat:
     def test_an_eliminated_unit_does_not_come_back(self, mongo_client, games, monkeypatch):
-        monkeypatch.setattr(app, "roll_the_die", lambda: 1)
+        monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
         mongo_client.get("/")
-        app.BOARD.clear()
+        current_game.BOARD.clear()
         place(PLAIN, DWARF)      # strength 12
         place(NEIGHBOUR, ORC)    # strength 8
         mongo_client.post("/phase/next")  # the Alliance's combat phase
         # A ratio of 6 against 1: the target is eliminated for certain.
-        app.BOARD.remove(Hex(**NEIGHBOUR))
+        current_game.BOARD.remove(Hex(**NEIGHBOUR))
         place(NEIGHBOUR, "yzent-03-8-archers")  # strength 2
         answer = mongo_client.post("/combat",
                                    json={"target": NEIGHBOUR, "attackers": [PLAIN]}).json
@@ -187,9 +188,9 @@ class TestPersistedCombat:
         assert saved[Hex(**PLAIN).key] == DWARF
 
     def test_the_phase_register_is_saved_and_resumed(self, mongo_client, games, monkeypatch):
-        monkeypatch.setattr(app, "roll_the_die", lambda: 1)
+        monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
         mongo_client.get("/")
-        app.BOARD.clear()
+        current_game.BOARD.clear()
         place(PLAIN, DWARF)
         place(NEIGHBOUR, ORC)   # ratio 1-1, die 1 -> a retreat: nobody is eliminated
         mongo_client.post("/phase/next")
@@ -201,15 +202,15 @@ class TestPersistedCombat:
         assert game.engaged_attackers == [Hex(**PLAIN).key]
         assert game.engaged_targets == [Hex(**NEIGHBOUR).key]
 
-        app.REGISTER.reset()
+        current_game.REGISTER.reset()
         mongo_client.get("/")
-        assert not app.REGISTER.can_attack(Hex(**PLAIN).key)
-        assert not app.REGISTER.can_be_targeted(Hex(**NEIGHBOUR).key)
+        assert not current_game.REGISTER.can_attack(Hex(**PLAIN).key)
+        assert not current_game.REGISTER.can_be_targeted(Hex(**NEIGHBOUR).key)
 
     def test_changing_phase_empties_the_register_in_base(self, mongo_client, games, monkeypatch):
-        monkeypatch.setattr(app, "roll_the_die", lambda: 1)
+        monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
         mongo_client.get("/")
-        app.BOARD.clear()
+        current_game.BOARD.clear()
         place(PLAIN, DWARF)
         place(NEIGHBOUR, ORC)
         mongo_client.post("/phase/next")
@@ -222,20 +223,20 @@ class TestPersistedCombat:
 class TestNewGame:
     def test_it_lays_the_scenario_out_again_and_opens_a_second_document(self, mongo_client, games):
         mongo_client.get("/")
-        origin = Hex.from_key(next(iter(app.SCENARIO.placement)))
-        destination = app.BOARD.moves(origin)[0]
+        origin = Hex.from_key(next(iter(current_game.SCENARIO.placement)))
+        destination = current_game.BOARD.moves(origin)[0]
         mongo_client.post("/move", json={
             "origin": origin.to_dict(), "destination": destination.to_dict(),
-            "piece": app.BOARD.piece_on(origin).key})
+            "piece": current_game.BOARD.piece_on(origin).key})
 
         answer = mongo_client.post("/game/new").json
-        assert len(answer["pieces"]) == len(app.SCENARIO)
+        assert len(answer["pieces"]) == len(current_game.SCENARIO)
         assert answer["phase"]["type"] == MOVEMENT
         assert games.objects.count() == 2
         # The most recent is the one just opened, and "/" resumes that one.
-        assert dict(games.objects.first().placement) == app.SCENARIO.placement
+        assert dict(games.objects.first().placement) == current_game.SCENARIO.placement
         mongo_client.get("/")
-        assert app.BOARD.piece_on(origin) is not None
+        assert current_game.BOARD.piece_on(origin) is not None
 
     def test_two_games_of_the_same_second_stay_in_order(self, mongo_client, games):
         """The date alone is not enough to break the tie: two writes may share it.
@@ -244,11 +245,11 @@ class TestNewGame:
         game one had just abandoned.
         """
         mongo_client.get("/")
-        origin = Hex.from_key(next(iter(app.SCENARIO.placement)))
-        destination = app.BOARD.moves(origin)[0]
+        origin = Hex.from_key(next(iter(current_game.SCENARIO.placement)))
+        destination = current_game.BOARD.moves(origin)[0]
         mongo_client.post("/move", json={
             "origin": origin.to_dict(), "destination": destination.to_dict(),
-            "piece": app.BOARD.piece_on(origin).key})
+            "piece": current_game.BOARD.piece_on(origin).key})
         mongo_client.post("/game/new")
 
         # Both games are dated to the same second, as if everything had been played in one go.
@@ -256,7 +257,7 @@ class TestNewGame:
         games.objects.update(set__updated_at=instant)
 
         assert games.objects.count() == 2
-        assert dict(games.objects.first().placement) == app.SCENARIO.placement
+        assert dict(games.objects.first().placement) == current_game.SCENARIO.placement
 
 
 class TestRepository:
@@ -264,30 +265,30 @@ class TestRepository:
 
     def test_snapshotting_then_restoring_lands_on_the_same_game(self, mongo_application):
         with mongo_application.test_request_context():
-            app.BOARD.clear()
+            current_game.BOARD.clear()
             place(PLAIN, DWARF)
-            app.TURN.restore(app.TURN.active_side, COMBAT, 3)
-            app.REGISTER.record([Hex(**PLAIN).key], Hex(**NEIGHBOUR).key)
-            state = app.snapshot_the_game()
+            current_game.TURN.restore(current_game.TURN.active_side, COMBAT, 3)
+            current_game.REGISTER.record([Hex(**PLAIN).key], Hex(**NEIGHBOUR).key)
+            state = current_game.snapshot_the_game()
 
-            app.BOARD.clear()
-            app.TURN.restart()
-            app.REGISTER.reset()
-            app.restore_the_game(state)
+            current_game.BOARD.clear()
+            current_game.TURN.restart()
+            current_game.REGISTER.reset()
+            current_game.restore_the_game(state)
 
-            assert app.snapshot_the_game() == state
+            assert current_game.snapshot_the_game() == state
 
     def test_saving_then_loading_returns_the_same_state(self, mongo_application):
         with mongo_application.test_request_context():
-            app.BOARD.clear()
+            current_game.BOARD.clear()
             place(PLAIN, DWARF)
-            state = app.snapshot_the_game()
-            app.game_repository().save(state)
-            assert app.game_repository().load() == state
+            state = current_game.snapshot_the_game()
+            persistence.game_repository().save(state)
+            assert persistence.game_repository().load() == state
 
     def test_loading_finds_nothing_in_an_empty_base(self, mongo_application):
         with mongo_application.test_request_context():
-            assert app.game_repository().load() is None
+            assert persistence.game_repository().load() is None
 
 
 class TestPersistedSeats:
@@ -295,31 +296,31 @@ class TestPersistedSeats:
 
     def test_the_seats_are_written_with_the_game_and_resumed_with_it(self, mongo_client, games):
         # The fixture seats the test player at both sides; we rebuild the table with two.
-        app.SEATS.clear().seat("alliance", DWARF_PLAYER).seat("tenebres", ORC_PLAYER)
+        current_game.SEATS.clear().seat("alliance", DWARF_PLAYER).seat("tenebres", ORC_PLAYER)
         mongo_client.get("/")
         assert dict(games.objects.first().seats) == {"alliance": DWARF_PLAYER,
                                                      "tenebres": ORC_PLAYER}
 
         # The server restarts: the table in memory is lifted, only the base knows it.
-        app.SEATS.clear()
+        current_game.SEATS.clear()
         mongo_client.get("/")
 
-        assert app.SEATS.occupant("alliance") == DWARF_PLAYER
-        assert app.SEATS.occupant("tenebres") == ORC_PLAYER
+        assert current_game.SEATS.occupant("alliance") == DWARF_PLAYER
+        assert current_game.SEATS.occupant("tenebres") == ORC_PLAYER
 
     def test_a_game_saved_without_seats_stays_resumable(self, mongo_client, games):
         """Games from before players existed have no `seats` field: the table is empty."""
         mongo_client.get("/")
         games.objects.update(unset__seats=1)
-        app.SEATS.clear().seat("alliance", DWARF_PLAYER)
+        current_game.SEATS.clear().seat("alliance", DWARF_PLAYER)
 
         mongo_client.get("/")
 
-        assert app.SEATS.is_free("alliance")
+        assert current_game.SEATS.is_free("alliance")
 
     def test_the_recorded_players_are_found_again_and_no_others(self, mongo_application):
         with mongo_application.test_request_context():
-            repository = app.player_repository()
+            repository = persistence.player_repository()
             repository.record({"discord_id": DWARF_PLAYER, "nickname": "Vorgtd", "avatar": None})
             assert repository.by_discord_id(DWARF_PLAYER)["nickname"] == "Vorgtd"
             assert repository.by_discord_id("999") is None
@@ -327,7 +328,7 @@ class TestPersistedSeats:
     def test_a_second_login_updates_the_nickname_without_creating_a_player(self, mongo_application):
         with mongo_application.test_request_context():
             from tenebrae.engine.models.player import Player
-            repository = app.player_repository()
+            repository = persistence.player_repository()
             repository.record({"discord_id": DWARF_PLAYER, "nickname": "Vorgtd"})
             repository.record({"discord_id": DWARF_PLAYER, "nickname": "Vorgtd le Grand"})
             assert Player.objects.count() == 1
@@ -344,17 +345,17 @@ class TestPersistedTilts:
     def test_the_tilts_are_written_with_the_game_and_resumed_with_it(self, mongo_client, games):
         mongo_client.get("/")
         tilts = dict(games.objects.first().tilts)
-        assert set(tilts) == set(app.SCENARIO.placement)
-        assert tilts == app.BOARD.tilts
+        assert set(tilts) == set(current_game.SCENARIO.placement)
+        assert tilts == current_game.BOARD.tilts
 
-        before = app.BOARD.tilts
+        before = current_game.BOARD.tilts
 
         # The server restarts: memory is empty, only the base knows how the pieces were lying.
-        app.BOARD.clear()
-        app.TURN.restart()
+        current_game.BOARD.clear()
+        current_game.TURN.restart()
         mongo_client.get("/")
 
-        assert app.BOARD.tilts == before
+        assert current_game.BOARD.tilts == before
 
     def test_polling_the_game_does_not_lay_the_pieces_down_again(self, mongo_client):
         """What the player sees: the page lays the scene out again and the pieces do not spin.
@@ -370,13 +371,13 @@ class TestPersistedTilts:
 
     def test_a_move_writes_the_new_tilt(self, mongo_client, games):
         mongo_client.get("/")
-        origin = Hex.from_key(next(iter(app.SCENARIO.placement)))
-        destination = app.BOARD.moves(origin)[0]
-        before = app.BOARD.tilt_on(origin)
+        origin = Hex.from_key(next(iter(current_game.SCENARIO.placement)))
+        destination = current_game.BOARD.moves(origin)[0]
+        before = current_game.BOARD.tilt_on(origin)
 
         answer = mongo_client.post("/move", json={
             "origin": origin.to_dict(), "destination": destination.to_dict(),
-            "piece": app.BOARD.piece_on(origin).key})
+            "piece": current_game.BOARD.piece_on(origin).key})
         assert answer.json["allowed"] is True
 
         tilts = dict(games.objects.first().tilts)
@@ -391,18 +392,18 @@ class TestPersistedTilts:
         """
         mongo_client.get("/")
         games.objects.update(unset__tilts=1)
-        app.BOARD.clear()
+        current_game.BOARD.clear()
 
         mongo_client.get("/")
-        resumed = app.BOARD.tilts
-        assert set(resumed) == set(app.SCENARIO.placement)
+        resumed = current_game.BOARD.tilts
+        assert set(resumed) == set(current_game.SCENARIO.placement)
 
         mongo_client.post("/phase/next")  # a move played, hence a save
         assert dict(games.objects.first().tilts) == resumed
 
-        app.BOARD.clear()
+        current_game.BOARD.clear()
         mongo_client.get("/")
-        assert app.BOARD.tilts == resumed
+        assert current_game.BOARD.tilts == resumed
 
 
 class TestPersistedGameAgainstTheAI:
@@ -420,12 +421,12 @@ class TestPersistedGameAgainstTheAI:
         assert dict(games.objects.first().seats)["tenebres"] == ai.AI_PLAYER
 
         # The server restarts: the table in memory is lifted, only the base knows it.
-        app.SEATS.clear()
-        app.BOARD.clear()
-        app.TURN.restart()
+        current_game.SEATS.clear()
+        current_game.BOARD.clear()
+        current_game.TURN.restart()
         client.get("/")
 
-        assert app.SEATS.occupant("tenebres") == ai.AI_PLAYER
+        assert current_game.SEATS.occupant("tenebres") == ai.AI_PLAYER
 
 
 class TestPersistedView:
@@ -498,7 +499,7 @@ def real_mongo_client(seat_the_player):
     """An application plugged into a real MongoDB, and a base left clean on the way out."""
     if not mongodb_is_reachable():
         pytest.skip(f"no MongoDB reachable at {TEST_URI}")
-    application = app.create_app(RealMongoConfig)
+    application = create_app(RealMongoConfig)
     from tenebrae.engine.models.game import Game
     from tenebrae.engine.models.player import Player
     from tenebrae.application.models.view import View
@@ -512,10 +513,10 @@ def real_mongo_client(seat_the_player):
     Player.objects.delete()
     View.objects.delete()
     mongoengine.disconnect_all()
-    app.BOARD.clear()
-    app.TURN.restart()
-    app.REGISTER.reset()
-    app.SEATS.clear()
+    current_game.BOARD.clear()
+    current_game.TURN.restart()
+    current_game.REGISTER.reset()
+    current_game.SEATS.clear()
 
 
 class TestAgainstARealMongo:
@@ -524,27 +525,27 @@ class TestAgainstARealMongo:
         real_mongo_client.get("/")
         from tenebrae.engine.models.game import Game
         placement = dict(Game.objects.first().placement)
-        assert placement == app.SCENARIO.placement
+        assert placement == current_game.SCENARIO.placement
         assert all("," in square for square in placement)
         assert any(square.count("-") for square in placement)
 
     def test_the_game_is_resumed_after_a_restart(self, real_mongo_client):
         real_mongo_client.get("/")
-        origin = Hex.from_key(next(iter(app.SCENARIO.placement)))
-        destination = app.BOARD.moves(origin)[0]
+        origin = Hex.from_key(next(iter(current_game.SCENARIO.placement)))
+        destination = current_game.BOARD.moves(origin)[0]
         real_mongo_client.post("/move", json={
             "origin": origin.to_dict(), "destination": destination.to_dict(),
-            "piece": app.BOARD.piece_on(origin).key})
+            "piece": current_game.BOARD.piece_on(origin).key})
         real_mongo_client.post("/phase/next")
 
         # The server restarts: only the base knows where the game stood.
-        app.BOARD.clear()
-        app.TURN.restart()
+        current_game.BOARD.clear()
+        current_game.TURN.restart()
         real_mongo_client.get("/")
 
-        assert app.BOARD.piece_on(origin) is None
-        assert app.BOARD.piece_on(destination) is not None
-        assert app.TURN.phase_type == COMBAT
+        assert current_game.BOARD.piece_on(origin) is None
+        assert current_game.BOARD.piece_on(destination) is not None
+        assert current_game.TURN.phase_type == COMBAT
 
     def test_the_dates_come_back_readable(self, real_mongo_client):
         real_mongo_client.get("/")

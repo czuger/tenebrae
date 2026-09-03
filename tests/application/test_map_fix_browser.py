@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from tenebrae.application import app
+from tenebrae.application.routes import map_fix
 from tenebrae.engine import hexagon as engine_hexagon
 from tenebrae.engine.hexagon import TRANSCRIBED_MAP, Hex
 
@@ -76,7 +76,7 @@ def test_clicking_opens_the_dialog(fixing_page):
     fixing_page.locator("#choice[open]").wait_for()
     assert fixing_page.locator("#choice-title").text_content() == f"Hexagone {PLAIN.key}"
     assert TRANSCRIBED_MAP[PLAIN.key][0] in fixing_page.locator("#choice-state").text_content()
-    assert fixing_page.locator("#choice-terrains button").count() == len(app.TERRAINS)
+    assert fixing_page.locator("#choice-terrains button").count() == len(map_fix.TERRAINS)
 
 
 def test_choosing_a_terrain_records_the_fix(fixing_page, fixes):  # noqa: F811

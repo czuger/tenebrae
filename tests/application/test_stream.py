@@ -15,7 +15,10 @@ import threading
 
 import pytest
 
-from tenebrae.application import app
+from tenebrae.application import current_game
+from tenebrae.application.routes import stream as stream_routes
+from tenebrae.engine.hexagon import Hex
+from tenebrae.engine.piece import CATALOGUE
 from tenebrae.application.discord_client import DEFAULT_IDENTITY
 from tenebrae.application.stream import Broadcaster
 
@@ -40,15 +43,15 @@ def fresh_broadcaster(monkeypatch):
 
     On the way out, the check that counts: this test left no subscriber behind it.
     """
-    monkeypatch.setattr(app, "BROADCASTER", Broadcaster())
+    monkeypatch.setattr(current_game, "BROADCASTER", Broadcaster())
     yield
-    assert len(app.BROADCASTER) == 0, "this test left a stream open"
+    assert len(current_game.BROADCASTER) == 0, "this test left a stream open"
 
 
 @pytest.fixture(autouse=True)
 def short_heartbeat(monkeypatch):
     """Twenty seconds of heartbeat would make every keepalive test interminable."""
-    monkeypatch.setattr(app, "HEARTBEAT", 0.05)
+    monkeypatch.setattr(stream_routes, "HEARTBEAT", 0.05)
 
 
 def open_the_stream(client, version=None, last_event=None):
@@ -101,7 +104,7 @@ def event_id(message):
 
 
 def test_the_stream_is_a_server_sent_event(client):
-    answer = open_the_stream(client, version=app.VERSION)
+    answer = open_the_stream(client, version=current_game.VERSION)
     try:
         assert answer.status_code == 200
         assert answer.mimetype == "text/event-stream"
@@ -112,7 +115,7 @@ def test_the_stream_is_a_server_sent_event(client):
 def test_the_headers_forbid_caching_and_buffering(client):
     """`X-Accel-Buffering` is there from now on: without it, Nginx would hold each message until
     its buffer filled, and the game would look frozen (see `DEPLOYMENT.md`)."""
-    answer = open_the_stream(client, version=app.VERSION)
+    answer = open_the_stream(client, version=current_game.VERSION)
     try:
         assert answer.headers["Cache-Control"] == "no-cache"
         assert answer.headers["X-Accel-Buffering"] == "no"
@@ -122,7 +125,7 @@ def test_the_headers_forbid_caching_and_buffering(client):
 
 def test_the_stream_is_public(anonymous_client):
     """A passing visitor follows the game as they see the map."""
-    answer = open_the_stream(anonymous_client, version=app.VERSION)
+    answer = open_the_stream(anonymous_client, version=current_game.VERSION)
     try:
         assert answer.status_code == 200
     finally:
@@ -138,26 +141,26 @@ def test_an_up_to_date_browser_receives_only_a_comment(client):
     An SSE comment - a line beginning with ":" - opens the connection all the same, which moves
     the browser's `EventSource` to the "open" state.
     """
-    answer = open_the_stream(client, version=app.VERSION)
+    answer = open_the_stream(client, version=current_game.VERSION)
     assert read(answer) == [": game followed\n\n"]
 
 
 def test_a_browser_behind_receives_the_whole_game(client):
     """It reopens its tab after an outage: the opponent may have played meanwhile."""
     client.get("/")  # the board is a module global: we populate it before counting its pieces
-    answer = open_the_stream(client, version=app.VERSION - 1)
+    answer = open_the_stream(client, version=current_game.VERSION - 1)
     state = data(read(answer)[0])
 
-    assert state["version"] == app.VERSION
-    assert len(state["pieces"]) == len(app.SCENARIO)
-    assert state["phase"]["label"] == app.TURN.label
+    assert state["version"] == current_game.VERSION
+    assert len(state["pieces"]) == len(current_game.SCENARIO)
+    assert state["phase"]["label"] == current_game.TURN.label
     assert state["table"]["connected"] is True
 
 
 def test_a_browser_without_a_version_receives_the_whole_game(client):
     """No `?version` and no `Last-Event-ID`: we do not know what it knows, so we say everything."""
     answer = open_the_stream(client)
-    assert data(read(answer)[0])["version"] == app.VERSION
+    assert data(read(answer)[0])["version"] == current_game.VERSION
 
 
 def test_the_last_event_prevails_over_the_parameter(client):
@@ -167,7 +170,8 @@ def test_the_last_event_prevails_over_the_parameter(client):
     the `Last-Event-ID` by itself at every reconnection, and that one is more recent. So it
     decides.
     """
-    answer = open_the_stream(client, version=app.VERSION - 1, last_event=str(app.VERSION))
+    answer = open_the_stream(client, version=current_game.VERSION - 1,
+                             last_event=str(current_game.VERSION))
     assert read(answer) == [": game followed\n\n"]
 
 
@@ -175,14 +179,14 @@ def test_an_unreadable_last_event_makes_everything_be_sent_back(client):
     """The header comes from the browser: empty, or anything at all. We do not crash for so
     little."""
     answer = open_the_stream(client, last_event="")
-    assert data(read(answer)[0])["version"] == app.VERSION
+    assert data(read(answer)[0])["version"] == current_game.VERSION
 
 
 def test_a_restarted_server_is_caught_up_with(client, deserted_map):
     """The browser knows version 12, the server starts again from zero: the numbers no longer
     match, and that is precisely what must make it take everything again."""
     answer = open_the_stream(client, last_event="12")
-    assert data(read(answer)[0])["version"] == app.VERSION
+    assert data(read(answer)[0])["version"] == current_game.VERSION
 
 
 # --- What happens when a move is played ---
@@ -190,7 +194,7 @@ def test_a_restarted_server_is_caught_up_with(client, deserted_map):
 
 def test_a_move_played_is_pushed_to_the_stream(client):
     """The heart of the matter: nobody asks for anything again, the server writes."""
-    answer = open_the_stream(client, version=app.VERSION)
+    answer = open_the_stream(client, version=current_game.VERSION)
     iterator = answer.response
     try:
         assert next(iterator).decode() == ": game followed\n\n"
@@ -200,27 +204,27 @@ def test_a_move_played_is_pushed_to_the_stream(client):
 
         message = next(iterator).decode()
         state = data(message)
-        assert state["phase"]["label"] == app.TURN.label
-        assert event_id(message) == state["version"] == app.VERSION
+        assert state["phase"]["label"] == current_game.TURN.label
+        assert event_id(message) == state["version"] == current_game.VERSION
     finally:
         answer.close()
 
 
 def test_the_stream_beats_when_nothing_happens(client):
     """The keepalive: without it, an intermediary would close a connection it believes dead."""
-    answer = open_the_stream(client, version=app.VERSION)
+    answer = open_the_stream(client, version=current_game.VERSION)
     assert read(answer, how_many=3) == [": game followed\n\n", ": heartbeat\n\n",
                                         ": heartbeat\n\n"]
 
 
 def test_a_move_pushes_the_board(client, deserted_map):
     """It is not only the phase: every move played goes through `mark_a_move`."""
-    origin = app.Hex(0, 0, 0)
-    piece = app.CATALOGUE[next(iter(app.SCENARIO.placement.values()))]
+    origin = Hex(0, 0, 0)
+    piece = CATALOGUE[next(iter(current_game.SCENARIO.placement.values()))]
     deserted_map.place(origin, piece)
     destination = next(iter(deserted_map.moves(origin, piece)))
 
-    answer = open_the_stream(client, version=app.VERSION)
+    answer = open_the_stream(client, version=current_game.VERSION)
     iterator = answer.response
     try:
         next(iterator)
@@ -241,12 +245,12 @@ def test_a_fresh_game_pushes_the_laid_out_scenario_and_not_an_empty_board(client
     Marking the move in between - which is what the code did before the stream - pushed the
     photograph of a deserted board, and the opponent's browser erased all its pieces.
     """
-    answer = open_the_stream(client, version=app.VERSION)
+    answer = open_the_stream(client, version=current_game.VERSION)
     iterator = answer.response
     try:
         next(iterator)
         assert client.post("/game/new").status_code == 200
-        assert len(data(next(iterator).decode())["pieces"]) == len(app.SCENARIO)
+        assert len(data(next(iterator).decode())["pieces"]) == len(current_game.SCENARIO)
     finally:
         answer.close()
 
@@ -256,18 +260,18 @@ def test_a_fresh_game_pushes_the_laid_out_scenario_and_not_an_empty_board(client
 
 def test_two_streams_receive_the_same_move(client, anonymous_client):
     """Two players, two browsers: a single move, and both see it."""
-    player = open_the_stream(client, version=app.VERSION)
-    visitor = open_the_stream(anonymous_client, version=app.VERSION)
+    player = open_the_stream(client, version=current_game.VERSION)
+    visitor = open_the_stream(anonymous_client, version=current_game.VERSION)
     player_thread, visitor_thread = player.response, visitor.response
     try:
         next(player_thread)
         next(visitor_thread)
-        assert len(app.BROADCASTER) == 2
+        assert len(current_game.BROADCASTER) == 2
 
         assert client.post("/phase/next").status_code == 200
 
         for iterator in (player_thread, visitor_thread):
-            assert data(next(iterator).decode())["phase"]["label"] == app.TURN.label
+            assert data(next(iterator).decode())["phase"]["label"] == current_game.TURN.label
     finally:
         player.close()
         visitor.close()
@@ -279,8 +283,8 @@ def test_each_stream_receives_its_own_players_table(application, client, anonymo
     The seated player receives their sides; the passing visitor receives an anonymous table - but
     the **same game**. That is why the table is composed per recipient and not once and for all.
     """
-    player = open_the_stream(client, version=app.VERSION)
-    visitor = open_the_stream(anonymous_client, version=app.VERSION)
+    player = open_the_stream(client, version=current_game.VERSION)
+    visitor = open_the_stream(anonymous_client, version=current_game.VERSION)
     player_thread, visitor_thread = player.response, visitor.response
     try:
         next(player_thread)
@@ -311,7 +315,7 @@ def test_the_player_is_re_read_at_every_message(application, client):
     That is what forbids `stream_with_context`, which would keep `g.player` for the whole duration
     of the connection - that is, as long as the tab stays open.
     """
-    answer = open_the_stream(client, version=app.VERSION)
+    answer = open_the_stream(client, version=current_game.VERSION)
     iterator = answer.response
     try:
         next(iterator)
@@ -332,22 +336,22 @@ def test_a_closed_stream_frees_its_subscription(client):
 
     The server would go on depositing the state of every move played into it, forever.
     """
-    answer = open_the_stream(client, version=app.VERSION)
+    answer = open_the_stream(client, version=current_game.VERSION)
     iterator = answer.response
     next(iterator)
-    assert len(app.BROADCASTER) == 1
+    assert len(current_game.BROADCASTER) == 1
 
     answer.close()
-    assert len(app.BROADCASTER) == 0
+    assert len(current_game.BROADCASTER) == 0
 
 
 def test_ten_streams_opened_then_closed_leave_nothing(client):
     """A tab opened and closed ten times in a row must accumulate nothing."""
     for _ in range(10):
-        answer = open_the_stream(client, version=app.VERSION)
+        answer = open_the_stream(client, version=current_game.VERSION)
         next(answer.response)
         answer.close()
-    assert len(app.BROADCASTER) == 0
+    assert len(current_game.BROADCASTER) == 0
 
 
 def test_a_stream_read_in_another_thread_also_receives(client, application):
@@ -361,7 +365,7 @@ def test_a_stream_read_in_another_thread_also_receives(client, application):
 
     def listen():
         with application.test_client() as other:
-            answer = open_the_stream(other, version=app.VERSION)
+            answer = open_the_stream(other, version=current_game.VERSION)
             iterator = answer.response
             try:
                 next(iterator)
@@ -377,5 +381,5 @@ def test_a_stream_read_in_another_thread_also_receives(client, application):
     assert client.post("/phase/next").status_code == 200
     thread.join(PATIENCE)
 
-    assert len(received) == 1 and received[0]["phase"]["label"] == app.TURN.label
-    assert len(app.BROADCASTER) == 0
+    assert len(received) == 1 and received[0]["phase"]["label"] == current_game.TURN.label
+    assert len(current_game.BROADCASTER) == 0

@@ -154,7 +154,7 @@ class RatioBreakdown:
     Between the strength printed on the counters and the column of Table I there is the
     **defender's terrain**, which multiplies its strength and adds to the attacker's die. This
     object keeps every term; it is the application that puts them into French
-    (`describe_the_ratio` in `tenebrae/application/app.py`).
+    (`describe_the_ratio` in `tenebrae/application/logs/combat_sentences.py`).
     """
 
     __slots__ = ("strengths", "target_strength", "terrain", "multiplier", "die_bonus", "roll")

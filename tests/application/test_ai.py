@@ -2,13 +2,13 @@
 
 The AI has neither a session nor a Discord account: it occupies its seat under the `ai.AI_PLAYER`
 sentinel, and it is the server that plays its turn - in the request that hands it play, never over
-HTTP. The die is fixed by `monkeypatch` on `app.roll_the_die`, as in the combat engine: at equal
-die, the AI replays the same game.
+HTTP. The die is fixed by `monkeypatch` on `current_game.roll_the_die`, as in the combat engine:
+at equal die, the AI replays the same game.
 """
 
 import pytest
 
-from tenebrae.application import app
+from tenebrae.application import current_game
 from tenebrae.application.discord_client import DEFAULT_IDENTITY
 from tenebrae.engine import ai
 from tenebrae.engine.piece import CATALOGUE
@@ -54,45 +54,46 @@ class TestNewGameAgainstTheAI:
         assert answer.status_code == 403
 
     def test_a_side_held_by_a_human_is_not_given_away(self, alliance_client, deserted_map):
-        app.SEATS.seat("tenebres", GRISHNAK["discord_id"])
+        current_game.SEATS.seat("tenebres", GRISHNAK["discord_id"])
         answer = alliance_client.post("/game/new", json={"against_ai": True})
         assert answer.status_code == 409
         assert answer.json["message"] == "Ce camp est déjà tenu."
         # Refused means left as it was: the set-up has not been rebuilt.
-        assert len(app.BOARD) == 0
-        assert app.SEATS.occupant("tenebres") == GRISHNAK["discord_id"]
+        assert len(current_game.BOARD) == 0
+        assert current_game.SEATS.occupant("tenebres") == GRISHNAK["discord_id"]
 
     def test_the_game_is_created_and_the_ai_seated(self, alliance_client, deserted_map):
         answer = alliance_client.post("/game/new", json={"against_ai": True})
         assert answer.status_code == 200
-        assert app.SEATS.occupant("tenebres") == ai.AI_PLAYER
+        assert current_game.SEATS.occupant("tenebres") == ai.AI_PLAYER
         assert answer.json["seats"]["tenebres"] == ai.AI_NAME
         # The Alliance - the human player - opens the scenario: the AI has played nothing.
         assert answer.json["phase"]["side"] == "alliance"
-        assert app.BOARD.to_dict() == app.SCENARIO.placement
+        assert current_game.BOARD.to_dict() == current_game.SCENARIO.placement
 
     def test_the_ai_plays_immediately_when_it_opens(self, darkness_client, deserted_map,
                                                     monkeypatch):
-        monkeypatch.setattr(app, "roll_the_die", lambda: 1)
+        monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
         answer = darkness_client.post("/game/new", json={"against_ai": True})
         assert answer.status_code == 200
-        assert app.SEATS.occupant("alliance") == ai.AI_PLAYER
+        assert current_game.SEATS.occupant("alliance") == ai.AI_PLAYER
         # The AI played its opening turn straight away: play is with the Darkness, and the pieces
         # in the answer are those it left, not those of the set-up.
         assert answer.json["phase"]["side"] == "tenebres"
         assert answer.json["phase"]["type"] == "mouvement"
-        assert app.BOARD.to_dict() != app.SCENARIO.placement
+        assert current_game.BOARD.to_dict() != current_game.SCENARIO.placement
 
     def test_starting_again_against_the_ai_stays_allowed(self, alliance_client, deserted_map):
         alliance_client.post("/game/new", json={"against_ai": True})
         answer = alliance_client.post("/game/new", json={"against_ai": True})
         assert answer.status_code == 200
-        assert app.SEATS.occupant("tenebres") == ai.AI_PLAYER
+        assert current_game.SEATS.occupant("tenebres") == ai.AI_PLAYER
 
     def test_without_the_flag_nothing_changes(self, client, deserted_map):
         answer = client.post("/game/new")
         assert answer.status_code == 200
-        assert ai.AI_PLAYER not in (app.SEATS.occupant(side) for side in app.SCENARIO.sides)
+        assert ai.AI_PLAYER not in (current_game.SEATS.occupant(side)
+                                    for side in current_game.SCENARIO.sides)
 
 
 class TestTriggeringTheAI:
@@ -101,9 +102,9 @@ class TestTriggeringTheAI:
         """An elf of the human player and an orc of the AI two squares apart."""
         a = well_surrounded_plain()
         *_, further = ring_of(a)
-        app.BOARD.place(a, CATALOGUE[ELF])
-        app.BOARD.place(further, CATALOGUE[ORC])
-        app.SEATS.seat("tenebres", ai.AI_PLAYER)
+        current_game.BOARD.place(a, CATALOGUE[ELF])
+        current_game.BOARD.place(further, CATALOGUE[ORC])
+        current_game.SEATS.seat("tenebres", ai.AI_PLAYER)
         return a, further
 
     def test_the_ai_does_not_play_while_play_is_human(self, alliance_client, face_to_face):
@@ -111,25 +112,25 @@ class TestTriggeringTheAI:
         # End of the Alliance's movement: its combat phase begins, the AI has nothing to play.
         answer = alliance_client.post("/phase/next")
         assert (answer.json["side"], answer.json["type"]) == ("alliance", "combat")
-        assert app.BOARD.piece_on(further).key == ORC
+        assert current_game.BOARD.piece_on(further).key == ORC
 
     def test_the_ai_plays_its_turn_when_play_comes_to_it(self, alliance_client, face_to_face,
                                                          monkeypatch):
-        monkeypatch.setattr(app, "roll_the_die", lambda: 1)
+        monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
         a, further = face_to_face
         alliance_client.post("/phase/next")
-        version_before = app.VERSION
+        version_before = current_game.VERSION
         # End of the Alliance's combat: play passes to the Darkness, hence to the AI, which plays
         # its whole turn - the orc marches into contact and engages the elf (8 against 7: 1-1,
         # die 1, a retreat without effect) - then hands play back.
         answer = alliance_client.post("/phase/next")
         assert (answer.json["side"], answer.json["type"]) == ("alliance", "mouvement")
         assert answer.json["number"] == 2
-        assert app.BOARD.piece_on(further) is None
+        assert current_game.BOARD.piece_on(further) is None
         assert any(neighbour for neighbour in a.neighbours()
-                   if (placed := app.BOARD.piece_on(neighbour)) and placed.key == ORC)
-        assert app.BOARD.piece_on(a).key == ELF
-        assert app.VERSION > version_before
+                   if (placed := current_game.BOARD.piece_on(neighbour)) and placed.key == ORC)
+        assert current_game.BOARD.piece_on(a).key == ELF
+        assert current_game.VERSION > version_before
 
     def test_the_ais_side_cannot_be_taken(self, application, alliance_client, face_to_face,
                                           seat_the_player):

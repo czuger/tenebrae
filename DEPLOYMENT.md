@@ -39,8 +39,8 @@ Two remarks on that line:
   insists on `eventlet`, `-k eventlet` works the same way — to be checked against the Python
   version in use.
 - **`'…:create_app()'` and not `…:app`.** This repository has no global application:
-  `tenebrae/application/app.py` exposes only the `game` blueprint and the factory. Gunicorn knows
-  how to call a factory if it is written that way.
+  `tenebrae/application/app.py` exposes only the factory, the blueprints being in `routes/`.
+  Gunicorn knows how to call a factory if it is written that way.
 - **Launch from the root of the repository**, or set `--pythonpath /path/to/tenebrae`: nothing is
   installed, and every import is written from the root (see `CLAUDE.md`).
 
@@ -69,9 +69,9 @@ location /stream {
 ```
 
 **The `X-Accel-Buffering: no` header is already set by the Flask response** (in the `/stream` route,
-`tenebrae/application/app.py`), and it tells Nginx the same thing as `proxy_buffering off;` — for
-that response only. Both together, and not one or the other: the header protects if the
-configuration is forgotten, the configuration protects if an intermediary ignores the header.
+`tenebrae/application/routes/stream.py`), and it tells Nginx the same thing as `proxy_buffering
+off;` — for that response only. Both together, and not one or the other: the header protects if
+the configuration is forgotten, the configuration protects if an intermediary ignores the header.
 
 The rest of the site does not need this treatment: `map.jpg` is 10 MB, and buffering serves it
 well. Hence the separate `location /stream` rather than a global setting.
@@ -81,8 +81,8 @@ well. Hence the separate `location /stream` rather than a global setting.
 ## c) The timeouts to watch
 
 A silent stream looks like a dead connection. The server therefore sends an SSE comment (`:
-battement`) every **20 seconds** (`HEARTBEAT` in `tenebrae/application/app.py`): that is what keeps
-the connection alive across intermediaries.
+battement`) every **20 seconds** (`HEARTBEAT` in `tenebrae/application/routes/stream.py`): that is
+what keeps the connection alive across intermediaries.
 
 Every intermediary has its own timeout, and **the shortest wins**:
 
@@ -104,8 +104,9 @@ intermediary's timeout to lowering the heartbeat**: a shorter heartbeat is traff
 
 **The registry of open streams is in memory, in the process** (`Broadcaster`, in
 `tenebrae/application/stream.py`). The same is true of the whole game state: the board, the turn,
-the combat register and the seating table are module globals of `tenebrae/application/app.py`. The
-game therefore assumes **a single process** — which was already the case long before the stream.
+the combat register and the seating table are module globals of
+`tenebrae/application/current_game.py`. The game therefore assumes **a single process** — which
+was already the case long before the stream.
 
 With `gunicorn -w 2` or more, two things would break, and not only the stream:
 

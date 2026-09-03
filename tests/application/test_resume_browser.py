@@ -23,7 +23,8 @@ mongomock = pytest.importorskip("mongomock")
 import mongoengine  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
-from tenebrae.application import app  # noqa: E402
+from tenebrae.application import current_game  # noqa: E402
+from tenebrae.application.app import create_app  # noqa: E402
 from tests.application.test_persistence import TEST_URI, MongomockConfig, RealMongoConfig, \
     mongodb_is_reachable  # noqa: E402
 
@@ -33,8 +34,8 @@ def persistent_server(request, seat_the_player):
     """A server plugged into a database, served on a free port for the length of the test.
 
     The parameter runs each test twice: on mongomock, and on the real MongoDB if it is reachable.
-    The base is emptied before and after - and `app`'s module globals with it, since all the test
-    files share them.
+    The base is emptied before and after - and `current_game`'s module globals with it, since all
+    the test files share them.
     """
     if request.param == "mongodb":
         if not mongodb_is_reachable():
@@ -43,7 +44,7 @@ def persistent_server(request, seat_the_player):
     else:
         configuration = MongomockConfig
 
-    application = app.create_app(configuration)
+    application = create_app(configuration)
     from tenebrae.engine.models.game import Game
     from tenebrae.engine.models.player import Player
     Game.objects.delete()
@@ -62,10 +63,10 @@ def persistent_server(request, seat_the_player):
     Game.objects.delete()
     Player.objects.delete()
     mongoengine.disconnect_all()
-    app.BOARD.clear()
-    app.TURN.restart()
-    app.REGISTER.reset()
-    app.SEATS.clear()
+    current_game.BOARD.clear()
+    current_game.TURN.restart()
+    current_game.REGISTER.reset()
+    current_game.SEATS.clear()
 
 
 @pytest.fixture
@@ -86,7 +87,7 @@ def open_the_board(page, address):
         page.goto(f"{address}/login")
     page.goto(address)
     page.wait_for_function(
-        "document.querySelectorAll('img.piece').length === %d" % len(app.SCENARIO))
+        "document.querySelectorAll('img.piece').length === %d" % len(current_game.SCENARIO))
     page.wait_for_function(
         "[...document.querySelectorAll('img.piece'), document.getElementById('map')]"
         ".every((i) => i.complete && i.naturalWidth > 0)")
@@ -114,7 +115,7 @@ def placed_angles(page):
 
 def move_a_piece(page):
     """Moves the first unit that has squares to go to, and returns its origin and destination."""
-    for index in range(len(app.SCENARIO)):
+    for index in range(len(current_game.SCENARIO)):
         piece = page.locator("img.piece:not(.ghost)").nth(index)
         origin = piece.evaluate("p => `${p.dataset.q},${p.dataset.r},${p.dataset.s}`")
         piece.click()
@@ -163,7 +164,7 @@ def test_starting_again_lays_the_scenario_out_again(persistent_board, persistent
 
     open_the_board(persistent_board, persistent_server)
     placed = placed_squares(persistent_board)
-    assert placed == set(app.SCENARIO.placement)
+    assert placed == set(current_game.SCENARIO.placement)
     assert origin in placed and destination not in placed
 
 

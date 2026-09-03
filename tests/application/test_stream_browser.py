@@ -13,7 +13,9 @@ These engine require Chromium (`make browser`).
 
 import pytest
 
-from tenebrae.application import app
+from tenebrae.application import current_game
+from tenebrae.engine.hexagon import Hex
+from tenebrae.engine.piece import CATALOGUE
 
 # A move played must show in less time than the old poll would have taken: that is the only way to
 # tell "the stream pushed" from "something eventually asked again".
@@ -39,15 +41,15 @@ def fresh_game(application, seat_the_player):
     come out right.
     """
     seat_the_player(application)
-    app.BOARD.clear()
-    app.TURN.restart()
-    app.REGISTER.reset()
-    for square, key in app.SCENARIO.placement.items():
-        app.BOARD.place(app.Hex.from_key(square), app.CATALOGUE[key])
+    current_game.BOARD.clear()
+    current_game.TURN.restart()
+    current_game.REGISTER.reset()
+    for square, key in current_game.SCENARIO.placement.items():
+        current_game.BOARD.place(Hex.from_key(square), CATALOGUE[key])
     yield
-    app.BOARD.clear()
-    app.TURN.restart()
-    app.REGISTER.reset()
+    current_game.BOARD.clear()
+    current_game.TURN.restart()
+    current_game.REGISTER.reset()
 
 
 @pytest.fixture
@@ -79,7 +81,7 @@ def open_the_board(page, server, logged_in=True):
         page.goto(f"{server}/login")
     page.goto(server)
     page.wait_for_function(
-        "document.querySelectorAll('img.piece').length === %d" % len(app.SCENARIO))
+        "document.querySelectorAll('img.piece').length === %d" % len(current_game.SCENARIO))
     page.wait_for_function("document.getElementById('scale').textContent !== '—'")
     wait_for_the_stream(page)
     return page
@@ -162,11 +164,11 @@ def test_a_piece_moved_outside_is_laid_out_again_in_the_page(page, server, oppon
 
 def a_possible_move():
     """A unit of the active side, its square, and a square it can go to."""
-    for square, piece in app.BOARD.pieces.items():
-        if piece.side != app.TURN.active_side:
+    for square, piece in current_game.BOARD.pieces.items():
+        if piece.side != current_game.TURN.active_side:
             continue
-        origin = app.Hex.from_key(square)
-        destinations = app.BOARD.moves(origin, piece)
+        origin = Hex.from_key(square)
+        destinations = current_game.BOARD.moves(origin, piece)
         if destinations:
             return origin, next(iter(destinations)), piece.key
     raise AssertionError("no unit of the active side can move")
@@ -237,7 +239,7 @@ def test_the_fallback_to_polling_when_the_stream_does_not_get_through(page, serv
     page.goto(f"{server}/login")
     page.goto(server)
     page.wait_for_function(
-        "document.querySelectorAll('img.piece').length === %d" % len(app.SCENARIO))
+        "document.querySelectorAll('img.piece').length === %d" % len(current_game.SCENARIO))
 
     # The fallback settles in once the five failures have been counted.
     page.wait_for_function("pollTimer !== null", timeout=FALLBACK_DELAY)
@@ -288,18 +290,18 @@ def test_a_closed_tab_frees_its_subscription(page, context, server, opponent):
     # there is none. So we provoke a write and wait for the count to come down to this test's
     # single tab.
     assert opponent.post("/phase/next").ok
-    wait_until(lambda: len(app.BROADCASTER) == 1)
-    subscribers = len(app.BROADCASTER)
+    wait_until(lambda: len(current_game.BROADCASTER) == 1)
+    subscribers = len(current_game.BROADCASTER)
 
     second = context.new_page()
     open_the_board(second, server)
-    assert len(app.BROADCASTER) == subscribers + 1
+    assert len(current_game.BROADCASTER) == subscribers + 1
 
     second.close()
     # The removal is noticed as soon as the server tries to write: the heartbeat is enough to
     # trigger it, and it is shortened here by the first move played.
     assert opponent.post("/phase/next").ok
-    wait_until(lambda: len(app.BROADCASTER) == subscribers)
+    wait_until(lambda: len(current_game.BROADCASTER) == subscribers)
 
 
 def wait_until(condition, seconds=10.0):

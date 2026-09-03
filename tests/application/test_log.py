@@ -14,7 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from tenebrae.application import app, battle_log, rotating_log
+from tenebrae.application import current_game
+from tenebrae.application.logs import battle_log, combat_sentences, rotating_log
 from tenebrae.application.config import ROOT
 from tenebrae.engine import combat
 from tenebrae.engine.hexagon import Hex
@@ -51,11 +52,11 @@ def empty_log():
 def fresh_broadcaster(monkeypatch):
     """A broadcaster of one's own: the browser engine leave streams open behind them, and here we
     want to read what is published, not share it (see `test_stream.py`)."""
-    monkeypatch.setattr(app, "BROADCASTER", Broadcaster())
+    monkeypatch.setattr(current_game, "BROADCASTER", Broadcaster())
 
 
 def place(hexagon, key):
-    app.BOARD.place(Hex(**hexagon), CATALOGUE[key])
+    current_game.BOARD.place(Hex(**hexagon), CATALOGUE[key])
 
 
 def texts(lines):
@@ -105,7 +106,8 @@ def test_the_page_and_the_state_both_carry_the_log(client):
 def test_the_shared_snapshot_carries_the_log():
     """It is that snapshot which travels in the stream: the log is in it, like the pieces."""
     battle_log.LOG.info("Phase: Phase de combat — Nains (turn 1)")
-    assert texts(app.shared_snapshot()["log"]) == ["Phase: Phase de combat — Nains (turn 1)"]
+    assert texts(current_game.shared_snapshot()["log"]) == [
+        "Phase: Phase de combat — Nains (turn 1)"]
 
 
 # --- The breakdown of the ratio computation ------------------------------------------------------
@@ -117,7 +119,7 @@ def sentence(strengths, target_strength, terrain, multiplier, die_bonus, roll):
     """The line the log would write for that computation."""
     breakdown = combat.RatioBreakdown(strengths, target_strength, terrain, multiplier,
                                       die_bonus, roll)
-    return app.describe_the_ratio(
+    return combat_sentences.describe_the_ratio(
         combat.CombatResult(breakdown.outcome, [], breakdown.ratio, breakdown.die, breakdown))
 
 
@@ -125,7 +127,7 @@ def test_an_unresolved_combat_has_no_ratio_to_describe():
     """The routes look at `breakdown` before asking; asked all the same, the sentence refuses
     rather than describe nothing."""
     with pytest.raises(ValueError, match="not resolved"):
-        app.describe_the_ratio(combat.CombatResult(None, [], None, None))
+        combat_sentences.describe_the_ratio(combat.CombatResult(None, [], None, None))
 
 
 @pytest.mark.parametrize("why, computation, written", [
@@ -164,7 +166,7 @@ def last_published(subscriber):
 @pytest.fixture
 def subscriber():
     """A stream open on the game, with no browser: the box where the server deposits its states."""
-    return app.BROADCASTER.subscribe()
+    return current_game.BROADCASTER.subscribe()
 
 
 def test_the_phase_change_leaves_with_its_line(client, subscriber):
@@ -179,7 +181,7 @@ def test_the_combat_leaves_with_its_computation_and_its_result(client, subscribe
     The order is not indifferent - the browser's column reads the other way round from the file,
     and that is what puts the outcome at the top, its breakdown just below.
     """
-    monkeypatch.setattr(app, "roll_the_die", lambda: 1)
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
     place(PLAIN, DWARF)       # strength 12
     place(NEIGHBOUR, ARCHER)  # strength 2, on the plain -> ratio 6-1, die 1 -> DE
     client.post("/phase/next")  # the Dwarves' combat phase

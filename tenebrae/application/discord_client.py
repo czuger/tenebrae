@@ -203,7 +203,7 @@ class FakeDiscordClient:
         Returns:
             The URL of `/login/return`.
         """
-        return url_for("game.login_return", code="fake-code", state=state)
+        return url_for("authentication.login_return", code="fake-code", state=state)
 
     def exchange_code(self, code: str) -> str:
         """Records the code and hands back a token derived from it.

@@ -7,7 +7,8 @@ import math
 
 import pytest
 
-from tenebrae.application import app, pieces
+from tenebrae.application import current_game, pieces
+from tenebrae.application.grid import GRID_MATRIX, GRID_ORIGIN, PIECE_SIZE
 from tenebrae.engine.hexagon import MAP, Hex
 from tenebrae.engine.piece import CATALOGUE, OPPONENTS
 
@@ -25,7 +26,7 @@ def board(page, server, application, seat_the_player):
     page.set_viewport_size({"width": 1400, "height": 900})
     page.goto(f"{server}/login")
     page.wait_for_function(
-        "document.querySelectorAll('img.piece').length === %d" % len(app.SCENARIO)
+        "document.querySelectorAll('img.piece').length === %d" % len(current_game.SCENARIO)
     )
     page.wait_for_function(
         "[...document.querySelectorAll('img.piece'), document.getElementById('map')]"
@@ -37,7 +38,7 @@ def board(page, server, application, seat_the_player):
 
 def expected_centre(q, r):
     """centre(q, r) = origin + matrix . (q, r), in pixels of map.jpg (game_box/map.md)."""
-    origin, matrix = app.GRID_ORIGIN, app.GRID_MATRIX
+    origin, matrix = GRID_ORIGIN, GRID_MATRIX
     return (origin[0] + matrix[0][0] * q + matrix[0][1] * r,
             origin[1] + matrix[1][0] * q + matrix[1][1] * r)
 
@@ -75,7 +76,7 @@ def test_the_map_is_displayed(board):
 
 
 def test_the_scenarios_units_are_placed(board):
-    assert board.locator("img.piece").count() == len(app.SCENARIO)
+    assert board.locator("img.piece").count() == len(current_game.SCENARIO)
 
 
 def test_the_piece_images_load(board):
@@ -163,7 +164,7 @@ def test_the_moved_piece_lies_down_once_and_keeps_its_angle(board, server):
 
 def test_the_pieces_have_the_expected_size(board):
     for piece in piece_geometry(board):
-        assert piece["width"] == app.PIECE_SIZE
+        assert piece["width"] == PIECE_SIZE
 
 
 def test_the_board_fits_in_the_window(board):
@@ -280,13 +281,13 @@ def pieces_that_can_move(page, suits=lambda piece: True):
     opponents placed around it forbid. The test server runs in this process, so its board can be
     read directly.
     """
-    for index in range(len(app.SCENARIO)):
+    for index in range(len(current_game.SCENARIO)):
         piece = page.locator("img.piece:not(.ghost)").nth(index)
         position = piece.evaluate(
             "p => [Number(p.dataset.q), Number(p.dataset.r), Number(p.dataset.s)]")
         origin = Hex(*position)
-        reachable = app.BOARD.moves(origin)
-        if reachable and suits(app.BOARD.piece_on(origin)):
+        reachable = current_game.BOARD.moves(origin)
+        if reachable and suits(current_game.BOARD.piece_on(origin)):
             yield piece, origin, reachable
 
 
@@ -320,10 +321,10 @@ def test_clicking_a_piece_shows_its_moves(board):
 def test_the_ghosts_follow_the_counters_movement(board):
     """The number of ghosts is that of the piece's movement, not of a common flat rate."""
     piece, origin, _ = a_piece_that_can_move(board)
-    movement = app.BOARD.piece_on(origin).movement_points
+    movement = current_game.BOARD.piece_on(origin).movement_points
     placed = show_the_ghosts(board, piece)
 
-    assert len(placed) == len(app.BOARD.moves(origin))
+    assert len(placed) == len(current_game.BOARD.moves(origin))
     assert len(placed) <= len(origin.moves(movement))
 
 
@@ -340,11 +341,11 @@ def contact_with_an_opponent(page):
         neighbour = next((n for n in origin.neighbours() if n in alone), None)
         if neighbour is None:
             continue
-        app.BOARD.place(neighbour, opponent_of(app.BOARD.piece_on(origin)))
-        in_contact = app.BOARD.moves(origin)
+        current_game.BOARD.place(neighbour, opponent_of(current_game.BOARD.piece_on(origin)))
+        in_contact = current_game.BOARD.moves(origin)
         if 0 < len(in_contact) < len(alone):
             return piece, origin, alone, neighbour
-        app.BOARD.remove(neighbour)
+        current_game.BOARD.remove(neighbour)
     pytest.skip("no unit of the scenario has a neighbour to place an opponent on")
 
 
@@ -428,7 +429,7 @@ def test_hovering_a_piece_shows_its_counters_values(board):
     `seen` counts both cases and the walk refuses to pass if the scenario offers only one.
     """
     seen = {True: 0, False: 0}
-    for index in range(len(app.SCENARIO)):
+    for index in range(len(current_game.SCENARIO)):
         piece = board.locator("img.piece:not(.ghost)").nth(index)
         key = piece.evaluate("p => p.piece.key")
         placed = CATALOGUE[key]
@@ -527,7 +528,7 @@ def test_the_card_reads_at_the_size_of_the_bar(board):
 def test_the_card_does_not_move_from_one_piece_to_another(board):
     """The bar is fixed in place: hovering another unit does not displace it."""
     corners = set()
-    for index in range(len(app.SCENARIO)):
+    for index in range(len(current_game.SCENARIO)):
         piece = board.locator("img.piece:not(.ghost)").nth(index)
         hover(board, piece)
         corners.add(tuple(board.evaluate(
@@ -725,7 +726,7 @@ def test_clicking_a_ghost_moves_the_piece(board):
     assert abs(placed["angle"]) <= 5.0
 
     # A move moves: it neither loses a counter nor draws a second one.
-    assert board.locator("img.piece:not(.ghost)").count() == len(app.SCENARIO)
+    assert board.locator("img.piece:not(.ghost)").count() == len(current_game.SCENARIO)
 
 
 def test_giving_up_a_selection_erases_the_ghosts(board):
@@ -956,7 +957,7 @@ def test_in_the_combat_phase_movement_no_longer_answers(board):
 
 def test_clicking_an_opposing_unit_highlights_it_in_red(board):
     move_to_the_combat_phase(board)
-    orc = Hex.from_key(next(key for key, p in app.BOARD.pieces.items()
+    orc = Hex.from_key(next(key for key, p in current_game.BOARD.pieces.items()
                             if p.side == "tenebres"))
     click_the_hexagon(board, orc)
     board.wait_for_selector("img.piece.target")
@@ -966,7 +967,7 @@ def test_clicking_an_opposing_unit_highlights_it_in_red(board):
 def a_pair_for_combat(page):
     """A Dwarf that can come into contact with an Orc, the contact square, and the Orc."""
     contacts = {neighbour.key: orc
-                for key, p in app.BOARD.pieces.items() if p.side == "tenebres"
+                for key, p in current_game.BOARD.pieces.items() if p.side == "tenebres"
                 for orc in [Hex.from_key(key)] for neighbour in orc.neighbours()}
     for piece, _, reachable in pieces_that_can_move(page, lambda p: p.side == "alliance"):
         for destination in reachable:
@@ -976,7 +977,7 @@ def a_pair_for_combat(page):
 
 
 def test_the_combat_cycle_highlights_the_units_then_frees_them(board, monkeypatch):
-    monkeypatch.setattr(app, "roll_the_die", lambda: 1)
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
     dwarf, contact, orc = a_pair_for_combat(board)
 
     dwarf.click()
@@ -1006,7 +1007,7 @@ def test_the_units_that_have_fought_are_greyed_and_refuse_the_click(board, monke
     set-up offers - so we query the server's register to find out who must be greyed out, rather
     than bet on an outcome.
     """
-    monkeypatch.setattr(app, "roll_the_die", lambda: 1)
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
     dwarf, contact, orc = a_pair_for_combat(board)
 
     dwarf.click()
@@ -1023,8 +1024,9 @@ def test_the_units_that_have_fought_are_greyed_and_refuse_the_click(board, monke
     board.wait_for_selector("#attack", state="hidden")
 
     # What the server entered, minus the squares the combat cleared: that is what gets greyed out.
-    engaged_squares = {key for key in app.REGISTER.engaged_attackers | app.REGISTER.engaged_targets
-                       if key in app.BOARD.pieces}
+    register = current_game.REGISTER
+    engaged_squares = {key for key in register.engaged_attackers | register.engaged_targets
+                       if key in current_game.BOARD.pieces}
     assert engaged_squares, "the combat engaged nobody"
     board.wait_for_function(
         "(n) => document.querySelectorAll('img.piece.unavailable').length === n",
@@ -1044,7 +1046,7 @@ def test_the_units_that_have_fought_are_greyed_and_refuse_the_click(board, monke
 
 def test_the_next_phase_erases_the_greying(board, monkeypatch):
     """Each combat phase starts again with all its units: nothing is greyed out any more."""
-    monkeypatch.setattr(app, "roll_the_die", lambda: 1)
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
     dwarf, contact, orc = a_pair_for_combat(board)
 
     dwarf.click()
@@ -1066,7 +1068,7 @@ def test_the_next_phase_erases_the_greying(board, monkeypatch):
 
 def test_cancel_removes_the_combat_highlights(board):
     move_to_the_combat_phase(board)
-    orc = Hex.from_key(next(key for key, p in app.BOARD.pieces.items()
+    orc = Hex.from_key(next(key for key, p in current_game.BOARD.pieces.items()
                             if p.side == "tenebres"))
     click_the_hexagon(board, orc)
     board.wait_for_selector("img.piece.target")

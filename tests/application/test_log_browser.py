@@ -5,7 +5,8 @@ These engine require Chromium (`python3 -m playwright install chromium`).
 
 import pytest
 
-from tenebrae.application import app, battle_log
+from tenebrae.application import current_game
+from tenebrae.application.logs import battle_log
 from tenebrae.engine.hexagon import Hex
 from tenebrae.engine.piece import CATALOGUE
 
@@ -113,9 +114,9 @@ def test_the_combat_shows_the_breakdown_of_its_computation(board, monkeypatch):
     Both units are placed on the server's board before the phase change: it is the server that
     lays the scene out again, and they arrive with the rest.
     """
-    monkeypatch.setattr(app, "roll_the_die", lambda: 1)
-    app.BOARD.place(Hex(**PLAIN), CATALOGUE[DWARF])
-    app.BOARD.place(Hex(**NEIGHBOUR), CATALOGUE[ARCHER])
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
+    current_game.BOARD.place(Hex(**PLAIN), CATALOGUE[DWARF])
+    current_game.BOARD.place(Hex(**NEIGHBOUR), CATALOGUE[ARCHER])
     pass_a_phase(board, 1)  # the Dwarves' combat phase, and the scene laid out with both
 
     click(board, NEIGHBOUR)  # the target
@@ -133,9 +134,9 @@ def test_the_combat_shows_the_breakdown_of_its_computation(board, monkeypatch):
 
 def test_a_long_line_stays_inside_the_column(board, monkeypatch):
     """The breakdown is long: it must wrap inside the column, not make it overflow."""
-    monkeypatch.setattr(app, "roll_the_die", lambda: 1)
-    app.BOARD.place(Hex(**PLAIN), CATALOGUE[DWARF])
-    app.BOARD.place(Hex(**NEIGHBOUR), CATALOGUE[ARCHER])
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
+    current_game.BOARD.place(Hex(**PLAIN), CATALOGUE[DWARF])
+    current_game.BOARD.place(Hex(**NEIGHBOUR), CATALOGUE[ARCHER])
     pass_a_phase(board, 1)
     click(board, NEIGHBOUR)
     click(board, PLAIN)

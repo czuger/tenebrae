@@ -1,0 +1,237 @@
+"""The current game - one per process, in module globals - and the moves that change it.
+
+The server lays out a scenario's set-up - no. 4, "La guerre des nains" -, read once and for all
+from `tenebrae/scenarios/`. The rules are not here: the possible moves and their validation come
+from `tenebrae.engine`; this module holds the state the routes expose (`BOARD`, `TURN`, `REGISTER`,
+`SEATS`, `VERSION`), the snapshots the browsers receive of it, and the operations every move goes
+through. Only the die roll (`roll_the_die`) is here, so that the tests can fix it.
+
+Two ways of reaching the globals, and the difference matters:
+
+- `BOARD`, `TURN`, `REGISTER`, `SEATS` and `SCENARIO` are bound once and changed in place: import
+  them by name;
+- `VERSION` is rebound at every move, and `BROADCASTER` and `roll_the_die` are substituted by the
+  tests: read them from the module - `current_game.VERSION`, `current_game.roll_the_die()` - so
+  that the substitution reaches every caller.
+
+The game is **saved in MongoDB** through the repository `wire_persistence` hooked on
+(`persistence.py`), in state dicts, after every move; "/" resumes it where it was left. Each
+browser follows the game through an open stream, and `mark_a_move` is the only point from which
+anything is published: `lay_out_the_scenario` and `save_the_game` are its only callers. The
+snapshot it pushes carries the log, hence the rule every route follows: **log before marking the
+move**.
+"""
+
+import random
+from typing import Optional
+
+from tenebrae.application.logs.battle_log import LOG, log_lines
+from tenebrae.application.logs.combat_sentences import combat_message, describe_the_ratio
+from tenebrae.application.persistence import game_repository
+from tenebrae.application.pieces import PIECES_BY_KEY
+from tenebrae.application.stream import Broadcaster
+from tenebrae.engine import ai
+from tenebrae.engine.board import Board
+from tenebrae.engine.combat_register import CombatRegister
+from tenebrae.engine.hexagon import Hex
+from tenebrae.engine.models.seats import Seats
+from tenebrae.engine.phase import Turn
+from tenebrae.engine.piece import CATALOGUE
+from tenebrae.engine.repositories.game import GameState
+from tenebrae.engine.scenario import scenario
+
+# The scenario the server lays out: "La guerre des nains" (see `tenebrae/scenarios/README.md`).
+SCENARIO_NUMBER = 4
+
+# The set-up being played, read once at start-up.
+SCENARIO = scenario(SCENARIO_NUMBER)
+
+# The pieces currently placed: rebuilt at every board load, followed at every move.
+BOARD = Board()
+
+# The current phase: which side plays, and at what. Reset with the board at every load of "/".
+TURN = Turn(SCENARIO.sides, {army["camp"]: army["armee"] for army in SCENARIO.armies})
+
+# What the current combat phase has already consumed. Emptied at every phase change.
+REGISTER = CombatRegister()
+
+# Who holds which side. Unlike the board, **not rebuilt** at every load of "/" nor at every new
+# game: starting over does not send anyone away from the table.
+SEATS = Seats()
+
+# Rises by one at every move played: how the opponent's browser sees it has something to catch up
+# on. Also the SSE event identifier the browser sends back in `Last-Event-ID`.
+VERSION = 0
+
+# Whom to push the game to when it changes: one subscriber per open tab, in this process.
+BROADCASTER = Broadcaster()
+
+
+def roll_the_die() -> int:
+    """Rolls what the booklet calls "the die roll result".
+
+    Isolated so that the tests can fix it without touching the engine.
+
+    Returns:
+        An integer from 1 to 6.
+    """
+    return random.randint(1, 6)
+
+
+# --- The game state and its snapshots -----------------------------------------------------------
+
+
+def mark_a_move() -> int:
+    """Notes that a move has been played, and pushes it to the browsers following the game.
+
+    The compulsory passage of everything that moves - `lay_out_the_scenario` and `save_the_game`
+    are its only two callers. The snapshot is taken **here**, in the thread that has just written,
+    so that the stream generators never re-read the board from their own thread.
+
+    Returns:
+        The new version number.
+    """
+    global VERSION
+    VERSION += 1
+    BROADCASTER.publish(shared_snapshot())
+    return VERSION
+
+
+def shared_snapshot() -> dict[str, object]:
+    """Takes the game state that **all** spectators have in common.
+
+    The table is not part of it: it is the only part of the message composed per recipient, and
+    the stream adds it at the moment of writing. The log is part of it - hence the rule: **log
+    before marking the move**.
+
+    Returns:
+        `version`, `pieces`, `phase` and `log`.
+    """
+    return {"version": VERSION, "pieces": placed_units(), "phase": current_phase(),
+            "log": log_lines()}
+
+
+def lay_out_the_scenario() -> list[dict[str, object]]:
+    """Rebuilds the server's board from the scenario, and marks the move.
+
+    The table is not touched: starting a game over sends nobody away from their seat. The move is
+    marked **once the pieces are placed**: a snapshot taken between the `clear` and the placing
+    would show a deserted board.
+
+    Returns:
+        The placed units, for display.
+    """
+    BOARD.clear()
+    TURN.restart()
+    REGISTER.reset()
+    for square, key in SCENARIO.placement.items():
+        BOARD.place(Hex.from_key(square), CATALOGUE[key])
+    mark_a_move()
+    return placed_units()
+
+
+def unavailable_units() -> dict[str, list[dict[str, Optional[int] | Optional[str]]]]:
+    """Lists the squares of units that can no longer attack, or be attacked, this phase.
+
+    Squares cleared by combat are discarded: the browser no longer has a piece there to grey out.
+
+    Returns:
+        `attackers` and `targets`, each a list of serialised hexagons.
+    """
+    placed = BOARD.pieces
+    return {
+        "attackers": [Hex.from_key(key).to_dict()
+                      for key in sorted(REGISTER.engaged_attackers) if key in placed],
+        "targets": [Hex.from_key(key).to_dict()
+                    for key in sorted(REGISTER.engaged_targets) if key in placed],
+    }
+
+
+def current_phase() -> dict[str, object]:
+    """Serialises the phase as the browser receives it.
+
+    Returns:
+        The turn's dict, plus `unavailable`.
+    """
+    return TURN.to_dict() | {"unavailable": unavailable_units()}
+
+
+def placed_units() -> list[dict[str, object]]:
+    """Serialises the board's units in the form the browser expects.
+
+    Everything that is not the square comes from the display catalogue, plus the tilt, which is of
+    the board and not of the counter. `path` is renamed to `image`, what the browser puts into
+    `src`.
+
+    Returns:
+        One entry per placed piece.
+    """
+    placed: list[dict[str, object]] = []
+    for square, placed_piece in BOARD.pieces.items():
+        hexagon = Hex.from_key(square)
+        piece = dict(PIECES_BY_KEY[placed_piece.key])
+        placed.append({"q": hexagon.q, "r": hexagon.r, "s": hexagon.s,
+                       "tilt": BOARD.tilt_on(hexagon),
+                       "image": piece.pop("path"), **piece})
+    return placed
+
+
+# --- The saved game -----------------------------------------------------------------------------
+
+
+def snapshot_the_game() -> GameState:
+    """Takes the server's whole game state, in the form the repository writes.
+
+    Returns:
+        The scenario number, the board, the turn, the combat register and the seats.
+    """
+    register = REGISTER.to_dict()
+    return {"scenario": SCENARIO_NUMBER,
+            "placement": BOARD.to_dict(),
+            "tilts": BOARD.tilts,
+            "active_side": TURN.active_side,
+            "phase_type": TURN.phase_type,
+            "turn_number": TURN.number,
+            "engaged_attackers": register["engaged_attackers"],
+            "engaged_targets": register["engaged_targets"],
+            "seats": SEATS.to_dict()["seats"]}
+
+
+def restore_the_game(state: GameState) -> None:
+    """Puts the board, the turn, the combat register and the table back as a saved game held them.
+
+    Args:
+        state: The saved state. `tilts` and `seats` are read with `.get`: games saved before they
+            existed must stay resumable.
+    """
+    BOARD.restore(state["placement"], state.get("tilts"))
+    TURN.restore(state["active_side"], state["phase_type"], state["turn_number"])
+    REGISTER.restore(state["engaged_attackers"], state["engaged_targets"])
+    SEATS.restore(state.get("seats"))
+
+
+def save_the_game() -> None:
+    """Records the game after a move played - a move, a combat, a phase change - and marks it."""
+    mark_a_move()
+    game_repository().save(snapshot_the_game())
+
+
+def let_the_ai_play() -> None:
+    """Lets the AI play its whole turn if it holds the active side, then saves the game.
+
+    Movement, combat, and play handed back to the other side, within the request. An `if`, not a
+    `while`: the AI holds only one side and always hands play back, so a save never lands on a
+    phase held by the AI.
+    """
+    if SEATS.occupant(TURN.active_side) != ai.AI_PLAYER:
+        return
+    moves, combats = ai.play_turn(BOARD, TURN, REGISTER, roll_the_die)
+    for origin, destination in moves:
+        LOG.info("AI: move %s → %s", origin.key, destination.key)
+    for target, attackers, result in combats:
+        if result.breakdown is not None:
+            LOG.info("AI: %s", describe_the_ratio(result))
+        LOG.info("AI: %s attacker(s) on %s — %s", len(attackers), target.key,
+                 combat_message(result))
+    LOG.info("AI: turn played — %s (turn %s)", TURN.label, TURN.number)
+    save_the_game()

@@ -72,7 +72,7 @@ class TestNewGameAgainstTheAI:
         assert app.BOARD.to_dict() == app.SCENARIO.placement
 
     def test_the_ai_plays_immediately_when_it_opens(self, darkness_client, deserted_map,
-                                                   monkeypatch):
+                                                    monkeypatch):
         monkeypatch.setattr(app, "roll_the_die", lambda: 1)
         answer = darkness_client.post("/game/new", json={"against_ai": True})
         assert answer.status_code == 200

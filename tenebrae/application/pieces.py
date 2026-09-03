@@ -64,7 +64,7 @@ def load_pieces() -> list[PieceEntry]:
         One entry per piece, sorted by photograph, with `key`, `path`, `name`, `movement`, `side`
         and everything the counter carries.
     """
-    pieces = []
+    pieces: list[PieceEntry] = []
     for piece in sorted(CATALOGUE.values(), key=lambda piece: piece.image):
         path = PIECES / piece.image.removeprefix("game_box/pions/")
         relative = f"{path.parent.name}/{path.name}"

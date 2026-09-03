@@ -333,6 +333,7 @@ class TestPersistedSeats:
             assert Player.objects.count() == 1
             assert repository.by_discord_id(DWARF_PLAYER)["nickname"] == "Vorgtd le Grand"
 
+
 class TestPersistedTilts:
     """The angle each counter lies at is part of the saved game.
 

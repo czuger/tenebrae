@@ -1,0 +1,13 @@
+# flake8's configuration: it does not read pyproject.toml, where mypy's is.
+#
+# The suite runs it (tests/test_static_checks.py); `make lint` runs it alone. The line length is
+# the one the code and the comments wrap at.
+
+[flake8]
+max-line-length = 100
+extend-exclude = build,htmlcov,material,.pytest_cache,.mypy_cache,.idea
+
+# extract_map.py names the lattice with the notation of game_box/map.md - the matrix A, the
+# origin O - and E741 ("ambiguous variable name") would have the origin renamed.
+per-file-ignores =
+    tenebrae/game_box/extract_map.py: E741

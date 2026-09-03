@@ -121,6 +121,13 @@ def sentence(strengths, target_strength, terrain, multiplier, die_bonus, roll):
         combat.CombatResult(breakdown.outcome, [], breakdown.ratio, breakdown.die, breakdown))
 
 
+def test_an_unresolved_combat_has_no_ratio_to_describe():
+    """The routes look at `breakdown` before asking; asked all the same, the sentence refuses
+    rather than describe nothing."""
+    with pytest.raises(ValueError, match="not resolved"):
+        app.describe_the_ratio(combat.CombatResult(None, [], None, None))
+
+
 @pytest.mark.parametrize("why, computation, written", [
     ("the terrain is named even when it changes nothing - that is what one came for",
      ([12], 2, "plaine", 1, 0, 1),
@@ -220,7 +227,7 @@ def log_on_disk(tmp_path):
 
     def open_one(lines_per_file=3, files_kept=2):
         handler = rotating_log.RotatingLog(tmp_path / "logs" / "battle_log.log",
-                                  lines_per_file, files_kept)
+                                           lines_per_file, files_kept)
         opened.append(handler)
         return handler
 

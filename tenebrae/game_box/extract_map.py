@@ -323,7 +323,7 @@ def local_background(yellowness: np.ndarray, ok: np.ndarray) -> np.ndarray:
             g = _fill_holes(g, 400)
             g = ndi.gaussian_filter(g, 1.5)
             background = np.array(
-                Image.fromarray(g.astype(np.float32)).resize((W, H), Image.BICUBIC))
+                Image.fromarray(g.astype(np.float32)).resize((W, H), Image.Resampling.BICUBIC))
             relative = yellowness - background
             valid = (ok & (relative > -22))[:hh * D, :ww * D].reshape(hh, D, ww, D)
     return yellowness - background
@@ -374,7 +374,7 @@ def global_background(yellowness: np.ndarray, ok: np.ndarray) -> np.ndarray:
                               v.sum(axis=(1, 3)) / np.maximum(count, 1), np.nan)
         correction = ndi.gaussian_filter(_fill_holes(correction, 3000), 3.0)
         background = background + np.array(
-            Image.fromarray(correction.astype(np.float32)).resize((W, H), Image.BICUBIC))
+            Image.fromarray(correction.astype(np.float32)).resize((W, H), Image.Resampling.BICUBIC))
     return yellowness - background
 
 
@@ -503,8 +503,8 @@ COLOURS = {"plaine": (190, 225, 110), "bois": (30, 105, 50), "montagne": (140, 9
            "ile": (0, 210, 180)}
 
 
-def classify(F: dict[str, np.ndarray]) -> tuple[dict[tuple[int, int], str],
-                                                 dict[tuple[int, int], list[str]]]:
+def classify(F: dict[str, np.ndarray],
+             ) -> tuple[dict[tuple[int, int], str], dict[tuple[int, int], list[str]]]:
     """Decides the main terrain and the complete list of elements, hexagon by hexagon.
 
     Priority: built places > lake > mountain > hill > woods > rift > river > road > path > plain.

@@ -132,6 +132,7 @@ exercising is written as a test beside the others. Browser checks are Playwright
 | `make test` | starts a test MongoDB in Docker (port 27018, db `tenebrae_test`), runs the suite |
 | `make test-fast` | same without a base: tests needing MongoDB skip |
 | `make test-browser` | Chromium tests only |
+| `make lint` | flake8 then mypy alone; the suite runs both as tests (`tests/test_static_checks.py`) |
 | `make coverage` / `coverage-fast` | the suite measured over `tenebrae/`; `htmlcov/index.html` |
 | `make mongo-stop` | removes the container (it stays up between runs) |
 | `make browser` | installs Chromium for Playwright |

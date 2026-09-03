@@ -161,8 +161,8 @@ class Hex:
     @property
     def key(self) -> str:
         """The "q,r,s" key under which the map knows this hexagon."""
-        self._require_a_position()
-        return f"{self.q},{self.r},{self.s}"
+        q, r, s = self._position()
+        return f"{q},{r},{s}"
 
     @property
     def is_on_map(self) -> bool:
@@ -172,7 +172,7 @@ class Hex:
     @property
     def elements(self) -> tuple[str, ...]:
         """Everything the hexagon carries, main terrain first; empty if it is off the map."""
-        self._require_a_position()
+        self._position()
         return MAP.get(self.key, ())
 
     @property
@@ -187,8 +187,8 @@ class Hex:
         Returns:
             At most six hexagons, in the order of `DIRECTIONS`.
         """
-        self._require_a_position()
-        neighbours = (Hex(self.q + dq, self.r + dr, self.s + ds) for dq, dr, ds in DIRECTIONS)
+        q, r, s = self._position()
+        neighbours = (Hex(q + dq, r + dr, s + ds) for dq, dr, ds in DIRECTIONS)
         return [neighbour for neighbour in neighbours if neighbour.is_on_map]
 
     def distance(self, other: "Hex") -> int:
@@ -200,9 +200,9 @@ class Hex:
         Returns:
             The cube distance: it says nothing about the cost of the trip, only about the spacing.
         """
-        self._require_a_position()
-        other._require_a_position()
-        return max(abs(self.q - other.q), abs(self.r - other.r), abs(self.s - other.s))
+        q, r, s = self._position()
+        other_q, other_r, other_s = other._position()
+        return max(abs(q - other_q), abs(r - other_r), abs(s - other_s))
 
     def cost_from(self, origin: "Hex") -> Optional[Fraction]:
         """Computes the movement points a ground unit spends to enter this hexagon.
@@ -216,7 +216,9 @@ class Hex:
         if not self.is_on_map or not origin.is_on_map:
             return None
 
-        elements, terrain = self.elements, self.terrain
+        # On the map, the elements always start with the main terrain.
+        elements = self.elements
+        terrain = elements[0]
         if terrain in IMPASSABLE:
             return None
         if terrain == "montagne" and origin.terrain not in MOUNTAIN_ACCESS:
@@ -247,13 +249,13 @@ class Hex:
         Returns:
             The reachable hexagons, in no particular order.
         """
-        self._require_a_position()
+        q, r, _ = self._position()
         if not self.is_on_map or self.terrain in UNINHABITABLE:
             return []
 
         budget = Fraction(movement)
         spent = {self.key: Fraction(0)}
-        pending = [(Fraction(0), self.q, self.r, self)]
+        pending = [(Fraction(0), q, r, self)]
         while pending:
             cost_so_far, _, _, hexagon = heapq.heappop(pending)
             if cost_so_far > spent[hexagon.key]:
@@ -275,7 +277,8 @@ class Hex:
                 total = cost_so_far + cost
                 if total <= budget and total < spent.get(neighbour.key, budget + 1):
                     spent[neighbour.key] = total
-                    heapq.heappush(pending, (total, neighbour.q, neighbour.r, neighbour))
+                    neighbour_q, neighbour_r, _ = neighbour._position()
+                    heapq.heappush(pending, (total, neighbour_q, neighbour_r, neighbour))
 
         del spent[self.key]
         return [Hex.from_key(key) for key in spent]
@@ -290,14 +293,18 @@ class Hex:
             return {"q": None, "r": None, "s": None, "terrain": None}
         return {"q": self.q, "r": self.r, "s": self.s, "terrain": self.terrain}
 
-    def _require_a_position(self) -> None:
-        """Refuses an empty hexagon where a position is needed.
+    def _position(self) -> tuple[int, int, int]:
+        """Reads the coordinates where a position is needed, refusing an empty hexagon.
+
+        Returns:
+            `(q, r, s)`.
 
         Raises:
             ValueError: If the hexagon is empty.
         """
-        if self.is_empty:
+        if self.q is None or self.r is None or self.s is None:
             raise ValueError("this hexagon is empty: it has no position on the map")
+        return self.q, self.r, self.s
 
     def __eq__(self, other: object) -> bool:
         """Two hexagons are equal when their coordinates are."""

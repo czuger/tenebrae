@@ -6,16 +6,26 @@ template, and it is what the application's connection entity
 (`tenebrae/application/models/connection.py`) receives when it asks "who is in session".
 """
 
-from collections.abc import Mapping
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, NotRequired, Optional, TypedDict
 
 if TYPE_CHECKING:
     from tenebrae.engine.models.player import Player
 
-# A player as the routes see them, and an identity as Discord reports it: the same five fields,
-# every value a string or `None`.
-PlayerRecord = dict[str, Optional[str]]
+
+class PlayerRecord(TypedDict):
+    """A player as the routes see them, and an identity as Discord reports it.
+
+    The identifier and the nickname are always there. The other three are what Discord may add:
+    an identity may leave them out, and the repositories then record `None` and give back the
+    five fields every time.
+    """
+
+    discord_id: str
+    nickname: str
+    display_name: NotRequired[Optional[str]]
+    avatar: NotRequired[Optional[str]]
+    email: NotRequired[Optional[str]]
 
 
 class MongoPlayerRepository:
@@ -30,7 +40,7 @@ class MongoPlayerRepository:
         from tenebrae.engine.models.player import Player
         self._Player = Player
 
-    def record(self, identity: Mapping[str, Optional[str]]) -> PlayerRecord:
+    def record(self, identity: PlayerRecord) -> PlayerRecord:
         """Creates the player or updates what Discord has just said about them.
 
         A read then a write, rather than an `upsert`: mongomock renders mongoengine's poorly, the
@@ -104,7 +114,7 @@ class InMemoryPlayerRepository:
         """Opens an empty register of players."""
         self._by_discord_id = {}
 
-    def record(self, identity: Mapping[str, Optional[str]]) -> PlayerRecord:
+    def record(self, identity: PlayerRecord) -> PlayerRecord:
         """Creates or updates a player from what Discord reported.
 
         Args:
@@ -113,11 +123,12 @@ class InMemoryPlayerRepository:
         Returns:
             A copy of the player as recorded.
         """
-        player = {"discord_id": identity["discord_id"], "nickname": identity["nickname"],
-                  "display_name": identity.get("display_name"),
-                  "avatar": identity.get("avatar"), "email": identity.get("email")}
+        player: PlayerRecord = {"discord_id": identity["discord_id"],
+                                "nickname": identity["nickname"],
+                                "display_name": identity.get("display_name"),
+                                "avatar": identity.get("avatar"), "email": identity.get("email")}
         self._by_discord_id[player["discord_id"]] = player
-        return dict(player)
+        return player.copy()
 
     def by_discord_id(self, discord_id: str) -> Optional[PlayerRecord]:
         """Finds a player by Discord identifier.
@@ -129,4 +140,4 @@ class InMemoryPlayerRepository:
             A copy of the player, or `None` if none is known by that identifier.
         """
         player = self._by_discord_id.get(discord_id)
-        return dict(player) if player else None
+        return player.copy() if player else None

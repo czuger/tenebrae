@@ -159,9 +159,9 @@ class DiscordClient:
                 return json.load(answer)
         except HTTPError as trouble:
             # The detail (`invalid_grant`, ...) is in the body, which `str(trouble)` does not show.
-            body = trouble.read().decode("utf-8", "replace")
+            detail = trouble.read().decode("utf-8", "replace")
             raise DiscordError(
-                f"Discord answered {trouble.code} {trouble.reason} to {url}: {body}") from trouble
+                f"Discord answered {trouble.code} {trouble.reason} to {url}: {detail}") from trouble
         except (URLError, ValueError, TimeoutError) as trouble:
             raise DiscordError(f"Discord did not answer {url}: {trouble!r}") from trouble
 
@@ -185,13 +185,13 @@ class FakeDiscordClient:
     served_identity: PlayerRecord
     exchanged_codes: list[str]
 
-    def __init__(self, identity: Optional[Mapping[str, Optional[str]]] = None) -> None:
+    def __init__(self, identity: Optional[PlayerRecord] = None) -> None:
         """Chooses the account the client will report.
 
         Args:
             identity: The account served; `DEFAULT_IDENTITY` when omitted.
         """
-        self.served_identity = dict(identity or DEFAULT_IDENTITY)
+        self.served_identity = (identity or DEFAULT_IDENTITY).copy()
         self.exchanged_codes = []
 
     def authorization_url(self, state: str) -> str:
@@ -226,4 +226,4 @@ class FakeDiscordClient:
         Returns:
             A copy of `served_identity`.
         """
-        return dict(self.served_identity)
+        return self.served_identity.copy()

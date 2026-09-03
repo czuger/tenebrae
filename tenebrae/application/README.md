@@ -780,6 +780,10 @@ Without Docker, `make test-fast` runs the same suite without a base: the tests r
 MongoDB skip themselves. `make mongo-stop` removes the container, which otherwise stays up from one
 series to the next. `ARGS` passes arguments to pytest: `make test ARGS="-k persistence -v"`.
 
+The suite also runs the two static checks, flake8 (`.flake8`) and mypy (`[tool.mypy]` in
+`pyproject.toml`), as tests of their own (`tests/test_static_checks.py`): a line too long or a
+type that does not add up fails it with the tool's report. `make lint` runs the two alone.
+
 `make coverage` runs that same suite and reports what it covers of `tenebrae/` — the missing lines
 in the terminal, the source coloured in `htmlcov/index.html`. Chromium is measured with the rest:
 the browser tests reach the routes through the page that serves them, and dropping them can only

@@ -146,9 +146,9 @@ def test_a_departure_from_a_host_other_than_the_returns_is_logged(anonymous_clie
     both hosts are known, so at departure that the log must say so."""
     anonymous_client.get("/login", base_url=OTHER_HOST)
     assert log[-1]["text"] == ("Login: departure from localhost:5000, but Discord will send "
-                              "back to 127.0.0.1:5000 — the session cookie set here will "
-                              "not come back; open the map on "
-                              "http://127.0.0.1:5000/")
+                               "back to 127.0.0.1:5000 — the session cookie set here will "
+                               "not come back; open the map on "
+                               "http://127.0.0.1:5000/")
 
 
 def test_a_departure_from_the_returns_host_says_nothing(anonymous_client, log):
@@ -159,7 +159,7 @@ def test_a_departure_from_the_returns_host_says_nothing(anonymous_client, log):
 def test_a_state_absent_from_the_session_is_logged(anonymous_client, log):
     anonymous_client.get("/login/return?code=x&state=a-state")
     assert log[-1]["text"] == ("Login refused: authentication state absent from the "
-                              "session (host localhost, session cookie absent)")
+                               "session (host localhost, session cookie absent)")
 
 
 def test_a_cookie_signed_by_another_key_is_called_unreadable(anonymous_client, log):
@@ -169,8 +169,8 @@ def test_a_cookie_signed_by_another_key_is_called_unreadable(anonymous_client, l
     anonymous_client.set_cookie("session", "a-cookie-signed-by-another-key")
     anonymous_client.get("/login/return?code=x&state=a-state")
     assert log[-1]["text"] == ("Login refused: authentication state absent from the "
-                              "session (host localhost, session cookie present but "
-                              "unreadable — signed by another SECRET_KEY?)")
+                               "session (host localhost, session cookie present but "
+                               "unreadable — signed by another SECRET_KEY?)")
 
 
 def test_a_session_rewritten_meanwhile_shows_what_it_carries(anonymous_client, log):
@@ -180,24 +180,24 @@ def test_a_session_rewritten_meanwhile_shows_what_it_carries(anonymous_client, l
     log_in(anonymous_client)
     anonymous_client.get("/login/return?code=x&state=a-state")
     assert log[-1]["text"] == ("Login refused: authentication state absent from the "
-                              "session (host localhost, session cookie readable, "
-                              "session carrying _permanent, joueur)")
+                               "session (host localhost, session cookie readable, "
+                               "session carrying _permanent, joueur)")
 
 
 def test_a_state_absent_from_the_request_is_logged(anonymous_client, log):
     anonymous_client.get("/login")
     anonymous_client.get("/login/return?code=x")
     assert log[-1]["text"] == ("Login refused: authentication state absent from the "
-                              "request (host localhost, session cookie readable, "
-                              "session empty)")
+                               "request (host localhost, session cookie readable, "
+                               "session empty)")
 
 
 def test_a_different_state_is_logged(anonymous_client, log):
     anonymous_client.get("/login")
     anonymous_client.get("/login/return?code=x&state=an-invented-state")
     assert log[-1]["text"] == ("Login refused: authentication state different from the "
-                              "session's (host localhost, session cookie "
-                              "readable, session empty)")
+                               "session's (host localhost, session cookie "
+                               "readable, session empty)")
 
 
 def test_a_missing_code_is_logged(anonymous_client, log):

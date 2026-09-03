@@ -20,6 +20,7 @@ ARCHER = "yzent-03-8-archers"              # darkness, strength 2, fire 4, range
 ELF = "elfes-01-5-infanteries"             # alliance, strength 7
 CROSSBOWMAN = "nains-02-4-arbaletriers"    # alliance, strength 6, fire 4, range 2
 HEAVY_CROSSBOWMAN = "nains-03-4-arbaletriers-lourds"   # alliance, strength 8, fire 5
+MARKER = "marqueurs-03-paralysie"          # a marker: no strength printed
 
 
 def hexagon_of_terrain(terrain):
@@ -245,7 +246,8 @@ class TestRatioBreakdown:
                 breakdown.defending_strength) == (8, 2, 16)
 
     def test_the_breakdown_keeps_the_roll_and_the_terrain_bonus(self):
-        """The result's die is already modified: without the breakdown, the raw roll would be lost."""
+        """The result's die is already modified: without the breakdown, the raw roll would be
+        lost."""
         hill = hexagon_of_terrain("colline")
         _, attacker, *_ = ring_of(hill)
         board = Board([(hill, piece(ORC)), (attacker, piece(DWARF))])
@@ -273,6 +275,13 @@ class TestRatioBreakdown:
         target, attacker = pair
         board = Board([(attacker, piece(DWARF))])
         assert combat.fight(board, target, [attacker], roll=6).breakdown is None
+
+    def test_a_defender_without_a_legible_strength_has_no_ratio(self, pair):
+        """`fight` answers with an unresolved combat; `break_down` itself, asked directly,
+        refuses rather than multiply nothing."""
+        target, _ = pair
+        with pytest.raises(ValueError, match="no legible strength"):
+            combat.break_down([12], piece(MARKER), target, roll=1)
 
     def test_resolve_reads_the_same_computation(self, pair):
         """`resolve` and `fight` both go through `break_down`: a single reading of the terrain."""

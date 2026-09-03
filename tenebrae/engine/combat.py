@@ -83,6 +83,8 @@ def defence_multiplier(hexagon: Hex, defending_piece: Piece) -> int:
         1, 2 or 3.
     """
     terrain = hexagon.terrain
+    if terrain is None:
+        return 1
     if terrain == "bois":
         return 2 if defending_piece.faction == ELVES_FACTION else 1
     return DEFENCE_MULTIPLIERS.get(terrain, 1)
@@ -126,7 +128,8 @@ def combat_range(piece: Piece) -> int:
     Returns:
         Its firing range if it fires, 1 otherwise.
     """
-    if fires_missiles(piece):
+    # `fires_missiles` has already required the range; the second test only narrows its type.
+    if fires_missiles(piece) and piece.range is not None:
         return piece.range
     return 1
 
@@ -233,7 +236,12 @@ def break_down(attacking_strengths: Iterable[int], defending_piece: Piece,
 
     Returns:
         The breakdown of the computation.
+
+    Raises:
+        ValueError: If the defender has no legible strength: there is no ratio to compute.
     """
+    if defending_piece.strength is None:
+        raise ValueError(f"{defending_piece.key} has no legible strength: no ratio to compute")
     return RatioBreakdown(
         strengths=attacking_strengths,
         target_strength=defending_piece.strength,
@@ -319,9 +327,9 @@ def fight(board: Board, target_hexagon: Hex, attacker_hexagons: Sequence[Hex],
         The result; its `outcome` is `None` if the target is absent or has no legible strength.
     """
     target_piece = board.piece_on(target_hexagon)
-    strengths = [board.piece_on(hexagon).strength
-                 for hexagon in attacker_hexagons
-                 if board.piece_on(hexagon) and board.piece_on(hexagon).strength is not None]
+    attacking_pieces = [board.piece_on(hexagon) for hexagon in attacker_hexagons]
+    strengths = [piece.strength for piece in attacking_pieces
+                 if piece is not None and piece.strength is not None]
     if target_piece is None or target_piece.strength is None or not strengths:
         return CombatResult(None, [], None, None)
 

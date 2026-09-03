@@ -48,13 +48,15 @@ import random
 import secrets
 from collections.abc import Callable, Iterator, Mapping
 from functools import wraps
-from typing import Optional
+from typing import Optional, cast
 from urllib.parse import urlparse
 
 from itsdangerous import BadSignature
 from flask import Blueprint, Flask, abort, current_app, g, redirect, render_template, \
     request, send_from_directory, session, url_for
+from flask.sessions import SecureCookieSessionInterface
 from flask.typing import ResponseReturnValue
+from werkzeug.local import LocalProxy
 
 from tenebrae.application.battle_log import LOG, log_lines
 from tenebrae.application.config import Config
@@ -180,8 +182,13 @@ def describe_the_ratio(result: CombatResult) -> str:
 
     Returns:
         The sentence.
+
+    Raises:
+        ValueError: If the combat was not resolved: there is no computation to describe.
     """
     breakdown = result.breakdown
+    if breakdown is None:
+        raise ValueError("this combat was not resolved: no ratio to describe")
     attack = " + ".join(str(strength) for strength in breakdown.strengths)
     if len(breakdown.strengths) > 1:
         attack += f" = {breakdown.attacking_strength}"
@@ -198,6 +205,21 @@ def describe_the_ratio(result: CombatResult) -> str:
     ratio = "-".join(map(str, breakdown.ratio))
     return (f"Rapport {ratio} : attaque {attack} contre défense {defence} "
             f"({breakdown.terrain}) — dé {die}")
+
+
+def combat_message(result: CombatResult) -> str:
+    """Puts a combat's outcome into the French sentence the log and the browser show.
+
+    Args:
+        result: The combat, resolved or not.
+
+    Returns:
+        The sentence of `COMBAT_MESSAGES`, or `NO_EFFECT_MESSAGE` for a retreat as for an
+        unresolved combat.
+    """
+    if result.outcome is None:
+        return NO_EFFECT_MESSAGE
+    return COMBAT_MESSAGES.get(result.outcome, NO_EFFECT_MESSAGE)
 
 
 # --- The game state and its snapshots -----------------------------------------------------------
@@ -252,7 +274,7 @@ def lay_out_the_scenario() -> list[dict[str, object]]:
     return placed_units()
 
 
-def unavailable_units() -> dict[str, list[dict[str, object]]]:
+def unavailable_units() -> dict[str, list[dict[str, Optional[int] | Optional[str]]]]:
     """Lists the squares of units that can no longer attack, or be attacked, this phase.
 
     Squares cleared by combat are discarded: the browser no longer has a piece there to grey out.
@@ -288,13 +310,13 @@ def placed_units() -> list[dict[str, object]]:
     Returns:
         One entry per placed piece.
     """
-    placed = []
+    placed: list[dict[str, object]] = []
     for square, placed_piece in BOARD.pieces.items():
         hexagon = Hex.from_key(square)
         piece = dict(PIECES_BY_KEY[placed_piece.key])
         placed.append({"q": hexagon.q, "r": hexagon.r, "s": hexagon.s,
                        "tilt": BOARD.tilt_on(hexagon),
-                       "image": piece.pop("path")} | piece)
+                       "image": piece.pop("path"), **piece})
     return placed
 
 
@@ -369,12 +391,16 @@ def snapshot_the_game() -> GameState:
     Returns:
         The scenario number, the board, the turn, the combat register and the seats.
     """
+    register = REGISTER.to_dict()
     return {"scenario": SCENARIO_NUMBER,
             "placement": BOARD.to_dict(),
             "tilts": BOARD.tilts,
             "active_side": TURN.active_side,
             "phase_type": TURN.phase_type,
-            "turn_number": TURN.number} | REGISTER.to_dict() | SEATS.to_dict()
+            "turn_number": TURN.number,
+            "engaged_attackers": register["engaged_attackers"],
+            "engaged_targets": register["engaged_targets"],
+            "seats": SEATS.to_dict()["seats"]}
 
 
 def restore_the_game(state: GameState) -> None:
@@ -409,10 +435,10 @@ def let_the_ai_play() -> None:
     for origin, destination in moves:
         LOG.info("AI: move %s → %s", origin.key, destination.key)
     for target, attackers, result in combats:
-        message = COMBAT_MESSAGES.get(result.outcome, NO_EFFECT_MESSAGE)
         if result.breakdown is not None:
             LOG.info("AI: %s", describe_the_ratio(result))
-        LOG.info("AI: %s attacker(s) on %s — %s", len(attackers), target.key, message)
+        LOG.info("AI: %s attacker(s) on %s — %s", len(attackers), target.key,
+                 combat_message(result))
     LOG.info("AI: turn played — %s (turn %s)", TURN.label, TURN.number)
     save_the_game()
 
@@ -454,6 +480,21 @@ def current_player() -> Optional[PlayerRecord]:
     return g.player
 
 
+def logged_in_player() -> PlayerRecord:
+    """Reads the session's player where a route requires one.
+
+    The routes behind `login_required` call this rather than `current_player`: the decorator has
+    already turned the anonymous visitor away, with its own message.
+
+    Returns:
+        The player; 401 if there is none.
+    """
+    player = current_player()
+    if player is None:
+        abort(401, "no player logged in")
+    return player
+
+
 def is_administrator(player: Optional[PlayerRecord]) -> bool:
     """Says whether a player may fix the map.
 
@@ -489,14 +530,16 @@ def table_for(player: Optional[PlayerRecord]) -> dict[str, object]:
         `connected`, `nickname`, `avatar`, `administrator`, `sides`, `armies`, `seats`.
     """
 
-    def occupant_of(side: str) -> Optional[PlayerRecord]:
-        """The player seated at this side; the AI is not in base, it only has a name."""
+    def nickname_at(side: str) -> Optional[str]:
+        """The nickname of whoever holds this side; the AI is not in base, it only has a name."""
         occupant = SEATS.occupant(side)
+        if occupant is None:
+            return None
         if occupant == ai.AI_PLAYER:
-            return {"nickname": ai.AI_NAME}
-        return player_repository().by_discord_id(occupant)
+            return ai.AI_NAME
+        seated = player_repository().by_discord_id(occupant)
+        return seated["nickname"] if seated else None
 
-    occupants = {side: occupant_of(side) for side in SCENARIO.sides}
     return {
         "connected": player is not None,
         "nickname": player["nickname"] if player else None,
@@ -505,8 +548,7 @@ def table_for(player: Optional[PlayerRecord]) -> dict[str, object]:
         # A list: ordinarily zero or one side, but the test suite seats one player on both.
         "sides": SEATS.sides_of(player["discord_id"]) if player else [],
         "armies": {army["camp"]: army["armee"] for army in SCENARIO.armies},
-        "seats": {side: (occupant["nickname"] if occupant else None)
-                  for side, occupant in occupants.items()},
+        "seats": {side: nickname_at(side) for side in SCENARIO.sides},
     }
 
 
@@ -541,7 +583,7 @@ def seat_required(view: RouteFunction) -> RouteFunction:
     @login_required
     def wrapper(*args: object, **kwargs: object) -> ResponseReturnValue:
         """Answers 403 to a spectator, or lets the route through."""
-        if not SEATS.sides_of(current_player()["discord_id"]):
+        if not SEATS.sides_of(logged_in_player()["discord_id"]):
             return {"allowed": False, "message": "Prenez place à un camp pour jouer."}, 403
         return view(*args, **kwargs)
     return wrapper
@@ -564,7 +606,7 @@ def active_side_required(view: RouteFunction) -> RouteFunction:
     @login_required
     def wrapper(*args: object, **kwargs: object) -> ResponseReturnValue:
         """Answers 403 out of turn, or lets the route through."""
-        if not SEATS.holds(current_player()["discord_id"], TURN.active_side):
+        if not SEATS.holds(logged_in_player()["discord_id"], TURN.active_side):
             return {"allowed": False,
                     "message": f"C'est au camp {TURN.active_army} de jouer."}, 403
         return view(*args, **kwargs)
@@ -637,7 +679,8 @@ def warn_if_the_return_lands_on_another_host() -> None:
 
 
 def session_cookie_state() -> str:
-    """Describes the session cookie as it arrived: absent, unreadable, or readable and carrying what.
+    """Describes the session cookie as it arrived: absent, unreadable, or readable and carrying
+    what.
 
     Unreadable means signed by another `SECRET_KEY`. Readable but without the state means another
     request rewrote the cookie between the outward and return trips; the keys it carries say where
@@ -649,8 +692,13 @@ def session_cookie_state() -> str:
     cookie = request.cookies.get(current_app.config["SESSION_COOKIE_NAME"])
     if cookie is None:
         return "session cookie absent"
+    interface = current_app.session_interface
+    serializer = (interface.get_signing_serializer(current_app)
+                  if isinstance(interface, SecureCookieSessionInterface) else None)
+    if serializer is None:
+        return "session cookie present, but the application cannot verify its signature"
     try:
-        current_app.session_interface.get_signing_serializer(current_app).loads(cookie)
+        serializer.loads(cookie)
     except BadSignature:
         return "session cookie present but unreadable — signed by another SECRET_KEY?"
     contents = ", ".join(sorted(session.keys()))
@@ -736,7 +784,7 @@ def take_a_seat() -> ResponseReturnValue:
     if side not in SCENARIO.sides:
         abort(400, f"unknown side; expected one of {', '.join(SCENARIO.sides)}")
 
-    player = current_player()["discord_id"]
+    player = logged_in_player()["discord_id"]
     if SEATS.holds(player, side):
         return {"seated": True, "side": side} | the_table()
     if SEATS.sides_of(player):
@@ -745,7 +793,7 @@ def take_a_seat() -> ResponseReturnValue:
         return {"seated": False, "message": "Ce camp est déjà tenu."} | the_table(), 409
 
     SEATS.seat(side, player)
-    LOG.info("Seat taken: %s by %s", side, current_player()["nickname"])
+    LOG.info("Seat taken: %s by %s", side, logged_in_player()["nickname"])
     save_the_game()
     return {"seated": True, "side": side} | the_table()
 
@@ -758,7 +806,7 @@ def leave_the_seat() -> ResponseReturnValue:
     Returns:
         `{"seated": False}` and the table.
     """
-    player = current_player()["discord_id"]
+    player = logged_in_player()["discord_id"]
     for side in SEATS.sides_of(player):
         SEATS.free(side)
     save_the_game()
@@ -780,7 +828,7 @@ def record_the_view() -> ResponseReturnValue:
     view = read_a_view(request.get_json(silent=True))
     if view is None:
         abort(400, "unreadable view; expected {scale, x, y, fitted}")
-    return view_repository().record(current_player()["discord_id"], view)
+    return view_repository().record(logged_in_player()["discord_id"], view)
 
 
 # --- The board ----------------------------------------------------------------------------------
@@ -826,7 +874,7 @@ def sides_to_entrust_to_the_ai() -> list[str]:
     Raises:
         ValueError: With a French message, if there is no such side or if one is held by a human.
     """
-    player = current_player()["discord_id"]
+    player = logged_in_player()["discord_id"]
     opposing_sides = [side for side in SCENARIO.sides if not SEATS.holds(player, side)]
     if not opposing_sides:
         raise ValueError("Aucun camp à confier à l'IA.")
@@ -899,7 +947,7 @@ def sse_message(state: Mapping[str, object], player: Optional[PlayerRecord]) -> 
     Returns:
         The `id:` and `data:` lines, terminated by a blank line.
     """
-    body = json.dumps(state | {"table": table_for(player)}, ensure_ascii=False)
+    body = json.dumps({**state, "table": table_for(player)}, ensure_ascii=False)
     return f"id: {state['version']}\ndata: {body}\n\n"
 
 
@@ -956,9 +1004,11 @@ def stream() -> ResponseReturnValue:
     known_version = _as_int(last) if last is not None \
         else request.args.get("version", type=int)
 
+    # `current_app` is a proxy bound to the request; the generator outlives it and needs the
+    # application itself.
+    application = cast("LocalProxy[Flask]", current_app)._get_current_object()
     response = current_app.response_class(
-        game_stream(current_app._get_current_object(),
-                    the_connection().identifier, known_version),
+        game_stream(application, the_connection().identifier, known_version),
         mimetype="text/event-stream")
     response.headers["Cache-Control"] = "no-cache"
     response.headers["Connection"] = "keep-alive"
@@ -1147,7 +1197,7 @@ def sort_the_attackers(squares: list[object], target: Hex) -> tuple[list[Hex], l
     """
     valid, messages = [], []
     for square in squares:
-        attacker = read_a_hexagon(square or {})
+        attacker = read_a_hexagon(square if isinstance(square, Mapping) else {})
         attacking_piece = BOARD.piece_on(attacker)
         if attacking_piece is None or attacking_piece.side != TURN.active_side:
             messages.append("Cette unité ne peut pas attaquer cette cible.")
@@ -1194,7 +1244,7 @@ def fight() -> ResponseReturnValue:
     roll = roll_the_die()
     result = combat.fight(BOARD, target, valid, roll)
     REGISTER.record([hexagon.key for hexagon in valid], target.key)
-    message = COMBAT_MESSAGES.get(result.outcome, NO_EFFECT_MESSAGE)
+    message = combat_message(result)
     # The computation first, the outcome next: the browser's column reads bottom-up, so the outcome
     # ends up at the top, its breakdown just below.
     if result.breakdown is not None:
@@ -1311,12 +1361,30 @@ def read_a_hexagon(source: Mapping[str, object]) -> Hex:
         The hexagon; 400 if unreadable, 404 if off the map.
     """
     try:
-        hexagon = Hex(*(int(source[name]) for name in ("q", "r", "s")))
+        hexagon = Hex(*(read_a_coordinate(source[name]) for name in ("q", "r", "s")))
     except (KeyError, TypeError, ValueError):
         abort(400, "q, r and s coordinates expected, integers summing to zero")
     if not hexagon.is_on_map:
         abort(404, f"hexagon {hexagon.key} is not on the map")
     return hexagon
+
+
+def read_a_coordinate(value: object) -> int:
+    """Reads one cube coordinate, as the query string (text) or the JSON body (a number) gives it.
+
+    Args:
+        value: The parameter, whatever the request put there.
+
+    Returns:
+        The integer.
+
+    Raises:
+        TypeError: For anything that is neither text nor a number.
+        ValueError: For text that is not an integer.
+    """
+    if isinstance(value, (str, int, float)):
+        return int(value)
+    raise TypeError(f"coordinate expected, not {type(value).__name__}")
 
 
 # --- Static files -------------------------------------------------------------------------------
@@ -1359,6 +1427,9 @@ def wire_persistence(application: Flask) -> None:
     Args:
         application: The application being built.
     """
+    games: GameRepository
+    players: PlayerRepository
+    views: ViewRepository
     if application.config["PERSISTENCE"] == "mongo":
         from tenebrae.application.extensions import db
         db.init_app(application)  # before the routes, and only once: the instance is shared

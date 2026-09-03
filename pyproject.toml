@@ -47,6 +47,8 @@ test = [
     "pytest-playwright",  # the `page` fixture of the browser engine; then: make browser
     "mongomock",          # MongoDB in memory: the persistence engine requires no server
     "pytest-cov",         # `make coverage`: what the suite covers of tenebrae/, configured in .coveragerc
+    "flake8",             # style and unused names, configured in .flake8; run by the suite and `make lint`
+    "mypy",               # the types, configured below; run by the suite and `make lint`
 ]
 
 # --- Map regeneration (tenebrae/game_box/extract_map.py, never rerun in practice) ---
@@ -61,3 +63,24 @@ dev = [
     {include-group = "runtime"},
     {include-group = "test"},
 ]
+
+# --- mypy ---
+#
+# The suite runs it (tests/test_static_checks.py); `make lint` runs it alone. The package is held
+# to the rule of CLAUDE.md - every function and method fully typed; the tests are checked as they
+# are, without that requirement.
+[tool.mypy]
+files = ["tenebrae", "tests", "conftest.py"]
+python_version = "3.13"
+disallow_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+
+# Neither ships type information.
+[[tool.mypy.overrides]]
+module = ["mongoengine", "mongoengine.*", "scipy", "scipy.*"]
+ignore_missing_imports = true

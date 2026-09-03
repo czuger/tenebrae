@@ -20,7 +20,6 @@ this knowledge - which keys, in which order, with what precaution - sits in one 
 """
 
 import secrets
-from collections.abc import Mapping
 from typing import Optional
 
 from flask.sessions import SessionMixin
@@ -75,7 +74,7 @@ class Connection:
         identifier = self.identifier
         return self._players.by_discord_id(identifier) if identifier else None
 
-    def open(self, identity: Mapping[str, Optional[str]]) -> PlayerRecord:
+    def open(self, identity: PlayerRecord) -> PlayerRecord:
         """Records the player from what Discord has just said about them, and opens the session.
 
         The session is cleared first: nothing an anonymous visitor may have left in it survives the

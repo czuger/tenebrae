@@ -71,7 +71,7 @@ def target_priority(board: Board, origin: Hex, side: str) -> list[Hex]:
     for key in board.opponents_of(side):
         hexagon = Hex.from_key(key)
         piece = board.piece_on(hexagon)
-        if piece.strength is None:
+        if piece is None or piece.strength is None:
             continue
         defence = piece.strength * combat.defence_multiplier(hexagon, piece)
         targets.append((origin.distance(hexagon), defence, key, hexagon))
@@ -116,7 +116,7 @@ def play_movement(board: Board, side: str) -> list[Move]:
     for key in sorted(board.squares_held_by(side)):
         origin = Hex.from_key(key)
         piece = board.piece_on(origin)
-        if not piece.is_a_unit or piece.movement_points == 0:
+        if piece is None or not piece.is_a_unit or piece.movement_points == 0:
             continue
         target = choose_target(board, origin, side)
         if target is None:
@@ -159,10 +159,24 @@ def available_attackers(board: Board, side: str, target: Hex,
     for key in sorted(board.squares_held_by(side)):
         hexagon = Hex.from_key(key)
         piece = board.piece_on(hexagon)
-        if (piece.is_a_unit and piece.strength is not None and register.can_attack(key)
-                and combat.in_range(hexagon, piece, target)):
+        if (piece is not None and piece.is_a_unit and piece.strength is not None
+                and register.can_attack(key) and combat.in_range(hexagon, piece, target)):
             attackers.append(hexagon)
     return attackers
+
+
+def strength_on(board: Board, hexagon: Hex) -> int:
+    """Reads the strength printed on the counter standing on a square.
+
+    Args:
+        board: The board.
+        hexagon: The square.
+
+    Returns:
+        The strength; 0 for an empty square or an illegible counter, which weigh nothing.
+    """
+    piece = board.piece_on(hexagon)
+    return 0 if piece is None or piece.strength is None else piece.strength
 
 
 def worth_attacking(board: Board, target: Hex, attackers: list[Hex]) -> bool:
@@ -174,11 +188,14 @@ def worth_attacking(board: Board, target: Hex, attackers: list[Hex]) -> bool:
         attackers: The attackers' squares.
 
     Returns:
-        True if the Table I column is at least `MINIMUM_RATIO`.
+        True if the Table I column is at least `MINIMUM_RATIO`; False for an absent or illegible
+        target, which no one can be sent against.
     """
     target_piece = board.piece_on(target)
+    if target_piece is None or target_piece.strength is None:
+        return False
     defending_strength = target_piece.strength * combat.defence_multiplier(target, target_piece)
-    strengths = sum(board.piece_on(hexagon).strength for hexagon in attackers)
+    strengths = sum(strength_on(board, hexagon) for hexagon in attackers)
     return combat.ratio_column(strengths, defending_strength) >= MINIMUM_RATIO
 
 

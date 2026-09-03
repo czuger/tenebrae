@@ -241,7 +241,8 @@ def test_the_fallback_to_polling_when_the_stream_does_not_get_through(page, serv
 
     # The fallback settles in once the five failures have been counted.
     page.wait_for_function("pollTimer !== null", timeout=FALLBACK_DELAY)
-    assert page.evaluate("stream === null"), "the stream should have been closed before the fallback"
+    assert page.evaluate("stream === null"), \
+        "the stream should have been closed before the fallback"
 
     assert opponent.post("/phase/next").ok
     page.wait_for_function(f"{LABEL} === 'Phase de combat — Nains'", timeout=DELAY)

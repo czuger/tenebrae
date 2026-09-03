@@ -176,7 +176,6 @@ class _Subscription:
         """Hands the subscriber over."""
         return self._subscriber
 
-    def __exit__(self, *_: object) -> bool:
+    def __exit__(self, *_: object) -> None:
         """Removes the subscriber; exceptions are not swallowed."""
         self._broadcaster.unsubscribe(self._subscriber)
-        return False

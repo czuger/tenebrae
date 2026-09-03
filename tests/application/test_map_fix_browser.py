@@ -21,8 +21,8 @@ FIX = "colline"
 
 
 @pytest.fixture
-def fixing_page(page, server, fixes, monkeypatch, application,
-                seat_the_player):  # noqa: F811
+def fixing_page(page, server, fixes, monkeypatch, application,  # noqa: F811
+                seat_the_player):
     """Opens /admin/map_fix and waits for the map to be loaded and scaled.
 
     The engine is presented as having started with no fixes, so as to start from a consistent page:

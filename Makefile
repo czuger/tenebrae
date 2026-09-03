@@ -20,12 +20,13 @@ URI       := mongodb://localhost:$(PORT)/$(DATABASE)
 # Arguments passed to pytest: `make test ARGS="-k persistence -v"`.
 ARGS ?=
 
-.PHONY: test test-fast test-browser coverage coverage-fast mongo mongo-stop browser help
+.PHONY: test test-fast test-browser lint coverage coverage-fast mongo mongo-stop browser help
 
 help:
 	@echo "make test          — brings up MongoDB and runs the whole suite"
 	@echo "make test-fast     — the suite without MongoDB (the tests that need it skip themselves)"
 	@echo "make test-browser  — the Chromium tests only"
+	@echo "make lint          — flake8 then mypy alone, the two checks the suite also runs"
 	@echo "make coverage      — the whole suite, measuring what it covers of tenebrae/"
 	@echo "make coverage-fast — the same measurement without MongoDB"
 	@echo "make mongo         — brings up the test MongoDB and waits for it"
@@ -49,6 +50,13 @@ test-browser: mongo
 		tests/application/test_stream_browser.py \
 		tests/application/test_view_browser.py \
 		tests/application/test_log_browser.py $(ARGS)
+
+# The static checks alone: the style (flake8, `.flake8`) then the types (mypy, `pyproject.toml`).
+# The suite runs both as tests (tests/test_static_checks.py); this is the quick pass while
+# writing, seconds rather than minutes.
+lint:
+	python3 -m flake8
+	python3 -m mypy
 
 # What the suite covers of the `tenebrae` package. What is measured and what is left out is set
 # out in `.coveragerc`, beside the reasons: `tests/` is not its own subject, and the map extraction

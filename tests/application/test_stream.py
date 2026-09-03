@@ -172,7 +172,8 @@ def test_the_last_event_prevails_over_the_parameter(client):
 
 
 def test_an_unreadable_last_event_makes_everything_be_sent_back(client):
-    """The header comes from the browser: empty, or anything at all. We do not crash for so little."""
+    """The header comes from the browser: empty, or anything at all. We do not crash for so
+    little."""
     answer = open_the_stream(client, last_event="")
     assert data(read(answer)[0])["version"] == app.VERSION
 

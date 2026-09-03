@@ -72,7 +72,7 @@ class TestWarOfTheDwarves:
         }
 
     def test_the_orc_army_is_there_without_its_reinforcements_or_its_leader(self,
-                                                                           war_of_the_dwarves):
+                                                                            war_of_the_dwarves):
         """"Ignore the reinforcements": the three reinforcement photographs stay in the box."""
         assert count(war_of_the_dwarves, "11-orques") == {
             "orques-01-15-infanteries": 15,
@@ -171,7 +171,8 @@ class TestWarOfTheDwarves:
             assert in_one_block(squares_of(war_of_the_dwarves, faction)), faction
 
     def test_the_two_armies_are_not_yet_in_contact(self, war_of_the_dwarves):
-        """They face each other a few squares apart: the first turn is for marching, not fighting."""
+        """They face each other a few squares apart: the first turn is for marching, not
+        fighting."""
         dwarves = squares_of(war_of_the_dwarves, "10-nains")
         orcs = squares_of(war_of_the_dwarves, "11-orques")
         assert min(dwarf.distance(orc) for dwarf in dwarves for orc in orcs) == 3

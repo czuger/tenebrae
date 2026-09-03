@@ -48,35 +48,55 @@ SQ3 = np.sqrt(3.0)
 # ---------------------------------------------------------------------------- tools
 
 def dilate(mask: np.ndarray, r: float) -> np.ndarray:
+    """Grows a boolean mask by a disc of radius `r` pixels."""
     return ndi.distance_transform_edt(~mask) <= r
 
 
 def erode(mask: np.ndarray, r: float) -> np.ndarray:
+    """Shrinks a boolean mask by a disc of radius `r` pixels."""
     return ndi.distance_transform_edt(mask) > r
 
 
 def closing(mask: np.ndarray, r: float) -> np.ndarray:
+    """Fills the gaps of a boolean mask narrower than `2 r` pixels."""
     return ~dilate(~dilate(mask, r), r)
 
 
 def opening(mask: np.ndarray, r: float, r_dilate: float | None = None) -> np.ndarray:
+    """Removes from a boolean mask what does not hold a disc of radius `r`.
+
+    Args:
+        mask: The boolean mask.
+        r: The radius of the erosion.
+        r_dilate: The radius of the dilation that follows; `r` when omitted.
+
+    Returns:
+        The opened mask, restricted to the original one.
+    """
     core = erode(mask, r)
     if not core.any():
         return core
     return dilate(core, r if r_dilate is None else r_dilate) & mask
 
 
-def log(*args) -> None:
+def log(*args: object) -> None:
+    """Prints a progress line, unbuffered."""
     print(*args, flush=True)
 
 
 # ---------------------------------------------------------------------- colour masks
 
-def base_masks(a: np.ndarray):
+def base_masks(a: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Separates the three large families of pixels: grid lines, water, "warm".
 
     "Warm" (R > G) gathers everything brown or red: massifs, roads, building symbols, gothic
     lettering, the map's border. The sorting is then done by shape.
+
+    Args:
+        a: The image, `(H, W, 3)` RGB.
+
+    Returns:
+        The `white`, `blue` and `warm` boolean masks.
     """
     R, G, B = a[..., 0], a[..., 1], a[..., 2]
     mx, mn = a.max(2), a.min(2)
@@ -88,13 +108,19 @@ def base_masks(a: np.ndarray):
 
 # ------------------------------------------------------------------- grid alignment
 
-def fit_the_grid(white: np.ndarray):
+def fit_the_grid(white: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Fits an affine hexagonal lattice onto the map's white line work.
 
     Hexagon centres are the points furthest from the grid lines: we detect them as local maxima of
     the distance transform, then fit `centre(q, r) = O + A . (q, r)` by least squares, reassigning
     the indices at each iteration. The matrix `A` (rather than a plain regular step) absorbs the
     scan's slight residual rotation.
+
+    Args:
+        white: The mask of the grid lines.
+
+    Returns:
+        The `(2, 2)` matrix `A` and the origin `O`.
     """
     dist = ndi.distance_transform_edt(~white)
     peaks = (dist == ndi.maximum_filter(dist, size=61)) & (dist > 45)
@@ -117,14 +143,35 @@ def fit_the_grid(white: np.ndarray):
     return A, O
 
 
-def centre(A, O, column, row):
+def centre(A: np.ndarray, O: np.ndarray, column: int, row: int) -> np.ndarray:
+    """Computes the pixel centre of a hexagon given in odd-q offset coordinates.
+
+    Args:
+        A: The lattice matrix.
+        O: The lattice origin.
+        column: The offset column.
+        row: The offset row.
+
+    Returns:
+        The `(x, y)` centre.
+    """
     q = column
     r = row - ((column - (column & 1)) // 2)
     return O + A @ np.array([q, r], float)
 
 
-def assign_pixels(A, O, H, W):
-    """Returns, for each pixel, the column and the row (odd-q) of its hexagon."""
+def assign_pixels(A: np.ndarray, O: np.ndarray, H: int, W: int) -> tuple[np.ndarray, np.ndarray]:
+    """Finds, for each pixel, the hexagon it belongs to.
+
+    Args:
+        A: The lattice matrix.
+        O: The lattice origin.
+        H: The image height.
+        W: The image width.
+
+    Returns:
+        Two `(H, W)` int16 arrays: the odd-q column and row of each pixel's hexagon.
+    """
     Ai = np.linalg.inv(A)
     ys, xs = np.mgrid[0:H, 0:W].astype(np.float32)
     dx, dy = xs - O[0], ys - O[1]
@@ -150,11 +197,19 @@ def assign_pixels(A, O, H, W):
     return column, row
 
 
-def border_mask(pixel_column, pixel_row, warm):
-    """The map's brown frame: hexagons off the board, plus whatever overflows onto it.
+def border_mask(pixel_column: np.ndarray, pixel_row: np.ndarray, warm: np.ndarray) -> np.ndarray:
+    """Masks the map's brown frame: hexagons off the board, plus whatever overflows onto it.
 
     The border bites a few tens of pixels into the edge hexagons; we attach to it the warm pixels
     connected to it within a 140 px band.
+
+    Args:
+        pixel_column: Each pixel's hexagon column.
+        pixel_row: Each pixel's hexagon row.
+        warm: The mask of warm pixels.
+
+    Returns:
+        The boolean mask of the border.
     """
     outside = ((pixel_column < 0) | (pixel_column > COLUMNS - 1)
                | (pixel_row < 0) | (pixel_row > ROWS - 1))
@@ -170,11 +225,21 @@ def border_mask(pixel_column, pixel_row, warm):
 
 # ------------------------------------------------- relief, ways, water, buildings
 
-def warm_masks(warm, white, border):
+def warm_masks(warm: np.ndarray, white: np.ndarray,
+               border: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray,
+                                            np.ndarray]:
     """Sorts the warm pixels into massifs / roads / paths / building symbols.
 
     The grid lines cut the massifs into one-hexagon slices: we patch them up, but **only across
     white**, otherwise the rubble field of the ruins of Ghaarth closes up into a false massif.
+
+    Args:
+        warm: The mask of warm pixels.
+        white: The mask of the grid lines.
+        border: The mask of the map's frame.
+
+    Returns:
+        The `closed`, `massif`, `road`, `path` and `buildings` masks.
     """
     inner = warm & ~border
     grid = dilate(white, 3)
@@ -211,7 +276,16 @@ def warm_masks(warm, white, border):
     return closed, massif, road, path, buildings
 
 
-def water_masks(blue, border):
+def water_masks(blue: np.ndarray, border: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Sorts the blue pixels into lakes and rivers, by width.
+
+    Args:
+        blue: The mask of blue pixels.
+        border: The mask of the map's frame.
+
+    Returns:
+        The `lake` and `river` masks.
+    """
     inner = closing(blue & ~border, 6)
     lake = opening(inner, 16, 18)
     return lake, inner & ~lake
@@ -219,11 +293,19 @@ def water_masks(blue, border):
 
 # --------------------------------------------------------------------------- woods
 
-def local_background(yellowness, ok):
-    """The plain's level of "yellowness", estimated locally and readjusted by iteration.
+def local_background(yellowness: np.ndarray, ok: np.ndarray) -> np.ndarray:
+    """Measures each pixel's departure from the plain's local level of "yellowness".
 
-    Works on forest edges and small copses, but aligns itself on the forest at the heart of large
-    wooded massifs - hence the second estimator below.
+    The level is estimated by 32 px blocks and readjusted by iteration. Works on forest edges and
+    small copses, but aligns itself on the forest at the heart of large wooded massifs - hence the
+    second estimator below.
+
+    Args:
+        yellowness: `G - B`, per pixel.
+        ok: The pixels that may belong to the plain.
+
+    Returns:
+        `yellowness` minus the estimated background.
     """
     H, W = yellowness.shape
     D = 32
@@ -247,9 +329,18 @@ def local_background(yellowness, ok):
     return yellowness - background
 
 
-def global_background(yellowness, ok):
-    """The same level, but laid down by a robust polynomial over the whole map, then corrected
-    locally. Catches the heart of the large forests."""
+def global_background(yellowness: np.ndarray, ok: np.ndarray) -> np.ndarray:
+    """Measures the same departure against a robust polynomial fitted over the whole map.
+
+    The polynomial is then corrected locally. Catches the heart of the large forests.
+
+    Args:
+        yellowness: `G - B`, per pixel.
+        ok: The pixels that may belong to the plain.
+
+    Returns:
+        `yellowness` minus the estimated background.
+    """
     H, W = yellowness.shape
     S = 6
     ys, xs = np.mgrid[0:H:S, 0:W:S]
@@ -287,8 +378,16 @@ def global_background(yellowness, ok):
     return yellowness - background
 
 
-def _fill_holes(g, iterations):
-    """Fills the cells with no data by diffusion from their neighbours."""
+def _fill_holes(g: np.ndarray, iterations: int) -> np.ndarray:
+    """Fills the cells with no data by diffusion from their neighbours.
+
+    Args:
+        g: A float grid with `NaN` holes.
+        iterations: How many diffusion passes to run.
+
+    Returns:
+        A copy of `g`, holes filled.
+    """
     holes = np.isnan(g)
     if not holes.any():
         return g
@@ -299,11 +398,23 @@ def _fill_holes(g, iterations):
     return out
 
 
-def woods_mask(a, white, blue, warm, border, near):
-    """Two detectors combined: the hue, and the departure from the plain's local level.
+def woods_mask(a: np.ndarray, white: np.ndarray, blue: np.ndarray, warm: np.ndarray,
+               border: np.ndarray, near: np.ndarray) -> np.ndarray:
+    """Masks the woods, combining two detectors: the hue, and the departure from the plain's level.
 
     The scan is heavily vignetted and the forests do not have the same hue on the left (grey-green)
     and on the right (true green) of the map: neither detector alone is enough.
+
+    Args:
+        a: The image, `(H, W, 3)` RGB.
+        white: The mask of the grid lines.
+        blue: The mask of water.
+        warm: The mask of warm pixels.
+        border: The mask of the map's frame.
+        near: The pixels next to a grid line, left out.
+
+    Returns:
+        The boolean mask of the woods.
     """
     R, G, B = (a[..., 0].astype(np.float32), a[..., 1].astype(np.float32),
                a[..., 2].astype(np.float32))
@@ -323,8 +434,19 @@ def woods_mask(a, white, blue, warm, border, near):
 
 # ----------------------------------------------------------------------- aggregation
 
-def aggregate(pixel_column, pixel_row, core, masks):
-    """Fraction of each hexagon covered by each mask."""
+def aggregate(pixel_column: np.ndarray, pixel_row: np.ndarray, core: np.ndarray,
+              masks: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """Measures the fraction of each hexagon covered by each mask.
+
+    Args:
+        pixel_column: Each pixel's hexagon column.
+        pixel_row: Each pixel's hexagon row.
+        core: The pixels that count, away from the grid lines and the frame.
+        masks: Name -> boolean mask.
+
+    Returns:
+        Name -> array of `COLUMNS * ROWS` fractions, indexed by `column * ROWS + row`.
+    """
     N = COLUMNS * ROWS
     inside = ((pixel_column >= 0) & (pixel_column < COLUMNS)
               & (pixel_row >= 0) & (pixel_row < ROWS))
@@ -381,13 +503,21 @@ COLOURS = {"plaine": (190, 225, 110), "bois": (30, 105, 50), "montagne": (140, 9
            "ile": (0, 210, 180)}
 
 
-def classify(F):
-    """Main terrain and complete list, hexagon by hexagon.
+def classify(F: dict[str, np.ndarray]) -> tuple[dict[tuple[int, int], str],
+                                                 dict[tuple[int, int], list[str]]]:
+    """Decides the main terrain and the complete list of elements, hexagon by hexagon.
 
     Priority: built places > lake > mountain > hill > woods > rift > river > road > path > plain.
     Natural terrain therefore prevails over ways; what is masked stays in `carte_details.json`.
+
+    Args:
+        F: The coverage fractions from `aggregate`.
+
+    Returns:
+        `(column, row)` -> main terrain, and `(column, row)` -> every element, main terrain first.
     """
-    def f(key, c, r):
+    def f(key: str, c: int, r: int) -> float:
+        """The coverage of mask `key` on hexagon `(c, r)`."""
         return float(F[key][c * ROWS + r])
 
     grid, details = {}, {}
@@ -437,13 +567,31 @@ def classify(F):
     return grid, details
 
 
-def cube_key(column, row):
+def cube_key(column: int, row: int) -> str:
+    """Converts odd-q offset coordinates to the "q,r,s" key of the data files.
+
+    Args:
+        column: The offset column.
+        row: The offset row.
+
+    Returns:
+        The cube key.
+    """
     q = column
     r = row - ((column - (column & 1)) // 2)
     return f"{q},{r},{-q - r}"
 
 
-def control_image(A, O, grid, output_path):
+def control_image(A: np.ndarray, O: np.ndarray, grid: dict[tuple[int, int], str],
+                  output_path: str) -> None:
+    """Writes the map at a third of its size, each hexagon tinted with its terrain.
+
+    Args:
+        A: The lattice matrix.
+        O: The lattice origin.
+        grid: `(column, row)` -> main terrain.
+        output_path: Where to write the JPEG.
+    """
     sx, sy = A[0, 0] / 1.5, A[1, 1] / SQ3
     im = Image.open(MAP).convert("RGBA")
     layer = Image.new("RGBA", im.size, (0, 0, 0, 0))
@@ -457,6 +605,11 @@ def control_image(A, O, grid, output_path):
 
 
 def main() -> int:
+    """Runs the whole extraction and writes the three output files.
+
+    Returns:
+        The process exit code, 0.
+    """
     log("Reading", MAP)
     a = np.asarray(Image.open(MAP).convert("RGB")).astype(np.int16)
     H, W, _ = a.shape

@@ -17,24 +17,29 @@ them is English.
 
 import heapq
 import json
+from collections.abc import Collection, Iterable, Mapping
 from fractions import Fraction
 from pathlib import Path
+from typing import Optional
 
 BOX = Path(__file__).resolve().parent.parent / "game_box"
 
-# Every element of each hexagon, main terrain first. We read `carte_details.json` and not
-# `carte.json`: the head of its list gives the same main terrain, but it alone keeps the 58 roads
-# and paths that the map's priority rule hides under a wood or a massif.
+# `carte_details.json` rather than `carte.json`: same main terrain at the head of each list, but it
+# alone keeps the roads and paths hidden under a wood or a massif by the map's priority rule.
 with (BOX / "carte_details.json").open(encoding="utf-8") as source:
-    TRANSCRIBED_MAP = {key: tuple(elements) for key, elements in json.load(source).items()}
+    TRANSCRIBED_MAP: dict[str, tuple[str, ...]] = {
+        key: tuple(elements) for key, elements in json.load(source).items()}
 
-# The fixes recorded by eye on /admin/map_fix: "q,r,s" -> main terrain. A separate file, kept by
-# hand; the transcription itself comes out of the script and is never touched up.
+# The fixes recorded by eye on /admin/map_fix: "q,r,s" -> main terrain.
 FIXES_PATH = BOX / "map_fix.json"
 
 
-def read_fixes():
-    """The recorded fixes; an empty dict if the file does not exist."""
+def read_fixes() -> dict[str, str]:
+    """Reads the recorded map fixes.
+
+    Returns:
+        "q,r,s" -> fixed main terrain; empty if the file does not exist.
+    """
     try:
         with FIXES_PATH.open(encoding="utf-8") as source:
             return json.load(source)
@@ -42,13 +47,20 @@ def read_fixes():
         return {}
 
 
-def apply_fixes(transcription, fixes):
-    """The transcription overlaid with the fixes, without modifying it.
+def apply_fixes(transcription: Mapping[str, tuple[str, ...]],
+                fixes: Mapping[str, str]) -> dict[str, tuple[str, ...]]:
+    """Overlays the fixes on the transcription, without modifying it.
 
-    A fix only bears on the main terrain: the fixed terrain takes the lead in place of the one the
-    map's priority rule put there, and the secondary elements follow. That is what lets a wood
-    fixed into a hill keep the road it was hiding. A key unknown to the transcription is ignored:
-    we do not create hexagons off the map.
+    A fix only bears on the main terrain: the fixed terrain takes the lead and the secondary
+    elements follow, so a wood fixed into a hill keeps the road it was hiding. A key unknown to
+    the transcription is ignored: no hexagon is created off the map.
+
+    Args:
+        transcription: "q,r,s" -> elements of the hexagon, main terrain first.
+        fixes: "q,r,s" -> main terrain to impose.
+
+    Returns:
+        A new "q,r,s" -> elements dict, fixes applied.
     """
     game_map = dict(transcription)
     for key, terrain in fixes.items():
@@ -59,8 +71,7 @@ def apply_fixes(transcription, fixes):
     return game_map
 
 
-# The fixes actually in force, and the map the game is played on. Recording one more fix does not
-# change them: the program has to be restarted.
+# The fixes in force and the map the game is played on, both fixed at start-up.
 APPLIED_FIXES = read_fixes()
 MAP = apply_fixes(TRANSCRIBED_MAP, APPLIED_FIXES)
 
@@ -78,8 +89,8 @@ COSTS = {
 # The rate for ways, when following them from one square to the next: ROADS x 3, PATHS x 2.
 WAY_COSTS = {"route": Fraction(1, 3), "chemin": Fraction(1, 2)}
 
-# Impassable to a ground unit: lakes and rivers (except bridges, not recorded on the map), the
-# Rift of Tsaroth, forts and castles (except by combat or through allies).
+# Impassable to a ground unit: lakes and rivers (bridges are not recorded on the map), the Rift of
+# Tsaroth, forts and castles (except by combat or through allies).
 IMPASSABLE = frozenset({"lac", "riviere", "faille", "fort", "chateau"})
 
 # A mountain can only be entered from a hill, another mountain, or a way crossing it.
@@ -89,8 +100,7 @@ MOUNTAIN_ACCESS = frozenset({"colline", "montagne"})
 # not among them: they are not crossed, but they can be garrisoned.
 UNINHABITABLE = frozenset({"lac", "riviere", "faille"})
 
-# Flat movement rate, for callers that do not say which piece they mean: counter values run from 1
-# to 20 points, and 5 is the value used before we started reading them (see
+# Flat movement rate, for callers that do not say which piece they mean (see
 # `tenebrae.engine.piece`).
 DEFAULT_MOVEMENT = 5
 
@@ -104,7 +114,22 @@ class Hex:
 
     __slots__ = ("q", "r", "s")
 
-    def __init__(self, q=None, r=None, s=None):
+    q: Optional[int]
+    r: Optional[int]
+    s: Optional[int]
+
+    def __init__(self, q: Optional[int] = None, r: Optional[int] = None,
+                 s: Optional[int] = None) -> None:
+        """Builds a hexagon from its cube coordinates.
+
+        Args:
+            q: First cube coordinate; `None` with the others for an empty hexagon.
+            r: Second cube coordinate.
+            s: Third cube coordinate, derived from the other two when omitted.
+
+        Raises:
+            ValueError: If only one of `q` and `r` is given, or if the three do not sum to zero.
+        """
         if q is None and r is None and s is None:
             self.q = self.r = self.s = None
             return
@@ -117,55 +142,76 @@ class Hex:
         self.q, self.r, self.s = q, r, s
 
     @classmethod
-    def from_key(cls, key):
-        """Builds a hexagon from a `carte.json` key, of the form "q,r,s"."""
+    def from_key(cls, key: str) -> "Hex":
+        """Builds a hexagon from a `carte.json` key.
+
+        Args:
+            key: The "q,r,s" key.
+
+        Returns:
+            The hexagon at those coordinates.
+        """
         return cls(*(int(value) for value in key.split(",")))
 
     @property
-    def is_empty(self):
+    def is_empty(self) -> bool:
+        """Whether the hexagon has no position."""
         return self.q is None
 
     @property
-    def key(self):
+    def key(self) -> str:
         """The "q,r,s" key under which the map knows this hexagon."""
         self._require_a_position()
         return f"{self.q},{self.r},{self.s}"
 
     @property
-    def is_on_map(self):
+    def is_on_map(self) -> bool:
+        """Whether the hexagon has a position and the map knows it."""
         return not self.is_empty and self.key in MAP
 
     @property
-    def elements(self):
+    def elements(self) -> tuple[str, ...]:
         """Everything the hexagon carries, main terrain first; empty if it is off the map."""
         self._require_a_position()
         return MAP.get(self.key, ())
 
     @property
-    def terrain(self):
+    def terrain(self) -> Optional[str]:
         """The main terrain of the hexagon, or `None` if it is off the map."""
         elements = self.elements
         return elements[0] if elements else None
 
-    def neighbours(self):
-        """The six adjacent hexagons, reduced to those that are on the map."""
+    def neighbours(self) -> list["Hex"]:
+        """Lists the adjacent hexagons that are on the map.
+
+        Returns:
+            At most six hexagons, in the order of `DIRECTIONS`.
+        """
         self._require_a_position()
         neighbours = (Hex(self.q + dq, self.r + dr, self.s + ds) for dq, dr, ds in DIRECTIONS)
         return [neighbour for neighbour in neighbours if neighbour.is_on_map]
 
-    def distance(self, other):
-        """The number of squares between the two hexagons, as the crow flies.
+    def distance(self, other: "Hex") -> int:
+        """Counts the squares between the two hexagons, as the crow flies.
 
-        Cube distance: it says nothing about the cost of the trip, only about the spacing.
+        Args:
+            other: The hexagon to measure to.
+
+        Returns:
+            The cube distance: it says nothing about the cost of the trip, only about the spacing.
         """
         self._require_a_position()
         other._require_a_position()
         return max(abs(self.q - other.q), abs(self.r - other.r), abs(self.s - other.s))
 
-    def cost_from(self, origin):
-        """Movement points to enter this hexagon coming from `origin`.
+    def cost_from(self, origin: "Hex") -> Optional[Fraction]:
+        """Computes the movement points a ground unit spends to enter this hexagon.
 
-        Returns `None` if the passage is forbidden to a ground unit.
+        Args:
+            origin: The hexagon the unit comes from.
+
+        Returns:
+            The cost as an exact fraction, or `None` if the passage is forbidden.
         """
         if not self.is_on_map or not origin.is_on_map:
             return None
@@ -177,8 +223,7 @@ class Hex:
             if not WAY_COSTS.keys() & set(elements):
                 return None
 
-        # Following a way is only worth it when already on it: a unit joining the road first pays
-        # for the terrain that separates it from the road.
+        # A way is only followed when already on it: joining a road first pays for the terrain.
         origin_elements = set(origin.elements)
         for way, cost in WAY_COSTS.items():
             if way in elements and way in origin_elements:
@@ -186,17 +231,21 @@ class Hex:
 
         return COSTS.get(terrain, ORDINARY_COST)
 
-    def moves(self, movement=DEFAULT_MOVEMENT, enemies=(), under_control=()):
-        """The hexagons reachable with `movement` points, this hexagon excepted.
+    def moves(self, movement: int = DEFAULT_MOVEMENT, enemies: Collection[str] = (),
+              under_control: Collection[str] = ()) -> list["Hex"]:
+        """Finds the hexagons reachable with `movement` points, this hexagon excepted.
 
-        A Dijkstra walk over terrain costs. Costs are exact fractions: a road is worth a third of
-        a point, and five thirds must not drift. A unit standing on terrain it cannot occupy - a
-        lake, a river, the rift - goes nowhere.
+        A Dijkstra walk over terrain costs, in exact fractions: a road is worth a third of a point,
+        and five thirds must not drift. A unit standing on terrain it cannot occupy goes nowhere.
 
-        `enemies` and `under_control` are sets of "q,r,s" keys: the squares held by the opponent,
-        which are not entered, and those covered by its zones of control, which are entered at the
-        terrain's rate but where the unit must stop. Without them the map is held to be free of
-        opponents and the walk knows nothing but terrain.
+        Args:
+            movement: The movement budget, in points.
+            enemies: "q,r,s" keys of the squares held by the opponent, which are not entered.
+            under_control: "q,r,s" keys covered by the opposing zones of control, entered at the
+                terrain's rate but where the unit must stop.
+
+        Returns:
+            The reachable hexagons, in no particular order.
         """
         self._require_a_position()
         if not self.is_on_map or self.terrain in UNINHABITABLE:
@@ -209,16 +258,15 @@ class Hex:
             cost_so_far, _, _, hexagon = heapq.heappop(pending)
             if cost_so_far > spent[hexagon.key]:
                 continue
-            # "It must stop as soon as it has entered": a unit does not leave a controlled square
-            # - except the one it starts from, where it was already standing on the previous turn.
+            # "It must stop as soon as it has entered": a controlled square is not left, except the
+            # starting one, where the unit already stood.
             leaving_a_controlled_square = hexagon.key in under_control
             if leaving_a_controlled_square and hexagon != self:
                 continue
             for neighbour in hexagon.neighbours():
                 if neighbour.key in enemies:
                     continue
-                # "One cannot pass from one zone of control to another without having left the
-                # first": leaving a controlled square requires a free square.
+                # No passing from one zone of control to another without a free square between.
                 if leaving_a_controlled_square and neighbour.key in under_control:
                     continue
                 cost = neighbour.cost_from(hexagon)
@@ -232,37 +280,55 @@ class Hex:
         del spent[self.key]
         return [Hex.from_key(key) for key in spent]
 
-    def to_dict(self):
-        """The hexagon in a form directly convertible to JSON for the browser."""
+    def to_dict(self) -> dict[str, Optional[int] | Optional[str]]:
+        """Serialises the hexagon for the browser's JSON.
+
+        Returns:
+            The three coordinates and the main terrain, all `None` for an empty hexagon.
+        """
         if self.is_empty:
             return {"q": None, "r": None, "s": None, "terrain": None}
         return {"q": self.q, "r": self.r, "s": self.s, "terrain": self.terrain}
 
-    def _require_a_position(self):
+    def _require_a_position(self) -> None:
+        """Refuses an empty hexagon where a position is needed.
+
+        Raises:
+            ValueError: If the hexagon is empty.
+        """
         if self.is_empty:
             raise ValueError("this hexagon is empty: it has no position on the map")
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
+        """Two hexagons are equal when their coordinates are."""
         return isinstance(other, Hex) and (self.q, self.r, self.s) == (other.q, other.r, other.s)
 
-    def __hash__(self):
+    def __hash__(self) -> int:
+        """Hashes on the coordinates, consistently with `__eq__`."""
         return hash((self.q, self.r, self.s))
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """The constructor call that rebuilds this hexagon."""
         if self.is_empty:
             return "Hex()"
         return f"Hex({self.q}, {self.r}, {self.s})"
 
 
-def zone_of_control(hexagons):
-    """The squares these units hold under their control, as "q,r,s" keys.
+def zone_of_control(hexagons: Iterable[Hex]) -> frozenset[str]:
+    """Collects the squares these units hold under their control.
 
     "Each unit exerts a particular influence over the six squares surrounding the one it
-    occupies." The occupied square itself is not part of it: it is held, not controlled. Squares
-    off the map are discarded; those another unit occupies are not, the caller already knows they
-    cannot be entered.
+    occupies." The occupied square itself is held, not controlled. Squares off the map are
+    discarded; those another unit occupies are not, the caller already knows they cannot be
+    entered.
+
+    Args:
+        hexagons: The squares occupied by the units exerting a zone of control.
+
+    Returns:
+        The controlled squares, as "q,r,s" keys.
     """
-    controlled = set()
+    controlled: set[str] = set()
     for hexagon in hexagons:
         controlled.update(neighbour.key for neighbour in hexagon.neighbours())
     return frozenset(controlled)

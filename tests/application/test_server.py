@@ -5,7 +5,7 @@ import re
 
 import pytest
 
-from tenebrae.application import app
+from tenebrae.application import app, pieces
 from tenebrae.engine.board import MAXIMUM_TILT
 from tenebrae.engine.hexagon import DEFAULT_MOVEMENT, MAP, Hex
 from tenebrae.engine.piece import ALLIANCE, CATALOGUE, DARKNESS
@@ -137,9 +137,9 @@ def test_reloading_the_page_puts_the_pieces_back(client):
 
 
 def test_the_catalogues_movements_are_those_of_the_counters():
-    for piece in app.PIECE_CATALOGUE:
+    for piece in pieces.PIECE_CATALOGUE:
         assert piece["movement"] == CATALOGUE[piece["key"]].movement_points
-    movements = {piece["key"]: piece["movement"] for piece in app.PIECE_CATALOGUE}
+    movements = {piece["key"]: piece["movement"] for piece in pieces.PIECE_CATALOGUE}
     assert movements["reissland-02-8-cavaleries"] == 8       # cavalry goes far
     assert movements["yzent-05-1-belier"] == 2               # the ram drags itself along
     assert movements["marqueurs-03-paralysie"] == 0          # a marker does not move
@@ -187,19 +187,19 @@ def test_the_overviews_are_not_served(client):
     """Whole sheets and record sheets are not pieces: neither served nor placed."""
     for path in ("21-vues-d-ensemble/vues-d-ensemble-01-planches-de-pions.jpg",
                  "19-magiciens/magiciens-02-pions-de-magiciens-et-clercs-vue-d-ensemble.jpg"):
-        assert (app.PIECES / path).exists()
+        assert (pieces.PIECES / path).exists()
         assert client.get(f"/pieces/{path}").status_code == 404
-        assert path not in [piece["path"] for piece in app.PIECE_CATALOGUE]
+        assert path not in [piece["path"] for piece in pieces.PIECE_CATALOGUE]
 
 
 def test_the_catalogue_covers_the_pieces_of_the_box():
     """127 photographs in game_box/pions, minus the 4 sheets and the 2 record sheets."""
-    assert len(app.PIECE_CATALOGUE) == 121
-    assert all((app.PIECES / piece["path"]).exists() for piece in app.PIECE_CATALOGUE)
+    assert len(pieces.PIECE_CATALOGUE) == 121
+    assert all((pieces.PIECES / piece["path"]).exists() for piece in pieces.PIECE_CATALOGUE)
 
 
 def test_the_piece_names_are_readable():
-    names = {piece["path"]: piece["name"] for piece in app.PIECE_CATALOGUE}
+    names = {piece["path"]: piece["name"] for piece in pieces.PIECE_CATALOGUE}
     assert names["01-yzent/yzent-05-1-belier.jpg"] == "yzent · 1 belier"
     assert names["06-empire-de-lynn/empire-de-lynn-08-3-chars-legers.jpg"] == (
         "empire de lynn · 3 chars legers"

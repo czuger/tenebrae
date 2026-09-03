@@ -12,23 +12,16 @@ from mongoengine import DateTimeField, Document, EmailField, StringField
 class Player(Document):
     """A Discord account the game knows: enough to say who holds a side, and to display it.
 
-    The document does not know what this player is playing - it is the game that keeps who
-    occupies it, through `seats`. A player stays in base when leaving their seat: they come back
-    to sit down, and their nickname is already known.
-
-    Nor does it know that a web session exists: opening, holding and closing a session is the
-    application's business, which places an entity of its own for that
-    (`tenebrae/application/models/connection.py`) and designates this player only by `discord_id`.
-    The dependency only runs that way - the engine imports nothing from the application.
+    The document does not know what this player is playing - the game keeps that, through `seats`
+    - nor that a web session exists: the application holds that link
+    (`tenebrae/application/models/connection.py`) and designates this player by `discord_id` only.
 
     `discord_id` is a **string**, never an integer: Discord hands out 64-bit identifiers that
-    JavaScript cannot represent without rounding them, and its own documentation treats them as
-    strings. It is that identifier, and it alone, that circulates - in the session, in the seats,
-    in the state dict - so that there is a single notion of identity in the project.
+    JavaScript cannot represent without rounding them. It is that identifier, and it alone, that
+    circulates - in the session, in the seats, in the state dict.
 
     `avatar` carries the ready-made URL rather than the hash Discord returns: knowledge of the CDN
-    stays in `tenebrae/application/discord_client.py`, and the rest of the code only has to drop it
-    into a `src`.
+    stays in `tenebrae/application/discord_client.py`.
     """
 
     discord_id = StringField(required=True, unique=True)
@@ -36,9 +29,7 @@ class Player(Document):
     # Discord's "global_name", absent from accounts that have not chosen one.
     display_name = StringField(db_field="nom_affiche")
     avatar = StringField()
-    # Planned, but empty: the game only asks for the "identify" scope, which does not give the
-    # address. The field waits for the day something has a use for it - see
-    # `tenebrae/application/discord_client.py`.
+    # Empty for now: the game only asks for the "identify" scope, which does not give the address.
     email = EmailField(db_field="courriel")
 
     created_at = DateTimeField(required=True, db_field="cree_le")
@@ -47,5 +38,6 @@ class Player(Document):
     meta = {"collection": "joueurs",
             "indexes": [{"fields": ["discord_id"], "unique": True}]}
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """The nickname and the Discord identifier."""
         return f"Player({self.nickname!r}, discord {self.discord_id})"

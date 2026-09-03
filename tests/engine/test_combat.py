@@ -9,6 +9,7 @@ import pytest
 from tenebrae.engine import combat
 from tenebrae.engine.board import Board
 from tenebrae.engine.combat import AE, AR, DE, DR, EX
+from tenebrae.engine.combat_register import CombatRegister
 from tenebrae.engine.hexagon import MAP, Hex
 from tenebrae.engine.piece import piece
 from tests.engine.plains import ring_of, well_surrounded_plain
@@ -290,7 +291,7 @@ class TestCombatRegister:
 
     @pytest.fixture
     def register(self):
-        return combat.CombatRegister()
+        return CombatRegister()
 
     @pytest.fixture
     def squares(self, corner):

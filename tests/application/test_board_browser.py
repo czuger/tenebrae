@@ -7,7 +7,7 @@ import math
 
 import pytest
 
-from tenebrae.application import app
+from tenebrae.application import app, pieces
 from tenebrae.engine.hexagon import MAP, Hex
 from tenebrae.engine.piece import CATALOGUE, OPPONENTS
 
@@ -460,7 +460,7 @@ def test_the_card_states_the_piece_and_shows_its_photograph(board):
         "p => [p.piece.key, `${p.dataset.q},${p.dataset.r},${p.dataset.s}`, p.src]")
 
     card = hover(board, piece)
-    assert card["name"] == app.PIECES_BY_KEY[key]["name"]
+    assert card["name"] == pieces.PIECES_BY_KEY[key]["name"]
     assert card["extra"] == f"{CATALOGUE[key].side} — {square}"
     assert card["source"] == source
     assert card["loaded"]

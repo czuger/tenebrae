@@ -9,28 +9,31 @@ how to derive the moves they allow.
 
 It carries a second thing, which is not a rule: the **tilt** of each placed piece, those few
 degrees that make the counter look as though it had been dropped onto the map by hand. It is drawn
-at random when the piece is placed, and that is all it has in common with a game die - but it
-belongs here because it is part of the game state: it is saved with the positions, and it only
-changes when the piece is picked up again. A board read back does not re-roll its dice: without
-that, the piece would lie down differently every time the page was reloaded.
+at random when the piece is placed and belongs to the game state: saved with the positions, it only
+changes when the piece is picked up again, so that a reloaded page finds the counters lying as they
+were.
 """
 
 import random
+from collections.abc import Iterable, Mapping
+from typing import Optional, Self
 
 from tenebrae.engine.hexagon import DEFAULT_MOVEMENT, Hex, zone_of_control
-from tenebrae.engine.piece import CATALOGUE, OPPONENTS
+from tenebrae.engine.piece import CATALOGUE, OPPONENTS, Piece
 
-# The tilt runs between these two extremes, in degrees: beyond them the piece no longer looks
-# placed askew, it looks badly placed.
+# The tilt runs between these two extremes, in degrees: beyond them the piece looks badly placed.
 MAXIMUM_TILT = 5.0
 
-# Two decimals: the display shows no more (`toFixed(2)` in map.js), and a short number reads well
-# in the saved game.
+# Two decimals: the display shows no more (`toFixed(2)` in map.js).
 TILT_DECIMALS = 2
 
 
-def draw_a_tilt():
-    """A random angle, in degrees, within the bounds of `MAXIMUM_TILT`."""
+def draw_a_tilt() -> float:
+    """Draws a random angle for a counter dropped onto the map.
+
+    Returns:
+        An angle in degrees, within the bounds of `MAXIMUM_TILT`.
+    """
     return round(random.uniform(-MAXIMUM_TILT, MAXIMUM_TILT), TILT_DECIMALS)
 
 
@@ -42,83 +45,135 @@ class Board:
         board = Board([(Hex(1, 26, -27), piece("elfes-01-5-infanteries"))])
     """
 
-    def __init__(self, positions=()):
+    _pieces: dict[str, Piece]
+    _tilts: dict[str, float]
+
+    def __init__(self, positions: Iterable[tuple[Hex, Piece]] = ()) -> None:
+        """Places the given pieces.
+
+        Args:
+            positions: `(hexagon, piece)` pairs, placed in order.
+        """
         self._pieces = {}
         self._tilts = {}
         for hexagon, placed in positions:
             self.place(hexagon, placed)
 
     @property
-    def pieces(self):
+    def pieces(self) -> dict[str, Piece]:
         """"q,r,s" -> `Piece` for everything placed, in the order it was placed."""
         return dict(self._pieces)
 
     @property
-    def tilts(self):
+    def tilts(self) -> dict[str, float]:
         """"q,r,s" -> the angle, in degrees, of the counter lying there."""
         return dict(self._tilts)
 
-    def place(self, hexagon, piece, tilt=None):
+    def place(self, hexagon: Hex, piece: Piece, tilt: Optional[float] = None) -> None:
         """Places a piece on a square, replacing whatever was there.
 
-        With no tilt given, one is drawn at random: placing is dropping the counter onto the map.
-        A tilt is only passed to put a piece back exactly as it was - a saved game read back.
+        Args:
+            hexagon: The square.
+            piece: The piece to place.
+            tilt: The angle to lay the counter at; drawn at random when omitted. Only a saved game
+                read back passes one.
+
+        Raises:
+            ValueError: If the square is off the map.
         """
         self._require_the_map(hexagon)
         self._pieces[hexagon.key] = piece
         self._tilts[hexagon.key] = draw_a_tilt() if tilt is None else tilt
 
-    def remove(self, hexagon):
-        """Removes the piece from the square and returns it; `None` if it was empty."""
+    def remove(self, hexagon: Hex) -> Optional[Piece]:
+        """Removes the piece from a square.
+
+        Args:
+            hexagon: The square.
+
+        Returns:
+            The piece removed, or `None` if the square was empty.
+        """
         self._tilts.pop(hexagon.key, None)
         return self._pieces.pop(hexagon.key, None)
 
-    def clear(self):
+    def clear(self) -> None:
         """Removes every piece: the board becomes a bare map again."""
         self._pieces.clear()
         self._tilts.clear()
 
-    def piece_on(self, hexagon):
-        """The piece placed on this square, or `None`."""
+    def piece_on(self, hexagon: Hex) -> Optional[Piece]:
+        """Reads the piece placed on a square.
+
+        Args:
+            hexagon: The square.
+
+        Returns:
+            The piece, or `None` if the square is empty.
+        """
         return self._pieces.get(hexagon.key)
 
-    def tilt_on(self, hexagon):
-        """The angle of the counter lying on this square, or `None` if it is empty."""
+    def tilt_on(self, hexagon: Hex) -> Optional[float]:
+        """Reads the angle of the counter lying on a square.
+
+        Args:
+            hexagon: The square.
+
+        Returns:
+            The angle in degrees, or `None` if the square is empty.
+        """
         return self._tilts.get(hexagon.key)
 
-    def squares_held_by(self, side):
-        """The squares this side occupies, as "q,r,s" keys."""
+    def squares_held_by(self, side: str) -> frozenset[str]:
+        """Collects the squares a side occupies.
+
+        Args:
+            side: `"alliance"`, `"tenebres"` or `"neutre"`.
+
+        Returns:
+            The "q,r,s" keys of its pieces.
+        """
         return frozenset(key for key, piece in self._pieces.items() if piece.side == side)
 
-    def opponents_of(self, side):
-        """The squares held by the opposing side.
+    def opponents_of(self, side: str) -> frozenset[str]:
+        """Collects the squares held by the opposing side.
 
-        The neutral side - flyers, conjurations, markers - has no opponent: it hinders nobody and
-        nobody hinders it.
+        Args:
+            side: The side asking. The neutral side has no opponent.
+
+        Returns:
+            The "q,r,s" keys of the opposing pieces; empty for the neutral side.
         """
         opposite = OPPONENTS.get(side)
         return self.squares_held_by(opposite) if opposite else frozenset()
 
-    def zones_of_control_against(self, side):
-        """The squares covered by the opposing zones of control, as "q,r,s" keys.
+    def zones_of_control_against(self, side: str) -> frozenset[str]:
+        """Collects the squares covered by the zones of control opposing a side.
 
-        Only opposing units that exert a zone of control count: markers exert none.
+        Args:
+            side: The side that suffers them.
+
+        Returns:
+            The "q,r,s" keys controlled by opposing units; markers exert none.
         """
         exerting = [Hex.from_key(key) for key in self.opponents_of(side)
                     if self._pieces[key].exerts_a_zone_of_control]
         return zone_of_control(exerting)
 
-    def moves(self, origin, piece=None):
-        """The squares the piece placed on `origin` can reach, zones of control included.
+    def moves(self, origin: Hex, piece: Optional[Piece] = None) -> list[Hex]:
+        """Finds the squares the piece on `origin` can reach, zones of control included.
 
-        The **placed** piece prevails; `piece` only serves to question an empty square, to find
-        out where a given unit would go if it were put there. With no piece at all, the question
-        is that of a move without a unit: the flat movement rate applies and, for want of a side,
-        nobody is an opponent.
+        A square occupied by a friend can be crossed but not taken: "it is not possible to place
+        more than one unit in the same square". It is discarded from the destinations, not from
+        the walk.
 
-        A square occupied by a friend can be crossed - the booklet allows it - but not taken: "it
-        is not possible to place more than one unit in the same square". It is therefore discarded
-        from the destinations, not from the walk.
+        Args:
+            origin: The departure square.
+            piece: Only serves to question an empty square: the **placed** piece prevails. With
+                neither, the flat movement rate applies and nobody is an opponent.
+
+        Returns:
+            The reachable, unoccupied squares.
         """
         piece = self.piece_on(origin) or piece
         if piece is None:
@@ -131,47 +186,66 @@ class Board:
             )
         return [hexagon for hexagon in reachable if hexagon.key not in self._pieces]
 
-    def movement_of(self, origin, piece=None):
-        """The points of the piece placed on `origin` - the flat rate if the square is empty."""
+    def movement_of(self, origin: Hex, piece: Optional[Piece] = None) -> int:
+        """Reads the movement budget of the piece on `origin`.
+
+        Args:
+            origin: The square.
+            piece: The piece to assume if the square is empty.
+
+        Returns:
+            The movement points; `DEFAULT_MOVEMENT` if there is no piece at all.
+        """
         piece = self.piece_on(origin) or piece
         return piece.movement_points if piece else DEFAULT_MOVEMENT
 
-    def move(self, origin, destination, piece=None):
-        """Moves the piece from `origin` to `destination` if the rules allow; says whether it
-        happened.
+    def move(self, origin: Hex, destination: Hex, piece: Optional[Piece] = None) -> bool:
+        """Moves the piece from `origin` to `destination` if the rules allow.
 
-        The move is recomputed here, never taken on trust - the destination square is therefore
-        free by construction. An empty origin square moves nothing but still answers: that is how
-        the rules are questioned by hand.
+        The move is recomputed here, never taken on trust. An empty origin square moves nothing
+        but still answers: that is how the rules are questioned by hand.
+
+        Args:
+            origin: The departure square.
+            destination: The arrival square.
+            piece: The piece to assume if the origin is empty.
+
+        Returns:
+            True if the move is legal; the board is then updated.
         """
         if destination not in self.moves(origin, piece):
             return False
         placed = self.remove(origin)
         if placed is not None:
-            # Put back without an angle: a counter picked up lies down differently than it was.
-            # This is the only moment when the tilt changes.
+            # No tilt passed: a counter picked up lies down differently than it was.
             self.place(destination, placed)
         return True
 
-    def to_dict(self):
-        """"q,r,s" -> piece key, in placement order - the format of `Scenario.placement`.
+    def to_dict(self) -> dict[str, str]:
+        """Serialises the positions in the format of `Scenario.placement`.
 
-        That is nearly the whole game: a placed piece has no state other than its square, its
-        counter - found back in the catalogue by its key - and the angle it lies at, which `tilts`
-        gives separately.
+        Returns:
+            "q,r,s" -> piece key, in placement order. The tilts are given separately by `tilts`.
         """
         return {key: piece.key for key, piece in self._pieces.items()}
 
-    def restore(self, placement, tilts=None):
-        """Clears the board and places each piece back from a "square -> piece key" dict.
+    def restore(self, placement: Mapping[str, str],
+                tilts: Optional[Mapping[str, float]] = None) -> Self:
+        """Clears the board and places each piece back from a saved placement.
 
-        The inverse of `to_dict`: counters are taken back from the catalogue, squares rechecked -
-        a saved game citing a square off the map or an unknown piece is refused, not patched up.
-        Everything is checked before the board is touched: refused means left as it was.
+        Everything is checked before the board is touched: a saved game citing a square off the
+        map or an unknown piece is refused, and the board left as it was.
 
-        `tilts` lays the counters back the way they were lying. A square that is not in it - a
-        game saved before we started keeping them - gets a fresh angle: the piece lies down once,
-        and does not move again.
+        Args:
+            placement: "q,r,s" -> piece key, the inverse of `to_dict`.
+            tilts: "q,r,s" -> angle. A square not in it gets a fresh angle, once.
+
+        Returns:
+            The board itself.
+
+        Raises:
+            ValueError: If a square is off the map.
+            KeyError: If a piece key is unknown to the catalogue.
         """
         tilts = tilts or {}
         placings = []
@@ -185,12 +259,22 @@ class Board:
         return self
 
     @staticmethod
-    def _require_the_map(hexagon):
+    def _require_the_map(hexagon: Hex) -> None:
+        """Refuses a square that is not on the map.
+
+        Args:
+            hexagon: The square to check.
+
+        Raises:
+            ValueError: If it is off the map.
+        """
         if not hexagon.is_on_map:
             raise ValueError(f"hexagon {hexagon!r} is not on the map")
 
-    def __len__(self):
+    def __len__(self) -> int:
+        """The number of pieces placed."""
         return len(self._pieces)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """The number of pieces placed."""
         return f"Board({len(self._pieces)} pieces placed)"

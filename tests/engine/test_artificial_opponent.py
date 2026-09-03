@@ -12,7 +12,8 @@ import pytest
 
 from tenebrae.engine import ai
 from tenebrae.engine.board import Board
-from tenebrae.engine.combat import DE, DR, CombatRegister
+from tenebrae.engine.combat import DE, DR
+from tenebrae.engine.combat_register import CombatRegister
 from tenebrae.engine.hexagon import MAP, Hex
 from tenebrae.engine.phase import Turn
 from tenebrae.engine.piece import piece

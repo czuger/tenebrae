@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from tenebrae.application import app
+from tenebrae.application import app, battle_log
 from tenebrae.application.config import TestingConfig
 from tenebrae.application.discord_client import DEFAULT_IDENTITY, DiscordError
 
@@ -44,9 +44,9 @@ def empty_table(deserted_map, application):
 @pytest.fixture
 def log():
     """The log queue, emptied before and after: the test reads only what it caused."""
-    app.LOG_MEMORY.lines.clear()
-    yield app.LOG_MEMORY.lines
-    app.LOG_MEMORY.lines.clear()
+    battle_log.LOG_MEMORY.lines.clear()
+    yield battle_log.LOG_MEMORY.lines
+    battle_log.LOG_MEMORY.lines.clear()
 
 
 def log_in(client):

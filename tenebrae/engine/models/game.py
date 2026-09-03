@@ -24,55 +24,41 @@ class Game(Document):
     """A saved game: enough to reopen the board where it was left.
 
     `placement` is the engine's format, "q,r,s" -> piece key - that of `Board.to_dict()` and of
-    `Scenario.placement`. The keys of a `MapField` become Mongo document keys, which forbid a
-    leading dot or dollar; cube coordinates use only digits, commas and the minus sign, so they
-    pass as they are.
-
-    Eliminated pieces simply disappear from the placement: the engine keeps no graveyard.
+    `Scenario.placement`. Cube coordinates use only digits, commas and the minus sign, so they pass
+    as Mongo document keys. Eliminated pieces simply disappear from the placement: the engine keeps
+    no graveyard.
     """
 
     scenario = IntField(required=True)
     placement = MapField(StringField(), required=True)
 
-    # The angle each counter lies at, "q,r,s" -> degrees (see `tenebrae/engine/board.py`). It is not
-    # a rule, it is appearance - but an appearance that must hold: without it in base, the piece
-    # would lie down differently at every page reload. Same keys as `placement`, and the field is
-    # not required: games saved before we started keeping them have none, and their pieces lie down
-    # once when the game resumes.
+    # Same keys as `placement`. Not required: games saved before tilts were kept have none, and
+    # their pieces lie down once when the game resumes.
     tilts = MapField(FloatField(), db_field="inclinaisons")
 
-    # The current phase. The (side, type) pair is enough to put the turn back in its sequence;
-    # magic does not appear, the server always steps over it.
+    # The (side, type) pair is enough to put the turn back in its sequence; magic never appears.
     active_side = StringField(required=True, db_field="camp_actif")
     phase_type = StringField(required=True, choices=(MOVEMENT, COMBAT), db_field="type_de_phase")
     turn_number = IntField(required=True, min_value=1, db_field="numero_de_tour")
 
-    # What the current combat phase has consumed: squares, not pieces. Emptied as soon as the
-    # phase changes.
+    # What the current combat phase has consumed: squares, not pieces.
     engaged_attackers = ListField(StringField(), db_field="attaquants_engages")
     engaged_targets = ListField(StringField(), db_field="cibles_engagees")
 
-    # Who holds which side: "alliance" or "tenebres" -> Discord identifier. A free side has no key.
-    # It is an identifier and not a `ReferenceField` to `Player` because the repositories only
-    # exchange state dicts: a reference would force a document out of
-    # `tenebrae/engine/repositories/`, or make a DBRef travel around. The game thus stays readable
-    # on its own.
-    #
-    # The field is not required: games saved before players existed have none, and they must stay
-    # resumable - the table is then simply empty.
+    # Side -> Discord identifier; a free side has no key. An identifier rather than a
+    # `ReferenceField`: the repositories exchange state dicts, and the game stays readable on its
+    # own. Not required: games saved before players existed must stay resumable.
     seats = MapField(StringField(), db_field="places")
 
     created_at = DateTimeField(required=True, db_field="creee_le")
     updated_at = DateTimeField(required=True, db_field="modifiee_le")
 
-    # `ordering` makes the most recent game the first one found: that is the one the server
-    # resumes when "/" is loaded. The identifier breaks ties: two games opened in the same clock
-    # tick carry the same date, and the order would otherwise be undecided - a "restart" followed
-    # by a reload could resume the abandoned game. ObjectIds grow with time, so the greatest is
-    # the most recent.
+    # Most recent first, the identifier breaking ties between two games saved in the same clock
+    # tick: ObjectIds grow with time.
     meta = {"collection": "parties", "indexes": ["-updated_at"],
             "ordering": ["-updated_at", "-id"]}
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """The scenario, the turn and the number of pieces placed."""
         return (f"Game(scenario {self.scenario}, turn {self.turn_number}, "
                 f"{len(self.placement)} pieces placed)")

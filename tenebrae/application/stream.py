@@ -1,40 +1,36 @@
 """The broadcaster: who is following the game, and how a move played reaches them.
 
-Before, each browser asked for the state again every three seconds (`GET /game/state`) and was
-told "nothing has moved" twenty times out of twenty-one. Now it holds an **open stream** (`GET
-/stream`, Server-Sent Events) and the server pushes the game to it at the moment it changes - not
-before, not after.
-
-The mechanism has three pieces:
+Each browser holds an **open stream** (`GET /stream`, Server-Sent Events) and the server pushes the
+game to it at the moment it changes - not before, not after. The mechanism has three pieces:
 
 - one **subscriber** per open stream, that is, per tab watching the game;
 - a **one-slot box** per subscriber: a `Queue(maxsize=1)` whose content is *replaced* rather than
-  stacked. Nobody needs a stale state - only the last one counts - and a request that raises the
-  version three times (that is the case of `/game/new`, which lays out the scenario again then
-  lets the AI play its turn) wakes the subscriber only once, on the last state. It is this box
-  that does the coalescing, and not the browser;
+  stacked. Only the last state counts, and a request that raises the version several times (as
+  `/game/new` does when the AI plays its first turn) wakes the subscriber only once. The box does
+  the coalescing, not the browser;
 - `publish`, called by the thread that has just played the move, with the snapshot **already
   taken**.
 
 That last point is what rules out races on the game state: the board, the turn and the combat
-register are module globals of `app.py`, and nothing protects them. If a stream's generator went
-and re-read them itself on waking, it would read them from the server thread serving *its* stream,
-while another thread might be moving a piece. So we leave it nothing to re-read: the snapshot is
-taken once, in the thread that has just written, and it is the snapshot that travels. The only
-shared state left is the subscriber registry, and it has its lock.
+register are module globals of `app.py`, and nothing protects them. The snapshot is taken once, in
+the thread that has just written, and it is the snapshot that travels. The only shared state left is
+the subscriber registry, and it has its lock.
 
-This module knows neither Flask nor the game: it only carries objects it is handed. The SSE
+This module knows neither Flask nor the game: it only carries the snapshots it is handed. The SSE
 formatting and the route are in `app.py`.
 
-TODO: PRODUCTION - the registry is in memory, in the process. As long as there is only one worker
-(`gunicorn -w 1`, and the development server), every player is subscribed to the same broadcaster
-and all is well. Beyond that, each worker would have its own and would only broadcast to its own
-subscribers: a player served by worker 2 would never see the move played on worker 1. An external
-pub/sub - Redis - would then be needed between `publish` and the boxes. See `DEPLOYMENT.md`.
+TODO: PRODUCTION - the registry is in memory, in the process. With more than one worker, each would
+only broadcast to its own subscribers; an external pub/sub (Redis) would then be needed. See
+`DEPLOYMENT.md`.
 """
 
 import queue
 import threading
+from collections.abc import Mapping
+from typing import Optional
+
+# What travels to the streams: the shared snapshot `app.py` takes after each move.
+Snapshot = Mapping[str, object]
 
 
 class Subscriber:
@@ -46,17 +42,21 @@ class Subscriber:
 
     __slots__ = ("_box",)
 
-    def __init__(self):
+    _box: queue.Queue[Snapshot]
+
+    def __init__(self) -> None:
+        """Opens an empty box."""
         self._box = queue.Queue(maxsize=1)
 
-    def put(self, state):
+    def put(self, state: Snapshot) -> None:
         """Puts the latest known state in, replacing the one that has not been read yet.
 
         The removal then the deposit are not atomic together, and that is of no consequence: the
-        only reader of this box is the generator of *that* stream, and two concurrent deposits
-        would in any case leave one of the two states - the most recent to within a few
-        microseconds. One state behind is caught up at the next deposit; the browser would not
-        even see the difference.
+        only reader is the generator of *that* stream, and two concurrent deposits leave one of
+        the two states in any case - one state behind is caught up at the next deposit.
+
+        Args:
+            state: The snapshot to deliver.
         """
         try:
             self._box.get_nowait()
@@ -67,11 +67,14 @@ class Subscriber:
         except queue.Full:  # pragma: no cover - another deposit has just filled it
             pass
 
-    def wait(self, delay):
-        """The next state, or `None` if nothing came within `delay` seconds.
+    def wait(self, delay: float) -> Optional[Snapshot]:
+        """Waits for the next state.
 
-        The `None` is not a failure: it is what triggers the heartbeat, without which an
-        intermediary - or the browser itself - would end up closing a connection it believes dead.
+        Args:
+            delay: How long to wait, in seconds.
+
+        Returns:
+            The state, or `None` if nothing came in time - which is what triggers the heartbeat.
         """
         try:
             return self._box.get(timeout=delay)
@@ -86,53 +89,66 @@ class Broadcaster:
     only one game, and everyone watching it watches it together.
     """
 
-    def __init__(self):
+    _subscribers: set[Subscriber]
+    _lock: threading.Lock
+
+    def __init__(self) -> None:
+        """Opens an empty registry."""
         self._subscribers = set()
         self._lock = threading.Lock()
 
-    def __len__(self):
-        """The number of open streams. The engine use it to observe that none is left once the
-        pages have been closed."""
+    def __len__(self) -> int:
+        """The number of open streams."""
         with self._lock:
             return len(self._subscribers)
 
-    def subscribe(self):
-        """Opens a subscription and returns the subscriber.
+    def subscribe(self) -> Subscriber:
+        """Opens a subscription.
 
-        Prefer `subscription()`, which guarantees removal; this one is here for the engine and for
-        whoever needs the two steps apart.
+        Prefer `subscription()`, which guarantees removal; this one is for whoever needs the two
+        steps apart.
+
+        Returns:
+            The new subscriber.
         """
         subscriber = Subscriber()
         with self._lock:
             self._subscribers.add(subscriber)
         return subscriber
 
-    def unsubscribe(self, subscriber):
-        """Removes a subscriber from the registry. Removing twice does nothing more."""
+    def unsubscribe(self, subscriber: Subscriber) -> None:
+        """Removes a subscriber from the registry; removing twice does nothing more.
+
+        Args:
+            subscriber: The subscriber to remove.
+        """
         with self._lock:
             self._subscribers.discard(subscriber)
 
-    def subscription(self):
-        """The subscription as a context manager: `with BROADCASTER.subscription() as subscriber:`.
+    def subscription(self) -> "_Subscription":
+        """Opens a subscription as a context manager: `with broadcaster.subscription() as s:`.
 
-        This is **the** way to subscribe from a stream generator. A browser closing its tab, a
-        network cut, a server being stopped: in every case the generator is closed, `GeneratorExit`
-        crosses the `with`, and the subscriber is removed. Without that, every closed page would
-        leave a box behind it, into which the server would go on depositing every move played - a
-        leak of both memory and work.
+        **The** way to subscribe from a stream generator: tab closed, network cut or server
+        stopped, the generator is closed, `GeneratorExit` crosses the `with`, and the subscriber
+        is removed. Without that, every closed page would leave a box behind it.
+
+        Returns:
+            The context manager, yielding the subscriber.
         """
         return _Subscription(self, self.subscribe())
 
-    def publish(self, state):
-        """Deposits this state with every subscriber, and returns their number.
+    def publish(self, state: Snapshot) -> int:
+        """Deposits a state with every subscriber.
 
-        The caller is the thread that has just played the move, and `state` the snapshot it took
-        itself: the broadcaster is not going to re-read anything.
+        The copy of the registry is taken under the lock, the deposits happen outside it: a
+        subscriber joining or leaving during the send does not wait. One arriving too late catches
+        up when its stream opens.
 
-        The copy of the registry is taken under the lock, but the deposits happen outside it: a
-        subscriber joining or leaving during the send does not have to wait for it to finish. One
-        arriving a microsecond too late catches up with the current state anyway when its stream
-        opens, which the route sends it straight away.
+        Args:
+            state: The snapshot the calling thread has just taken.
+
+        Returns:
+            The number of subscribers served.
         """
         with self._lock:
             subscribers = list(self._subscribers)
@@ -146,13 +162,21 @@ class _Subscription:
 
     __slots__ = ("_broadcaster", "_subscriber")
 
-    def __init__(self, broadcaster, subscriber):
+    def __init__(self, broadcaster: Broadcaster, subscriber: Subscriber) -> None:
+        """Binds a subscriber to the registry it will be removed from.
+
+        Args:
+            broadcaster: The registry.
+            subscriber: The subscriber already registered there.
+        """
         self._broadcaster = broadcaster
         self._subscriber = subscriber
 
-    def __enter__(self):
+    def __enter__(self) -> Subscriber:
+        """Hands the subscriber over."""
         return self._subscriber
 
-    def __exit__(self, *_):
+    def __exit__(self, *_: object) -> bool:
+        """Removes the subscriber; exceptions are not swallowed."""
         self._broadcaster.unsubscribe(self._subscriber)
         return False

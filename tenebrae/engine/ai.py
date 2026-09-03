@@ -23,9 +23,15 @@ the AI testable. The die itself stays at the edge of the engine: `roll` is a cal
 the caller, one draw per combat.
 """
 
+from collections.abc import Callable
+from typing import Optional
+
 from tenebrae.engine import combat
+from tenebrae.engine.board import Board
+from tenebrae.engine.combat import CombatResult
+from tenebrae.engine.combat_register import CombatRegister
 from tenebrae.engine.hexagon import Hex
-from tenebrae.engine.phase import MOVEMENT
+from tenebrae.engine.phase import MOVEMENT, Turn
 
 # The occupant of a seat held by the AI. No human can carry it: Discord identifiers are strings of
 # digits. The value travels into the saved game, and therefore stays as it is.
@@ -38,17 +44,28 @@ AI_NAME = "IA"
 # knob - lowering it makes the AI reckless, raising it makes it timid.
 MINIMUM_RATIO = combat.COLUMNS.index((1, 1))
 
+# A move played: `(origin, destination)`.
+Move = tuple[Hex, Hex]
 
-def target_priority(board, origin, side):
-    """The opposing squares in priority order, seen from `origin`: nearest first, weakest next.
+# A combat fought: `(target, attackers, result)`.
+Combat = tuple[Hex, list[Hex], CombatResult]
 
-    The sort is on (distance as the crow flies, effective defending strength - the counter's
-    strength multiplied by the terrain occupied -, square key): aim near, strike weak, break ties
-    the same way from one game to the next. Opponents with no legible strength are discarded:
-    neither combat targets nor march objectives.
 
-    This is where a future difficulty setting would live: changing this sort changes the whole AI,
-    movement and combat aiming through the same function.
+def target_priority(board: Board, origin: Hex, side: str) -> list[Hex]:
+    """Ranks the opposing squares seen from `origin`: nearest first, weakest next.
+
+    The sort is on (distance as the crow flies, effective defending strength, square key): aim
+    near, strike weak, break ties the same way from one game to the next. Opponents with no legible
+    strength are discarded. A future difficulty setting would live here: this sort steers both
+    movement and combat.
+
+    Args:
+        board: The board.
+        origin: The square the unit looks from.
+        side: The unit's side.
+
+    Returns:
+        The opposing squares, in priority order.
     """
     targets = []
     for key in board.opponents_of(side):
@@ -61,27 +78,39 @@ def target_priority(board, origin, side):
     return [hexagon for _, _, _, hexagon in sorted(targets, key=lambda entry: entry[:3])]
 
 
-def choose_target(board, origin, side):
-    """The opposing square to aim at from `origin`, or `None` if no opponent is left."""
+def choose_target(board: Board, origin: Hex, side: str) -> Optional[Hex]:
+    """Picks the opposing square to aim at from `origin`.
+
+    Args:
+        board: The board.
+        origin: The square the unit looks from.
+        side: The unit's side.
+
+    Returns:
+        The first square of `target_priority`, or `None` if no opponent is left.
+    """
     targets = target_priority(board, origin, side)
     return targets[0] if targets else None
 
 
-def play_movement(board, side):
+def play_movement(board: Board, side: str) -> list[Move]:
     """Plays the side's movement phase: each unit marches towards its target.
 
-    A unit already within engagement range of its target does not move - an archer in position
-    holds it, an infantry in contact stays there. The others take, among their permitted moves,
-    the square that is least out of range; at equal shortfall, the one least distant from their
-    position - so a shooter stops at range instead of sticking to its target, and nobody moves for
-    nothing. The engine revalidates every step: terrain, zones of control, occupied squares.
+    A unit already within engagement range of its target does not move. The others take, among
+    their permitted moves, the square that is least out of range; at equal shortfall, the one least
+    distant from their position - so a shooter stops at range, and nobody moves for nothing. The
+    engine revalidates every step.
 
-    The board changes under the iteration, but a single pass over the squares frozen at the start
-    is enough to give one action per unit: an occupied square is never a destination, so every
-    square in the list keeps its occupant until its own turn comes, and a freed square can only be
-    taken by a unit played after it - when it has already had its turn.
+    A single pass over the squares frozen at the start gives one action per unit: an occupied
+    square is never a destination, so every square in the list keeps its occupant until its own
+    turn comes.
 
-    Returns the list of `(origin, destination)` pairs played - enough to write the log.
+    Args:
+        board: The board, modified in place.
+        side: The side that plays.
+
+    Returns:
+        The `(origin, destination)` pairs played, in order.
     """
     moves_played = []
     for key in sorted(board.squares_held_by(side)):
@@ -96,7 +125,9 @@ def play_movement(board, side):
         if origin.distance(target) <= objective:
             continue
 
-        def rank(hexagon, origin=origin, target=target, objective=objective):
+        def rank(hexagon: Hex, origin: Hex = origin, target: Hex = target,
+                 objective: int = objective) -> tuple[int, int, str]:
+            """The sort key of a candidate destination: shortfall, distance walked, square key."""
             shortfall = max(0, hexagon.distance(target) - objective)
             return (shortfall, origin.distance(hexagon), hexagon.key)
 
@@ -111,19 +142,62 @@ def play_movement(board, side):
     return moves_played
 
 
-def play_combat(board, side, register, roll):
+def available_attackers(board: Board, side: str, target: Hex,
+                        register: CombatRegister) -> list[Hex]:
+    """Gathers every unit of the side that can still engage a target this phase.
+
+    Args:
+        board: The board.
+        side: The attacking side.
+        target: The square aimed at.
+        register: What the phase has already consumed.
+
+    Returns:
+        The attackers' squares, in key order.
+    """
+    attackers = []
+    for key in sorted(board.squares_held_by(side)):
+        hexagon = Hex.from_key(key)
+        piece = board.piece_on(hexagon)
+        if (piece.is_a_unit and piece.strength is not None and register.can_attack(key)
+                and combat.in_range(hexagon, piece, target)):
+            attackers.append(hexagon)
+    return attackers
+
+
+def worth_attacking(board: Board, target: Hex, attackers: list[Hex]) -> bool:
+    """Says whether the group reaches the ratio below which the AI declines to attack.
+
+    Args:
+        board: The board.
+        target: The square aimed at.
+        attackers: The attackers' squares.
+
+    Returns:
+        True if the Table I column is at least `MINIMUM_RATIO`.
+    """
+    target_piece = board.piece_on(target)
+    defending_strength = target_piece.strength * combat.defence_multiplier(target, target_piece)
+    strengths = sum(board.piece_on(hexagon).strength for hexagon in attackers)
+    return combat.ratio_column(strengths, defending_strength) >= MINIMUM_RATIO
+
+
+def play_combat(board: Board, side: str, register: CombatRegister,
+                roll: Callable[[], int]) -> list[Combat]:
     """Plays the side's combat phase: attacks concentrate on the priority targets.
 
     Each still-available unit looks, in its order of priorities, for a target within range and not
     yet engaged; every available unit of the side within range of that target then joins in, in a
-    single combat - that is the concentration the engine allows, several attackers for one
-    `fight`. Below parity (`MINIMUM_RATIO`) the unit declines and stays available: it may join a
-    better-staffed group on another target.
+    single combat. Below parity the unit declines and stays available for a better-staffed group.
 
-    The `register` - the same one humans use - holds the booklet's two rules: one attack per unit
-    per phase, one attack per target per phase. `roll` is called once per combat fought.
+    Args:
+        board: The board, modified in place.
+        side: The side that plays.
+        register: The phase register, the same one humans use; filled as combats are fought.
+        roll: Called once per combat fought, returns the die.
 
-    Returns the list of combats fought: `(target, attackers, CombatResult)`.
+    Returns:
+        The `(target, attackers, result)` triples of the combats fought, in order.
     """
     combats_fought = []
     for key in sorted(board.squares_held_by(side)):
@@ -140,20 +214,8 @@ def play_combat(board, side, register, roll):
         if target is None:
             continue
 
-        attackers = []
-        for friendly_key in sorted(board.squares_held_by(side)):
-            hexagon = Hex.from_key(friendly_key)
-            friendly_piece = board.piece_on(hexagon)
-            if (friendly_piece.is_a_unit and friendly_piece.strength is not None
-                    and register.can_attack(friendly_key)
-                    and combat.in_range(hexagon, friendly_piece, target)):
-                attackers.append(hexagon)
-
-        target_piece = board.piece_on(target)
-        defending_strength = (target_piece.strength
-                              * combat.defence_multiplier(target, target_piece))
-        strengths = sum(board.piece_on(hexagon).strength for hexagon in attackers)
-        if combat.ratio_column(strengths, defending_strength) < MINIMUM_RATIO:
+        attackers = available_attackers(board, side, target, register)
+        if not worth_attacking(board, target, attackers):
             continue
 
         result = combat.fight(board, target, attackers, roll())
@@ -162,14 +224,25 @@ def play_combat(board, side, register, roll):
     return combats_fought
 
 
-def play_turn(board, turn, register, roll):
+def play_turn(board: Board, turn: Turn, register: CombatRegister,
+              roll: Callable[[], int]) -> tuple[list[Move], list[Combat]]:
     """Plays the active side's whole turn - movement then combat - and hands play back.
 
     On entry, the current phase must be the movement phase of the AI's side; on exit, it is the
-    movement phase of the next side. In between, the phase change is everyone's: `Turn.advance()`
-    and a combat register wiped clean - exactly what a human player clicking "next phase" does.
+    movement phase of the next side. The phase changes are those a human clicking "next phase"
+    makes: `Turn.advance()` and a combat register wiped clean.
 
-    Returns `(moves, combats)`, what the two phases played.
+    Args:
+        board: The board, modified in place.
+        turn: The turn, advanced in place.
+        register: The phase register, reset at each phase change.
+        roll: Called once per combat fought, returns the die.
+
+    Returns:
+        `(moves, combats)`, what the two phases played.
+
+    Raises:
+        ValueError: If the current phase is not a movement phase.
     """
     if turn.phase_type != MOVEMENT:
         raise ValueError("the AI comes into play at its movement phase, nowhere else")

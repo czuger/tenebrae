@@ -9,16 +9,15 @@ they do not change mid-game.
 Its field names are in French, like every data file in the box, and they are read as such here;
 only the code around them is English.
 
-The engine currently uses just one of those values, movement, which replaces the flat 5 points
-moves used to be computed on. The rest is loaded anyway: strength and fire will serve in combat.
-
-The side, on the other hand, is not in `pions.json`: it is not printed on the counter. It comes
-from the side breakdown in `tenebrae/game_box/pions/README.md`, held here in `SIDES`, and serves
-to know who opposes whom - hence which zones of control are exerted against whom.
+The side is not in `pions.json`: it is not printed on the counter. It comes from the side breakdown
+in `tenebrae/game_box/pions/README.md`, held here in `SIDES`, and serves to know who opposes whom -
+hence which zones of control are exerted against whom.
 """
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any, Optional
 
 BOX = Path(__file__).resolve().parent.parent / "game_box"
 CATALOGUE_PATH = BOX / "pions" / "pions.json"
@@ -31,8 +30,8 @@ MOTIONLESS = 0
 ALLIANCE, DARKNESS, NEUTRAL = "alliance", "tenebres", "neutre"
 
 # The side of each faction, after the "Camps" section of `tenebrae/game_box/pions/README.md`.
-# Directories with no units - record sheets, markers, overviews - are neutral for want of anything
-# better: nothing in them fights.
+# Directories with no units - record sheets, markers, overviews - are neutral: nothing in them
+# fights.
 SIDES = {
     "01-yzent": DARKNESS,             # the Magiocrat's ally of convenience
     "02-reissland": ALLIANCE,
@@ -72,7 +71,26 @@ class Piece:
     __slots__ = ("key", "image", "faction", "strength", "movement", "fire", "range",
                  "flight_movement", "special_abilities", "symbol", "remarks")
 
-    def __init__(self, key, values):
+    key: str
+    image: str
+    faction: str
+    strength: Optional[int]
+    movement: Optional[int]
+    fire: Optional[int]
+    range: Optional[int]
+    flight_movement: Optional[int]
+    special_abilities: Optional[str]
+    symbol: Optional[str]
+    remarks: Optional[str]
+
+    # Any: the raw JSON entry of `pions.json`, whose values are integers, strings or null.
+    def __init__(self, key: str, values: Mapping[str, Any]) -> None:
+        """Reads a piece from its `pions.json` entry.
+
+        Args:
+            key: The name of the photograph, without directory or extension.
+            values: The entry's fields, in the French vocabulary of the data file.
+        """
         self.key = key
         self.image = values["image"]
         self.faction = values["faction"]
@@ -86,22 +104,20 @@ class Piece:
         self.remarks = values["remarques"]
 
     @property
-    def is_a_unit(self):
-        """Says whether the piece is a unit, and not a marker or a photograph that is not a piece.
+    def is_a_unit(self) -> bool:
+        """Whether the piece is a unit, and not a marker, a record sheet or an overview.
 
-        A unit carries at least one numeric value: the markers (`PA`, `D`, flames, mist, ruins,
-        breach), the two record sheets and the four overviews carry none.
+        A unit carries at least one numeric value; the others carry none.
         """
         return any(value is not None
                    for value in (self.strength, self.movement, self.flight_movement))
 
     @property
-    def movement_points(self):
+    def movement_points(self) -> int:
         """The piece's movement budget, in points.
 
-        The ground movement read off the counter, with two exceptions: a piece that only has a
-        flight movement moves by that number for want of anything better - flight is not a rule of
-        its own yet - and whatever carries no value at all does not move.
+        The ground movement read off the counter; failing that the flight movement, flight not
+        being a rule of its own yet; failing both, `MOTIONLESS`.
         """
         if self.movement is not None:
             return self.movement
@@ -110,23 +126,26 @@ class Piece:
         return MOTIONLESS
 
     @property
-    def side(self):
+    def side(self) -> str:
         """The side of its faction: `ALLIANCE`, `DARKNESS` or `NEUTRAL` (see `SIDES`)."""
         return SIDES[self.faction]
 
     @property
-    def exerts_a_zone_of_control(self):
-        """Says whether the piece holds the six squares surrounding it under its control.
+    def exerts_a_zone_of_control(self) -> bool:
+        """Whether the piece holds the six squares surrounding it under its control.
 
-        Every unit of a side does. Markers exert nothing since they are not units, and neutrals
-        do not either for want of an opponent. The booklet further exempts leaders, spellcasters,
-        demons and ordinary undead: those exceptions are not applied, they are recorded in
-        `tenebrae/engine/README.md`.
+        Every unit of a side does; markers and neutrals do not. The booklet's exemptions (leaders,
+        spellcasters, demons, ordinary undead) are not applied - see `tenebrae/engine/README.md`.
         """
         return self.is_a_unit and self.side != NEUTRAL
 
-    def to_dict(self):
-        """The piece in a form directly convertible to JSON for the browser."""
+    def to_dict(self) -> dict[str, Optional[int] | Optional[str]]:
+        """Serialises the piece for the browser's JSON.
+
+        Returns:
+            Every counter value under its English name, plus the key, image, side and movement
+            budget.
+        """
         return {"key": self.key, "image": self.image, "faction": self.faction,
                 "side": self.side,
                 "strength": self.strength, "movement": self.movement, "fire": self.fire,
@@ -135,12 +154,20 @@ class Piece:
                 "remarks": self.remarks,
                 "movement_points": self.movement_points}
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """The key and the movement budget."""
         return f"Piece({self.key!r}, {self.movement_points} MP)"
 
 
-def read_catalogue(path=CATALOGUE_PATH):
-    """Returns "key -> Piece" for everything `pions.json` carries, markers and overviews included."""
+def read_catalogue(path: Path = CATALOGUE_PATH) -> dict[str, Piece]:
+    """Reads every piece the box carries, markers and overviews included.
+
+    Args:
+        path: The `pions.json` file to read.
+
+    Returns:
+        Key -> `Piece`, in the file's order.
+    """
     with Path(path).open(encoding="utf-8") as source:
         return {key: Piece(key, values) for key, values in json.load(source).items()}
 
@@ -150,6 +177,16 @@ def read_catalogue(path=CATALOGUE_PATH):
 CATALOGUE = read_catalogue()
 
 
-def piece(key):
-    """The piece with key `key`; `KeyError` if the box does not know it."""
+def piece(key: str) -> Piece:
+    """Finds a piece in the catalogue.
+
+    Args:
+        key: The piece key, e.g. `"elfes-01-5-infanteries"`.
+
+    Returns:
+        The piece.
+
+    Raises:
+        KeyError: If the box does not know it.
+    """
     return CATALOGUE[key]

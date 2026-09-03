@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from tenebrae.application import app
+from tenebrae.application import app, battle_log, rotating_log
 from tenebrae.application.config import ROOT
 from tenebrae.engine import combat
 from tenebrae.engine.hexagon import Hex
@@ -42,9 +42,9 @@ def empty_log():
     The queue is a module global, and it crosses engine: without this cleanup, a test would read the
     lines written by everything that came before it - starting with the browser engine.
     """
-    app.LOG_MEMORY.lines.clear()
-    yield app.LOG_MEMORY.lines
-    app.LOG_MEMORY.lines.clear()
+    battle_log.LOG_MEMORY.lines.clear()
+    yield battle_log.LOG_MEMORY.lines
+    battle_log.LOG_MEMORY.lines.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -67,24 +67,24 @@ def texts(lines):
 def test_a_logged_line_carries_its_time_and_its_text():
     """And what is served is a copy: the queue goes on turning while the message travels, and we
     do not hand out the reference it turns in."""
-    app.LOG.info("Phase: %s (turn %s)", "Phase de combat — Nains", 3)
-    line = app.log_lines()[-1]
+    battle_log.LOG.info("Phase: %s (turn %s)", "Phase de combat — Nains", 3)
+    line = battle_log.log_lines()[-1]
     assert line["text"] == "Phase: Phase de combat — Nains (turn 3)"
     assert len(line["time"].split(":")) == 3
 
-    served = app.log_lines()
-    app.LOG.info("one line more")
+    served = battle_log.log_lines()
+    battle_log.LOG.info("one line more")
     assert texts(served)[-1] == "Phase: Phase de combat — Nains (turn 3)"
 
 
 def test_the_log_keeps_only_its_last_lines():
     """A server running for a long time must not swell by one line per refused click."""
-    for number in range(app.LINES_KEPT + 10):
-        app.LOG.info("line %s", number)
-    lines = app.log_lines()
-    assert len(lines) == app.LINES_KEPT
+    for number in range(battle_log.LINES_KEPT + 10):
+        battle_log.LOG.info("line %s", number)
+    lines = battle_log.log_lines()
+    assert len(lines) == battle_log.LINES_KEPT
     assert lines[0]["text"] == "line 10"
-    assert lines[-1]["text"] == f"line {app.LINES_KEPT + 9}"
+    assert lines[-1]["text"] == f"line {battle_log.LINES_KEPT + 9}"
 
 
 # --- What the page and the stream carry of it -----------------------------------------------------
@@ -92,11 +92,11 @@ def test_the_log_keeps_only_its_last_lines():
 def test_the_page_and_the_state_both_carry_the_log(client):
     """The page carries it so a tab opens with the game already told; `/game/state` carries it so
     the fallback poll keeps up with it."""
-    app.LOG.info("New game: scenario 4")
+    battle_log.LOG.info("New game: scenario 4")
     carried = read_hidden_field(client.get("/").get_data(as_text=True), "initial-log")
     assert "New game: scenario 4" in texts(carried)
 
-    app.LOG.info("Combat résolu : Défenseur Éliminé — dé 1, rapport 6-1")
+    battle_log.LOG.info("Combat résolu : Défenseur Éliminé — dé 1, rapport 6-1")
     state = client.get("/game/state").json
     assert state["changed"] is True
     assert texts(state["log"])[-1] == "Combat résolu : Défenseur Éliminé — dé 1, rapport 6-1"
@@ -104,7 +104,7 @@ def test_the_page_and_the_state_both_carry_the_log(client):
 
 def test_the_shared_snapshot_carries_the_log():
     """It is that snapshot which travels in the stream: the log is in it, like the pieces."""
-    app.LOG.info("Phase: Phase de combat — Nains (turn 1)")
+    battle_log.LOG.info("Phase: Phase de combat — Nains (turn 1)")
     assert texts(app.shared_snapshot()["log"]) == ["Phase: Phase de combat — Nains (turn 1)"]
 
 
@@ -219,7 +219,7 @@ def log_on_disk(tmp_path):
     opened = []
 
     def open_one(lines_per_file=3, files_kept=2):
-        handler = app.RotatingLog(tmp_path / "logs" / "battle_log.log",
+        handler = rotating_log.RotatingLog(tmp_path / "logs" / "battle_log.log",
                                   lines_per_file, files_kept)
         opened.append(handler)
         return handler
@@ -280,7 +280,7 @@ def test_a_restart_does_not_start_again_from_zero(log_on_disk, tmp_path):
 def test_the_applications_log_is_in_logs_at_the_root():
     """At the root of the repository, outside the `tenebrae` package: the execution traces all live
     in the same place, beside `.env`, and neither is versioned."""
-    assert app.LOG_PATH.parent.name == "logs"
-    assert app.LOG_PATH.parent.parent == ROOT
+    assert battle_log.LOG_PATH.parent.name == "logs"
+    assert battle_log.LOG_PATH.parent.parent == ROOT
     assert ROOT == Path(__file__).resolve().parents[2]
-    assert (app.LINES_PER_FILE, app.LOGS_KEPT) == (1000, 3)
+    assert (battle_log.LINES_PER_FILE, battle_log.LOGS_KEPT) == (1000, 3)

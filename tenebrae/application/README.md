@@ -350,7 +350,7 @@ opponent, when it has already been attacked, or when no attacker is valid.
 
 The booklet limits each unit to one attack per phase, and each target to one attack per phase even
 by different attackers. The count is kept **on the server side** by the module global `REGISTER`
-(`tenebrae.engine.combat.CombatRegister`), beside `BOARD` and `TURN`:
+(`tenebrae.engine.combat_register.CombatRegister`), beside `BOARD` and `TURN`:
 
 - it is **emptied at every phase change** (`POST /phase/next`) — so between the Dwarves' combat
   phase and the Orcs', and at the next turn. `GET /` resumes it from the save, or empties it if it
@@ -364,8 +364,9 @@ the **squares** of that register that still carry a piece, so that the page can 
 (`.piece.unavailable`). The register designates units by their square and not by their counter: see
 `tenebrae/engine/README.md` § "One combat per unit and per phase" for what that assumes.
 
-**The log is written in two places at once** — one line per event: a phase change, a seat taken, a
-unit out of range, a combat result in French, the AI's moves.
+**The log is written in two places at once** (`battle_log.py`, which configures the logger once, at
+import) — one line per event: a phase change, a seat taken, a unit out of range, a combat result
+in French, the AI's moves.
 
 A combat writes **two**: the ratio computation, then its outcome.
 
@@ -388,11 +389,13 @@ raises are written as a single number).
   **rotating**: after `LINES_PER_FILE` lines (a thousand) it is set aside as `battle_log.log.1`,
   the archives shifting behind it up to `LOGS_KEPT` (three) — that is at most four thousand lines
   kept, the oldest archive being erased next. The threshold is counted in **lines** and not in
-  bytes (`RotatingLog`, which redefines `RotatingFileHandler`'s `shouldRollover`): it is in lines
+  bytes (`RotatingLog`, `rotating_log.py`, which redefines `RotatingFileHandler`'s
+  `shouldRollover`): it is in lines
   that this log is read, one per game event. The counter picks up from what the file already
   carries, so that a server restarted ten times in a day does not write ten times a thousand lines
   into the same file;
-- a **bounded in-memory queue** (`InMemoryLog`, `LINES_KEPT` lines), which the browser turns into
+- a **bounded in-memory queue** (`InMemoryLog`, `in_memory_log.py`, `LINES_KEPT` lines), which the
+  browser turns into
   its column. It is a *handler* plugged onto the same logger, and not a call added beside each
   `LOG.info`: there is only one point of writing, and the column cannot say anything other than the
   file.

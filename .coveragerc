@@ -21,12 +21,15 @@ omit =
     */__init__.py
 
 [report]
-# The one line a run cannot reach and whose absence from the report is not a gap:
-# `if __name__ == "__main__"` is the development launch, which the suite never takes. Nothing else
-# is excluded - the package has no abstract method and no `TYPE_CHECKING` block, and an exclusion
-# written for a case that does not exist would quietly hide the day it does.
+# The lines a run cannot reach and whose absence from the report is not a gap:
+# `if __name__ == "__main__"` is the development launch, which the suite never takes, and the
+# `TYPE_CHECKING` blocks import a document for its annotations only - the repositories import it for
+# real inside their constructor, so that the base-less ones never load mongoengine. Nothing else is
+# excluded - the package has no abstract method, and an exclusion written for a case that does not
+# exist would quietly hide the day it does.
 exclude_also =
     if __name__ == .__main__.:
+    if TYPE_CHECKING:
 
 # The report is read to find what is not exercised, so it names the missing lines.
 show_missing = True

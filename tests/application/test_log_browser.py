@@ -5,7 +5,7 @@ These engine require Chromium (`python3 -m playwright install chromium`).
 
 import pytest
 
-from tenebrae.application import app
+from tenebrae.application import app, battle_log
 from tenebrae.engine.hexagon import Hex
 from tenebrae.engine.piece import CATALOGUE
 
@@ -27,11 +27,11 @@ def board(page, server, application, seat_the_player, deserted_map):
     seat_the_player(application)
     page.set_viewport_size({"width": 1400, "height": 900})
     page.goto(f"{server}/login")
-    app.LOG_MEMORY.lines.clear()
+    battle_log.LOG_MEMORY.lines.clear()
     page.goto(f"{server}/")
     page.wait_for_function("document.getElementById('scale').textContent !== '—'")
     yield page
-    app.LOG_MEMORY.lines.clear()
+    battle_log.LOG_MEMORY.lines.clear()
 
 
 def read_lines(page):

@@ -14,6 +14,7 @@ French, as they are in `tenebrae/game_box/`.
 | `scenario.py` | the set-ups fixed in `tenebrae/scenarios/`, and the `Board` they yield |
 | `phase.py` | the state machine of a turn: which side plays, and at what (`Turn`) |
 | `combat.py` | combat resolution after the booklet's Table I |
+| `combat_register.py` | the register of one combat per unit and per target, per phase (`CombatRegister`) |
 | `ai.py` | the artificial opponent: the side the server plays on its own |
 | `models/` | the game entities, one file per model: `Game`, `Player`, `Seats` |
 | `repositories/` | their database access, one module per subject: `game.py`, `player.py` |
@@ -378,7 +379,7 @@ and each target to **one attack per phase**, even by different attackers. `Comba
 register that keeps that count:
 
 ```python
-from tenebrae.engine.combat import CombatRegister
+from tenebrae.engine.combat_register import CombatRegister
 
 register = CombatRegister()
 register.can_attack("1,26,-27")  # True

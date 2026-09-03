@@ -76,7 +76,8 @@ read **once, at import**: the board is printed, it does not change mid-game.
 | `board.py` | `Board` — who occupies which square; the engine's only mutable object |
 | `scenario.py` | `Scenario` — a set-up read from `tenebrae/scenarios/`, and the board it yields |
 | `phase.py` | `Turn` — movement → magic → combat, for each player, round and round |
-| `combat.py` | the booklet's Table I, and the register of one combat per unit per phase |
+| `combat.py` | the booklet's Table I |
+| `combat_register.py` | `CombatRegister` — one combat per unit and per target, per phase |
 | `models/` | the game entities, **one file per model**: `game.py`, `player.py`, `seats.py` |
 | `repositories/` | database access to those entities: `game.py`, `player.py` — MongoDB, and the base-less counterpart |
 

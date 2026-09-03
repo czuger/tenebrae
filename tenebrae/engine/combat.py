@@ -12,13 +12,18 @@ troops escape it**: "a unit firing missiles can in no case suffer a retreat or e
 Special abilities, the cavalry charge, phalanxes and the day/night alternation are out of reach -
 see `tenebrae/engine/README.md`.
 
-`CombatRegister` keeps separately what a combat phase has already consumed: a unit attacks only
-once, a unit is attacked only once. It is a register, not a resolution - it touches neither the
-board nor the turn, and is emptied at each new combat phase.
+What a combat phase has already consumed is kept apart, in `tenebrae.engine.combat_register`.
 """
 
-# The five possible outcomes. Only `AE`, `DE` and `EX` change anything on the board; `AR` and
-# `DR` - the retreats - are read but left without effect, for want of a retreat rule.
+from collections.abc import Iterable, Sequence
+from typing import Optional
+
+from tenebrae.engine.board import Board
+from tenebrae.engine.hexagon import Hex
+from tenebrae.engine.piece import Piece
+
+# The five possible outcomes. Only `AE`, `DE` and `EX` change anything on the board; the retreats
+# `AR` and `DR` are read but left without effect, for want of a retreat rule.
 AE, DE, EX, AR, DR = "AE", "DE", "EX", "AR", "DR"
 
 # The ten strength ratios of Table I, from 1 against 5 to 6 against 1, attacker in the numerator.
@@ -45,11 +50,18 @@ ELVES_FACTION = "09-elfes"
 DIE_BONUS_TERRAINS = {"bois", "colline"}
 
 
-def ratio_column(attacking_strength, defending_strength):
-    """The index, in `COLUMNS`, of the attacker / defender strength ratio.
+def ratio_column(attacking_strength: int, defending_strength: int) -> int:
+    """Finds the Table I column of a strength ratio.
 
     The ratio runs from 1-5 to 6-1 and is "always rounded in the defender's favour": 10 against 4
     is 2 against 1, 4 against 10 is 1 against 3.
+
+    Args:
+        attacking_strength: What the attackers total.
+        defending_strength: The defender's strength, terrain counted.
+
+    Returns:
+        The index in `COLUMNS`.
     """
     if attacking_strength <= 0:
         return 0
@@ -60,59 +72,109 @@ def ratio_column(attacking_strength, defending_strength):
     return COLUMNS.index((1, min(-(-defending_strength // attacking_strength), 5)))
 
 
-def defence_multiplier(hexagon, defending_piece):
-    """The factor multiplying the defender's strength according to the terrain it occupies."""
+def defence_multiplier(hexagon: Hex, defending_piece: Piece) -> int:
+    """Reads the factor the defender's terrain applies to its strength.
+
+    Args:
+        hexagon: The square the defender occupies.
+        defending_piece: The defender, whose faction decides the woods' bonus.
+
+    Returns:
+        1, 2 or 3.
+    """
     terrain = hexagon.terrain
     if terrain == "bois":
         return 2 if defending_piece.faction == ELVES_FACTION else 1
     return DEFENCE_MULTIPLIERS.get(terrain, 1)
 
 
-def terrain_die_bonus(hexagon):
-    """What the defender's terrain adds to the attacker's die: 2 in woods or hills, 0 otherwise."""
+def terrain_die_bonus(hexagon: Hex) -> int:
+    """Reads what the defender's terrain adds to the attacker's die.
+
+    Args:
+        hexagon: The square the defender occupies.
+
+    Returns:
+        2 in woods or hills, 0 otherwise.
+    """
     return 2 if hexagon.terrain in DIE_BONUS_TERRAINS else 0
 
 
-def fires_missiles(piece):
-    """Says whether this piece engages by fire: it carries both a fire strength **and** a range.
+def fires_missiles(piece: Optional[Piece]) -> bool:
+    """Says whether a piece engages by fire: it carries both a fire strength **and** a range.
 
-    That is the only way of engaging we know of for it - the engine does not offer it a choice
-    between fire and melee, and its range covers the adjacent square. A piece that fires is
-    therefore held to fire in every combat it fights, whatever the distance.
+    The engine offers no choice between fire and melee: a piece that fires is held to fire in every
+    combat it fights, whatever the distance.
+
+    Args:
+        piece: The piece, or `None` for an empty square.
+
+    Returns:
+        True for missile troops.
     """
     if piece is None:
         return False
     return bool(piece.fire and piece.range)
 
 
-def combat_range(piece):
-    """The distance at which this piece can engage: its firing range if it fires, 1 otherwise."""
+def combat_range(piece: Piece) -> int:
+    """Reads the distance at which a piece can engage.
+
+    Args:
+        piece: The attacker.
+
+    Returns:
+        Its firing range if it fires, 1 otherwise.
+    """
     if fires_missiles(piece):
         return piece.range
     return 1
 
 
-def in_range(attacker_hex, attacking_piece, target_hex):
-    """Says whether the attacker is close enough to engage the target (as the crow flies)."""
+def in_range(attacker_hex: Hex, attacking_piece: Piece, target_hex: Hex) -> bool:
+    """Says whether an attacker is close enough to engage a target, as the crow flies.
+
+    Args:
+        attacker_hex: The attacker's square.
+        attacking_piece: The attacker.
+        target_hex: The target's square.
+
+    Returns:
+        True if the distance does not exceed the attacker's combat range.
+    """
     return attacker_hex.distance(target_hex) <= combat_range(attacking_piece)
 
 
 class RatioBreakdown:
     """The computation leading to the strength ratio, piece by piece: enough to tell its story.
 
-    The ratio cannot be read off the board. Between the strength printed on the counters and the
-    column of Table I there is the **defender's terrain**, which multiplies its strength and adds
-    to the attacker's die - two effects of one square, and nothing shows them once the combat is
-    resolved. This object keeps them all.
-
-    It builds no sentence: it returns numbers and a terrain name, and it is the application that
-    puts them into French (see `describe_the_ratio` in `tenebrae/application/app.py`). The engine,
-    for its part, has no business knowing that a log exists.
+    Between the strength printed on the counters and the column of Table I there is the
+    **defender's terrain**, which multiplies its strength and adds to the attacker's die. This
+    object keeps every term; it is the application that puts them into French
+    (`describe_the_ratio` in `tenebrae/application/app.py`).
     """
 
     __slots__ = ("strengths", "target_strength", "terrain", "multiplier", "die_bonus", "roll")
 
-    def __init__(self, strengths, target_strength, terrain, multiplier, die_bonus, roll):
+    strengths: list[int]
+    target_strength: int
+    terrain: Optional[str]
+    multiplier: int
+    die_bonus: int
+    roll: int
+
+    def __init__(self, strengths: Iterable[int], target_strength: int, terrain: Optional[str],
+                 multiplier: int, die_bonus: int, roll: int) -> None:
+        """Keeps the terms of the computation.
+
+        Args:
+            strengths: The strength of each attacker.
+            target_strength: The defender's printed strength.
+            terrain: The defender's terrain.
+            multiplier: What that terrain multiplies the defence by.
+            die_bonus: What that terrain adds to the die.
+            roll: The die as rolled, before terrain.
+        """
         self.strengths = list(strengths)
         self.target_strength = target_strength
         self.terrain = terrain
@@ -121,46 +183,56 @@ class RatioBreakdown:
         self.roll = roll
 
     @property
-    def attacking_strength(self):
-        """What the group of attackers totals. Terrain does not play on this side."""
+    def attacking_strength(self) -> int:
+        """What the group of attackers totals; terrain does not play on this side."""
         return sum(self.strengths)
 
     @property
-    def defending_strength(self):
+    def defending_strength(self) -> int:
         """The defender's strength, its terrain counted."""
         return self.target_strength * self.multiplier
 
     @property
-    def die(self):
+    def die(self) -> int:
         """The die as the table reads it: the roll, terrain added, brought back between 1 and 6."""
         return min(6, max(1, self.roll + self.die_bonus))
 
     @property
-    def column(self):
+    def column(self) -> int:
         """The index of the Table I column where the combat is read."""
         return ratio_column(self.attacking_strength, self.defending_strength)
 
     @property
-    def ratio(self):
+    def ratio(self) -> tuple[int, int]:
         """The strength ratio as the booklet writes it: a pair, attacker in the numerator."""
         return COLUMNS[self.column]
 
     @property
-    def outcome(self):
+    def outcome(self) -> str:
         """What Table I says of this ratio and this die."""
         return TABLE_I[self.die][self.column]
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """The two strengths, the terrain and the die."""
         return (f"RatioBreakdown({self.attacking_strength} against {self.defending_strength} "
                 f"in {self.terrain}, die {self.die})")
 
 
-def break_down(attacking_strengths, defending_piece, defender_hexagon, roll):
-    """The strength ratio computation, before its outcome is read.
+def break_down(attacking_strengths: Iterable[int], defending_piece: Piece,
+               defender_hexagon: Hex, roll: int) -> RatioBreakdown:
+    """Computes the strength ratio, before its outcome is read.
 
-    This is the only place where the defender's terrain is consulted: both entry points to combat
-    - `resolve` and `fight` - go through here, and therefore cannot say two different things
-    about it.
+    The only place where the defender's terrain is consulted: `resolve` and `fight` both go
+    through here and cannot disagree about it.
+
+    Args:
+        attacking_strengths: The strength of each attacker.
+        defending_piece: The defender.
+        defender_hexagon: The square it occupies.
+        roll: The die result, 1 to 6.
+
+    Returns:
+        The breakdown of the computation.
     """
     return RatioBreakdown(
         strengths=attacking_strengths,
@@ -172,11 +244,18 @@ def break_down(attacking_strengths, defending_piece, defender_hexagon, roll):
     )
 
 
-def resolve(attacking_strengths, defending_piece, defender_hexagon, roll):
-    """The outcome of a combat: one of the strings `AE`, `DE`, `EX`, `AR`, `DR`.
+def resolve(attacking_strengths: Iterable[int], defending_piece: Piece,
+            defender_hexagon: Hex, roll: int) -> str:
+    """Reads the outcome of a combat off Table I, without touching any board.
 
-    `roll` is the die result (1 to 6), passed as an argument so that chance stays at the edge of
-    the engine. It is modified by terrain then brought back into the table's interval.
+    Args:
+        attacking_strengths: The strength of each attacker.
+        defending_piece: The defender.
+        defender_hexagon: The square it occupies.
+        roll: The die result, 1 to 6, passed in so that chance stays at the edge of the engine.
+
+    Returns:
+        One of `AE`, `DE`, `EX`, `AR`, `DR`.
     """
     return break_down(attacking_strengths, defending_piece, defender_hexagon, roll).outcome
 
@@ -185,37 +264,59 @@ class CombatResult:
     """What a combat gave: its outcome, the squares cleared, the strength ratio and the die played.
 
     `outcome` is `None` when the combat could not be resolved (target absent, strength illegible);
-    `eliminated` is then empty, and so is `breakdown` - there was no computation to break down.
-
-    `ratio` and `die` are those of `breakdown`: they remain attributes of their own, half the
-    project already reading them that way.
+    `eliminated` is then empty, and so is `breakdown`. `ratio` and `die` repeat those of
+    `breakdown` as attributes of their own.
     """
 
     __slots__ = ("outcome", "eliminated", "ratio", "die", "breakdown")
 
-    def __init__(self, outcome, eliminated, ratio, die, breakdown=None):
+    outcome: Optional[str]
+    eliminated: list[Hex]
+    ratio: Optional[tuple[int, int]]
+    die: Optional[int]
+    breakdown: Optional[RatioBreakdown]
+
+    def __init__(self, outcome: Optional[str], eliminated: Iterable[Hex],
+                 ratio: Optional[tuple[int, int]], die: Optional[int],
+                 breakdown: Optional[RatioBreakdown] = None) -> None:
+        """Keeps the result of a combat.
+
+        Args:
+            outcome: The Table I outcome, or `None` if the combat could not be resolved.
+            eliminated: The squares cleared.
+            ratio: The strength ratio read, attacker in the numerator.
+            die: The die as the table read it.
+            breakdown: The computation behind the ratio.
+        """
         self.outcome = outcome
         self.eliminated = list(eliminated)
         self.ratio = ratio
         self.die = die
         self.breakdown = breakdown
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """The outcome and the number of squares cleared."""
         return f"CombatResult({self.outcome!r}, {len(self.eliminated)} eliminated)"
 
 
-def fight(board, target_hexagon, attacker_hexagons, roll):
+def fight(board: Board, target_hexagon: Hex, attacker_hexagons: Sequence[Hex],
+          roll: int) -> CombatResult:
     """Resolves a combat on the board and **removes** the eliminated pieces.
 
     The attackers are held to be valid - in range, on the right side: it is up to the caller to
     have filtered them. An attacker with no legible strength is ignored in the computation but
-    shares the group's fate. `AE` removes the attackers, `DE` the target, `EX` both; `AR` and `DR`
+    shares the group's fate. `AE` removes the attackers, `DE` the target, `EX` both - except the
+    attackers firing missiles, whom the booklet exempts from retreat and exchange; `AR` and `DR`
     change nothing.
 
-    One exception, and it comes from the booklet: on an exchange, **attackers firing missiles are
-    not removed** - they struck from afar, the exchange does not reach them. They do count in the
-    strength ratio, though, and an `AE` eliminates them like the others: the booklet only exempts
-    them from retreat and exchange.
+    Args:
+        board: The board the combat is played on.
+        target_hexagon: The defender's square.
+        attacker_hexagons: The attackers' squares.
+        roll: The die result, 1 to 6.
+
+    Returns:
+        The result; its `outcome` is `None` if the target is absent or has no legible strength.
     """
     target_piece = board.piece_on(target_hexagon)
     strengths = [board.piece_on(hexagon).strength
@@ -227,7 +328,7 @@ def fight(board, target_hexagon, attacker_hexagons, roll):
     breakdown = break_down(strengths, target_piece, target_hexagon, roll)
     outcome = breakdown.outcome
 
-    eliminated = []
+    eliminated: list[Hex] = []
     if outcome == AE:
         eliminated.extend(attacker_hexagons)
     elif outcome == EX:
@@ -239,78 +340,3 @@ def fight(board, target_hexagon, attacker_hexagons, roll):
         board.remove(hexagon)
 
     return CombatResult(outcome, eliminated, breakdown.ratio, breakdown.die, breakdown)
-
-
-class CombatRegister:
-    """What a combat phase has already consumed: which squares have attacked, which have been
-    attacked.
-
-    The booklet requires that a unit fight only one combat per phase - alone or within a group of
-    attackers - and that a unit be taken as a target only once.
-
-    The register keeps **squares**, as "q,r,s" keys, and not piece keys: one counter stands for
-    all the units it represents - `orques-01-15-infanteries` is placed fifteen times in scenario
-    no. 4 - and the engine gives the unit no identity. The square, on the other hand, designates a
-    single one, and nothing moves during a combat phase: movement has its own phase. That is what
-    makes the equivalence exact for as long as the register lives.
-
-        register = CombatRegister()
-        register.can_attack("1,26,-27")           # True
-        register.record(["1,26,-27"], "2,26,-28")
-        register.can_attack("1,26,-27")           # False
-
-    A combat counts as soon as it is fought: an outcome the engine leaves without effect - a
-    retreat - engages the units just as much as an elimination.
-    """
-
-    __slots__ = ("engaged_attackers", "engaged_targets")
-
-    def __init__(self):
-        self.engaged_attackers = set()
-        self.engaged_targets = set()
-
-    def can_attack(self, square):
-        """Says whether the unit on this square has not attacked yet during the current phase."""
-        return square not in self.engaged_attackers
-
-    def can_be_targeted(self, square):
-        """Says whether the unit on this square has not been attacked yet during the current phase."""
-        return square not in self.engaged_targets
-
-    def record(self, attacking_squares, target_square):
-        """Marks a combat as fought: the attackers attacked, the target was attacked."""
-        self.engaged_attackers.update(attacking_squares)
-        self.engaged_targets.add(target_square)
-        return self
-
-    def to_dict(self):
-        """The register in a serialisable form: two sorted lists of squares.
-
-        The sorting owes nothing to the rules - a set has no order - but it keeps the shape stable
-        from one saved game to the next.
-        """
-        return {"engaged_attackers": sorted(self.engaged_attackers),
-                "engaged_targets": sorted(self.engaged_targets)}
-
-    def restore(self, engaged_attackers, engaged_targets):
-        """Replaces the register's contents with those of a saved game."""
-        self.engaged_attackers.clear()
-        self.engaged_attackers.update(engaged_attackers)
-        self.engaged_targets.clear()
-        self.engaged_targets.update(engaged_targets)
-        return self
-
-    def reset(self):
-        """Empties the register - a new combat phase makes every unit available again.
-
-        This is also what prevents a retained square from surviving a move: between two combat
-        phases there is always a movement phase, and the register is already empty when the units
-        change squares.
-        """
-        self.engaged_attackers.clear()
-        self.engaged_targets.clear()
-        return self
-
-    def __repr__(self):
-        return (f"CombatRegister({len(self.engaged_attackers)} attackers, "
-                f"{len(self.engaged_targets)} targets)")

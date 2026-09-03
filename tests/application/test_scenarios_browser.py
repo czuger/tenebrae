@@ -1,4 +1,4 @@
-"""The scenario page in the browser: the palette, placing, moving, removing, saving.
+"""The scenario page in the browser: the palette, placing, moving, removing, saving, editing.
 
 These tests require Chromium (`python3 -m playwright install chromium`). Like the client ones,
 they divert the scenarios directory: nothing is written into `tenebrae/scenarios/`.
@@ -15,23 +15,37 @@ from tenebrae.engine.scenario import BOOKLET_SCENARIOS
 
 from tests.application.test_board_browser import (click_the_hexagon, expected_centre,
                                                   piece_geometry)
-from tests.application.test_scenarios import (FIRE_MARKER, INFANTRY,  # noqa: F401
-                                              ORC_INFANTRY, a_lake, plain_squares,
-                                              scenarios_directory)
+from tests.application.test_scenarios import (CROSSBOWMEN, FIRE_MARKER,  # noqa: F401
+                                              FIXED_FILE, FIXED_NUMBER, INFANTRY,
+                                              ORC_INFANTRY, a_lake, fixed_scenario,
+                                              plain_squares, scenarios_directory)
 
 
-@pytest.fixture
-def editor(page, server, application, seat_the_player, scenarios_directory):  # noqa: F811
-    """Opens /admin/scenarios logged in, and waits for the map to be loaded and scaled."""
+def open_the_page(page, server, application, seat_the_player, path):
+    """Opens a page of the scenario editor logged in, and waits for the map to be loaded and
+    scaled."""
     seat_the_player(application)
     page.set_viewport_size({"width": 1400, "height": 900})
     page.goto(f"{server}/login")
-    page.goto(f"{server}/admin/scenarios")
+    page.goto(f"{server}{path}")
     page.wait_for_function(
         "() => { const m = document.getElementById('map');"
         " return m.complete && m.naturalWidth > 0; }")
     page.wait_for_function("document.getElementById('scale').textContent !== '—'")
     return page
+
+
+@pytest.fixture
+def editor(page, server, application, seat_the_player, scenarios_directory):  # noqa: F811
+    """/admin/scenarios: composing a new scenario."""
+    return open_the_page(page, server, application, seat_the_player, "/admin/scenarios")
+
+
+@pytest.fixture
+def editing(page, server, application, seat_the_player, fixed_scenario):  # noqa: F811
+    """/admin/scenarios/7/edit: the scenario `fixed_scenario` wrote, opened for editing."""
+    return open_the_page(page, server, application, seat_the_player,
+                         f"/admin/scenarios/{FIXED_NUMBER}/edit")
 
 
 def take(page, key):
@@ -235,3 +249,62 @@ def test_cancelling_writes_nothing(editor, scenarios_directory, plain_squares): 
     editor.locator("#save-cancel").click()
     editor.wait_for_function("!document.getElementById('save-dialog').open")
     assert list(scenarios_directory.glob("*.json")) == []
+
+
+# --- Editing ---
+
+
+def test_the_edit_page_lays_the_scenarios_pieces(editing, fixed_scenario):  # noqa: F811
+    wait_for_pieces(editing, 2)
+    assert sorted(placed(editing), key=lambda entry: entry["square"]) == sorted(
+        ({"square": square, "key": key} for square, key in fixed_scenario["placement"].items()),
+        key=lambda entry: entry["square"])
+    assert editing.locator("#counter").text_content() == "2 pions"
+    assert editing.locator("#save").is_enabled()
+    assert editing.locator("#chooser").input_value() == str(FIXED_NUMBER)
+    assert f"n° {FIXED_NUMBER}" in editing.title()
+
+
+def test_the_dialog_is_filled_and_saving_rewrites_the_file(
+        editing, fixed_scenario, scenarios_directory, plain_squares):  # noqa: F811
+    _, _, third = plain_squares
+    wait_for_pieces(editing, 2)
+    lay(editing, CROSSBOWMEN, third)
+
+    open_the_dialog(editing)
+    assert editing.locator("#save-name").input_value() == "La guerre des nains"
+    assert editing.locator("#save-turns").input_value() == "10"
+    assert f"n° {FIXED_NUMBER}" in editing.locator("#save-title").text_content()
+    editing.locator("#save-turns").fill("20")
+    editing.locator("#save-confirm").click()
+
+    status = editing.locator("#status")
+    status.wait_for(state="visible")
+    assert f"n° {FIXED_NUMBER} modifié" in status.text_content()
+    assert FIXED_FILE in status.text_content()
+
+    assert sorted(path.name for path in scenarios_directory.glob("*.json")) == [FIXED_FILE]
+    values = json.loads((scenarios_directory / FIXED_FILE).read_text(encoding="utf-8"))
+    assert values["numero"] == FIXED_NUMBER
+    assert values["nombre_de_tours"] == 20
+    assert len(values["placement"]) == 3
+    assert values["placement"][third] == CROSSBOWMEN
+    assert values["armees"][0]["consigne"] == "Au sud du volcan."
+
+
+def test_the_chooser_goes_from_one_scenario_to_another(
+        fixed_scenario, editor):  # noqa: F811
+    """From the new scenario to no. 7 and back: the chooser lists the files and navigates."""
+    chooser = editor.locator("#chooser")
+    assert chooser.input_value() == ""
+    assert chooser.locator("option").all_text_contents() == [
+        "nouveau scénario", f"n° {FIXED_NUMBER} — La guerre des nains"]
+
+    chooser.select_option(str(FIXED_NUMBER))
+    editor.wait_for_url(f"**/admin/scenarios/{FIXED_NUMBER}/edit")
+    wait_for_pieces(editor, 2)
+
+    editor.locator("#chooser").select_option("")
+    editor.wait_for_url("**/admin/scenarios")
+    editor.wait_for_function("document.getElementById('scale').textContent !== '—'")
+    assert placed(editor) == []

@@ -30,7 +30,8 @@ those fixes at start-up — so the board is played on the fixed map. It is reser
 declared in `ADMIN_DISCORD_IDS`.
 
 A third page, `/admin/scenarios`, composes a scenario on the map: pieces taken from a palette, laid
-with a click, and saved as a **new file in `tenebrae/scenarios/`** — the only place where the
+with a click, and saved as a **new file in `tenebrae/scenarios/`** — or, opened on
+`/admin/scenarios/<number>/edit`, rewrites an existing one —, the only place where the
 application writes there. Reserved to the same accounts.
 
 The code is English; everything the player reads on screen is French, and so is the game data the
@@ -538,13 +539,14 @@ that, after a restart, "Rétablir" would offer to reset the fix itself.
 absence would open everything would be a trap. A visitor with no account gets 401, an ordinary
 player 403.
 
-## Composing a scenario — `/admin/scenarios`
+## Composing and editing a scenario — `/admin/scenarios`
 
 The booklet's scenarios are fixed by hand, one JSON at a time (see `tenebrae/scenarios/README.md`).
 This page composes one on the map instead: the box's pieces in a **palette** at the right of the
 window, the map in the middle, and a click to lay each counter. What it saves is a **new file in
-`tenebrae/scenarios/`**, in the very format the engine reads — the only place where the application
-writes there.
+`tenebrae/scenarios/`**, in the very format the engine reads. The same page **edits** a scenario
+on file (`/admin/scenarios/<number>/edit`): its pieces are on the map when the page opens, and
+saving rewrites its file. That page is the only place where the application writes there.
 
 Like the map-fixing page, it receives everything at once in hidden fields and asks the server
 nothing until saving:
@@ -555,6 +557,8 @@ nothing until saving:
 | `#grid` | the same alignment as the board, `piece_size` included |
 | `#hexagons` | `"q,r,s" → terrain` for the 2280 hexagons of the **fixed** map — the one the game is played on, where the map-fixing page works on the scan |
 | `#forbidden` | the squares no unit can occupy: lakes, rivers, the rift (`UNINHABITABLE` in the engine) |
+| `#scenarios` | the scenarios on file — `number`, `name`, `file` —, for the chooser in the toolbar |
+| `#scenario` | when editing, the scenario opened: `number`, `name`, `max_turns`, `placement`; empty when composing |
 
 - **The palette**, by faction with its side, scrolls on its own. A click takes a piece **in hand**
   — the toolbar says which — and every click on a free square lays it down again: fifteen orc
@@ -572,12 +576,21 @@ nothing until saving:
   (empty for an undetermined one, as the booklet says of scenario no. 5), kept from one save to the
   next. The scenario's number is not asked for: it is the next free one after the booklet's five
   and the files present, so that a booklet scenario fixed later never collides with one composed
-  here. Each save is a new file — nothing here rewrites one.
+  here. Each save on `/admin/scenarios` is a new file.
+- **The chooser**, in the toolbar, lists the scenarios on file — "nouveau scénario", then
+  `n° 4 — La guerre des nains`, … — and opens the one picked on `/admin/scenarios/<number>/edit`:
+  the same page, the file's pieces already laid, its title and turns already in the dialog, the
+  title and the dialog saying which scenario is being modified. A piece the palette does not offer
+  cannot be laid, and the page says so: a save would drop it. Saving there **rewrites the file**:
+  the number stays, the title, the turns and the placement are replaced, and a new title renames
+  the file.
 
 | Route | Response |
 | --- | --- |
-| `GET /admin/scenarios` | the page |
-| `POST /admin/scenarios` — body `{name, max_turns, placement}` | `{"saved": true, "number", "name", "file", "units"}` |
+| `GET /admin/scenarios` | the page, empty |
+| `POST /admin/scenarios` — body `{name, max_turns, placement}` | `{"saved": true, "number", "name", "file", "units"}` — a new file |
+| `GET /admin/scenarios/<number>/edit` | the page, the scenario's pieces on the map; 404 with a French `message` for a number no file has |
+| `POST /admin/scenarios/<number>/edit` — the same body | the same answer — the scenario's file rewritten; 404 likewise |
 
 `placement` is `"q,r,s" → piece key`, the engine's format. The route reads the request — a name, a
 positive integer or `null` for the turns, every square on the map and fit to be occupied, every
@@ -586,7 +599,14 @@ piece one the palette offers — and the engine composes the file's values from 
 named after their factions ("Nains", "Elfes et Nains"); the neutral pieces — spellcasters,
 conjurations, markers — placed but belonging to no army. A request no scenario can be composed from
 is refused with 400 and a French `message`, read in the dialog; a placement with no unit of a side
-among them, since a turn needs a side to play it.
+among them, since a turn needs a side to play it. An update is checked the same way, and a refused
+one leaves the file as it was.
+
+An update goes through `tenebrae.engine.scenario.recompose`: the armies are derived again from the
+pieces placed, and what an army carried that the map cannot give — the instruction, the anchor,
+the magic potential, the spellcaster, written by hand into a booklet scenario — is kept for every
+side still present. The `source` stays what it was. The old file is removed once the new one is
+written when the title changes, since two files with one number would be read as one.
 
 What is saved is a set-up and nothing more: the server goes on playing `SCENARIO_NUMBER`, and the
 turn limit is written in the file (`nombre_de_tours`, read as `Scenario.max_turns`) without the

@@ -5,6 +5,10 @@
 // into tenebrae/scenarios/ in the format the engine reads. Nothing here knows the rules beyond the
 // squares the server said no unit can occupy; the server checks everything again when saving.
 //
+// The same page edits a scenario: opened on /admin/scenarios/<number>/edit, it lays the file's
+// pieces at start-up and fills the dialog with its title and turns; saving then rewrites that file.
+// The chooser in the toolbar goes from one scenario to another, or back to a new one.
+//
 // One thing in hand at a time: a palette piece, which each click on a free square lays down again
 // - fifteen orc infantry are fifteen clicks -, or a placed piece, which the next click moves and
 // the "Retirer" button removes. Escape empties the hand.
@@ -29,6 +33,7 @@ const counter = document.getElementById("counter");
 const inHand = document.getElementById("in-hand");
 const removeButton = document.getElementById("remove");
 const saveButton = document.getElementById("save");
+const chooser = document.getElementById("chooser");
 const paletteFactions = document.getElementById("palette-factions");
 
 const saveDialog = document.getElementById("save-dialog");
@@ -41,6 +46,10 @@ const catalogue = JSON.parse(document.getElementById("pieces").value);
 const grid = JSON.parse(document.getElementById("grid").value);
 const hexagons = JSON.parse(document.getElementById("hexagons").value);
 const forbidden = new Set(JSON.parse(document.getElementById("forbidden").value));
+const scenarios = JSON.parse(document.getElementById("scenarios").value);
+// The scenario being edited - number, name, max_turns, placement -, or null for a new one.
+const scenario = JSON.parse(document.getElementById("scenario").value || "null");
+const piecesByKey = new Map(catalogue.map((piece) => [piece.key, piece]));
 const { centre, hexagonOfPixel, vertices } = alignment(grid);
 const { place, createImage } = pieceLayer({ board, centre, pieceSize: grid.piece_size });
 
@@ -93,6 +102,43 @@ function paletteButton(piece) {
   button.append(image, label);
   button.addEventListener("click", () => take(piece, button));
   return button;
+}
+
+// --- The chooser: which scenario the page works on ---
+
+function buildTheChooser() {
+  for (const entry of scenarios) {
+    const option = document.createElement("option");
+    option.value = entry.number;
+    option.textContent = `n° ${entry.number} — ${entry.name}`;
+    chooser.appendChild(option);
+  }
+  chooser.value = scenario ? String(scenario.number) : "";
+  chooser.addEventListener("change", () => {
+    window.location.href = chooser.value ? `/admin/scenarios/${chooser.value}/edit`
+      : "/admin/scenarios";
+  });
+}
+
+// --- The scenario being edited: its pieces laid at start-up, its title in the dialog ---
+
+function hexagonOfKey(id) {
+  const [q, r, s] = id.split(",").map(Number);
+  return { q, r, s };
+}
+
+function layTheScenario() {
+  if (!scenario) return;
+  const unknown = [];
+  for (const [id, pieceKey] of Object.entries(scenario.placement)) {
+    const piece = piecesByKey.get(pieceKey);
+    if (piece) layAPiece(piece, hexagonOfKey(id));
+    else unknown.push(`${pieceKey} (${id})`);
+  }
+  // A piece the palette does not offer cannot be laid, and a save would drop it: say so.
+  if (unknown.length) report(`Pions absents de la palette, non affichés : ${unknown.join(", ")}.`);
+  saveName.value = scenario.name;
+  saveTurns.value = scenario.max_turns ?? "";
 }
 
 // --- What is in hand ---
@@ -277,7 +323,7 @@ function openTheSaveDialog() {
 async function save(event) {
   event.preventDefault();
   const turns = saveTurns.value.trim();
-  const answer = await fetch("/admin/scenarios", {
+  const answer = await fetch(saveForm.dataset.url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -294,9 +340,11 @@ async function save(event) {
     return;
   }
   saveDialog.close();
-  statusArea.textContent = `Scénario n° ${result.number} enregistré : ${result.file} `
-    + `(${result.units} ${result.units === 1 ? "pion" : "pions"})`;
+  statusArea.textContent = `Scénario n° ${result.number} ${scenario ? "modifié" : "enregistré"} : `
+    + `${result.file} (${result.units} ${result.units === 1 ? "pion" : "pions"})`;
   statusArea.hidden = false;
+  // A new title renames the file and the chooser's entry.
+  if (scenario) chooser.selectedOptions[0].textContent = `n° ${result.number} — ${result.name}`;
 }
 
 // --- Start-up ---
@@ -304,6 +352,8 @@ async function save(event) {
 function start() {
   sizeTheHighlight();
   buildThePalette();
+  buildTheChooser();
+  layTheScenario();
   count();
   // The wheel, the "+", "-" and "ajuster" buttons: the mechanics are in zoom.js.
   view = zoom({ frame, canvas, board, map, display: document.getElementById("scale") });

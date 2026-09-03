@@ -252,3 +252,15 @@ body {
 #save-footer button:hover {
   background: #3a3028;
 }
+
+/* The chooser, of the bar's buttons' make: the scenario the page works on. */
+#toolbar select {
+  font: inherit;
+  max-width: 14rem;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid #6b5a44;
+  border-radius: 2px;
+  background: #2a2320;
+  color: inherit;
+  cursor: pointer;
+}

@@ -61,6 +61,22 @@ writes into this directory. The values are assembled by `tenebrae.engine.scenari
 A composed file is played like a fixed one; adjusting it by hand afterwards — an instruction, an
 anchor, a magic potential — is the way to make it a scenario of the booklet.
 
+## Scenarios edited on the map
+
+The same page opens any file here on `/admin/scenarios/<number>/edit` — a fixed one as well as a
+composed one — and rewrites it on save, through `tenebrae.engine.scenario.recompose`:
+
+- **The number and the `source` stay.** A new title renames the file; the old one is removed.
+- **The armies are derived again** from the pieces placed — `armee`, `unites`, `joueur` — but what
+  was written by hand into an army whose side is still on the map is kept: `consigne`, `ancre`,
+  `magie`, `jeteur_de_sorts`. A side that left the map loses its entry; a side that arrives gets
+  one with those four at `null`.
+- **A piece the page's palette does not offer** — an overview photograph, for instance — is not
+  laid and would be dropped by a save; the page says so when it opens the file.
+
+Editing scenario no. 4 this way keeps its instructions, anchors and magic potentials, but the
+reading of the map documented below is then no longer what the file holds.
+
 ## Scenario no. 4 — La guerre des nains
 
 > Afin de répondre aux raids incessants des orcs, le chef nain Grundt ordonna à son armée

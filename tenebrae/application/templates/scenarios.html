@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ave Tenebrae — composer un scénario</title>
+  <title>Ave Tenebrae — {% if editing %}modifier le scénario n° {{ scenario_number }}{% else %}composer un scénario{% endif %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='zoom.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='pieces.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='scenarios.css') }}">
@@ -16,6 +16,10 @@
   <input type="hidden" id="hexagons" value="{{ hexagons }}">
   <!-- The squares no unit can occupy: the page refuses them before the server does. -->
   <input type="hidden" id="forbidden" value="{{ forbidden }}">
+  <!-- The scenarios on file, for the chooser in the toolbar; and the one being edited, its pieces
+       laid on the map at start-up - empty when composing a new one. -->
+  <input type="hidden" id="scenarios" value="{{ scenarios }}">
+  <input type="hidden" id="scenario" value="{{ scenario }}">
 
   <div id="frame">
     <div id="canvas">
@@ -40,6 +44,10 @@
       <span id="scale">—</span>
       <button type="button" id="zoom-in" title="Approcher">+</button>
       <button type="button" id="fit">ajuster</button>
+      <!-- Which scenario the page works on: a new one, or one of the files, opened for editing. -->
+      <select id="chooser" title="Scénario">
+        <option value="">nouveau scénario</option>
+      </select>
       <span id="counter">aucun pion</span>
       <!-- What is in hand: the palette piece about to be placed, or the placed piece about to be
            moved or removed. -->
@@ -56,10 +64,10 @@
   <div id="tooltip" hidden></div>
 
   <!-- The title and the number of turns are asked for when saving, and kept from one save to the
-       next. -->
+       next. The form's URL is the save's - a new file - or the update's, when editing. -->
   <dialog id="save-dialog">
-    <form id="save-form">
-      <p id="save-title">Enregistrer le scénario</p>
+    <form id="save-form" data-url="{{ save_url }}">
+      <p id="save-title">{% if editing %}Modifier le scénario n° {{ scenario_number }}{% else %}Enregistrer le scénario{% endif %}</p>
       <label for="save-name">Nom</label>
       <input type="text" id="save-name" required autocomplete="off">
       <label for="save-turns">Nombre de tours (vide : indéterminé)</label>

@@ -11,8 +11,10 @@ as such here.
 A scenario yields a `Board` ready to play, with each side already in place.
 
 The engine also **composes** a scenario from a placement (`compose`): the values of a new file, its
-armies derived from the pieces placed. Writing the file is left to the caller - the application's
-`/admin/scenarios` page -, which is also where the placement is checked.
+armies derived from the pieces placed. It **recomposes** an existing one the same way
+(`recompose`), keeping its number and what was written into it by hand. Writing the file is left to
+the caller - the application's `/admin/scenarios` page -, which is also where the placement is
+checked.
 """
 
 import json
@@ -34,6 +36,9 @@ BOOKLET_SCENARIOS = 5
 
 # What a composed file names a scenario whose title yields no slug at all.
 UNTITLED = "sans-titre"
+
+# What an army entry carries that the map cannot give: written by hand, kept through a recompose.
+HAND_WRITTEN = ("consigne", "ancre", "magie", "jeteur_de_sorts")
 
 
 class Scenario:
@@ -224,6 +229,30 @@ def grouped_by_side(placement: Mapping[str, str]) -> dict[str, str]:
     return grouped
 
 
+def checked_armies(placement: Mapping[str, str]) -> list[dict[str, Any]]:
+    """Derives the armies of a placement fit to be a scenario.
+
+    Args:
+        placement: "q,r,s" -> piece key, one piece per square.
+
+    Returns:
+        What `armies_of` gives.
+
+    Raises:
+        KeyError: If a piece key is unknown to the catalogue.
+        ValueError: If a square is off the map, or if no unit of a side is placed - a turn needs
+            a side to play it.
+    """
+    for square in placement:
+        if not Hex.from_key(square).is_on_map:
+            raise ValueError(f"square {square} is off the map")
+    armies = armies_of(placement)
+    if not armies:
+        raise ValueError("a scenario needs at least one unit of a side: neutral pieces play no "
+                         "turn")
+    return armies
+
+
 def compose(name: str, placement: Mapping[str, str], max_turns: Optional[int] = None,
             source: str = "") -> dict[str, Any]:
     """Assembles the values of a new scenario file from a placement.
@@ -246,13 +275,39 @@ def compose(name: str, placement: Mapping[str, str], max_turns: Optional[int] = 
         ValueError: If a square is off the map, or if no unit of a side is placed - a turn needs
             a side to play it.
     """
-    for square in placement:
-        if not Hex.from_key(square).is_on_map:
-            raise ValueError(f"square {square} is off the map")
-    armies = armies_of(placement)
-    if not armies:
-        raise ValueError("a scenario needs at least one unit of a side: neutral pieces play no "
-                         "turn")
+    armies = checked_armies(placement)
     return {"numero": next_number(), "nom": name, "source": source,
+            "nombre_de_tours": max_turns, "armees": armies,
+            "placement": grouped_by_side(placement)}
+
+
+def recompose(existing: Scenario, name: str, placement: Mapping[str, str],
+              max_turns: Optional[int] = None) -> dict[str, Any]:
+    """Assembles the values of an existing scenario's file from a new placement.
+
+    The number and the `source` stay those of the scenario. The armies are derived again from the
+    pieces placed - a side that left the map loses its entry, a side that arrived gets a fresh one
+    -, and what an entry carried that the map cannot give (`HAND_WRITTEN`: the instruction, the
+    anchor, the magic potential, the spellcaster) is kept for every side still present.
+
+    Args:
+        existing: The scenario as read from its file.
+        name: The new title.
+        placement: "q,r,s" -> piece key, one piece per square.
+        max_turns: The number of turns the game lasts, `None` for an undetermined one.
+
+    Returns:
+        The file's fields, as `compose` gives them.
+
+    Raises:
+        KeyError: If a piece key is unknown to the catalogue.
+        ValueError: If a square is off the map, or if no unit of a side is placed.
+    """
+    kept = {army["camp"]: army for army in existing.armies}
+    armies = checked_armies(placement)
+    for army in armies:
+        if army["camp"] in kept:
+            army.update((field, kept[army["camp"]].get(field)) for field in HAND_WRITTEN)
+    return {"numero": existing.number, "nom": name, "source": existing.source,
             "nombre_de_tours": max_turns, "armees": armies,
             "placement": grouped_by_side(placement)}

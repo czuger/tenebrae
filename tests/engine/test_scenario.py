@@ -13,7 +13,8 @@ from tenebrae.engine.hexagon import MAP, UNINHABITABLE, Hex
 from tenebrae.engine.phase import Turn
 from tenebrae.engine.piece import ALLIANCE, CATALOGUE, DARKNESS
 from tenebrae.engine.scenario import (BOOKLET_SCENARIOS, SCENARIOS, Scenario, available_scenarios,
-                                      compose, next_number, path_for, read, scenario, slug)
+                                      compose, next_number, path_for, read, recompose, scenario,
+                                      slug)
 
 from tests.engine.plains import well_surrounded_plain
 
@@ -426,3 +427,85 @@ class TestComposingAScenario:
         assert len(board.opponents_of(ALLIANCE)) == 1
         turn = Turn(composed.sides, {army["camp"]: army["armee"] for army in composed.armies})
         assert turn.label == "Phase de mouvement — Nains"
+
+
+# --- Recomposing a scenario -----------------------------------------------------------------------
+#
+# The engine assembles an existing scenario's values again from a new placement (`recompose`): the
+# number and the source kept, the armies derived anew, what was written into them by hand carried
+# over for every side still present.
+
+
+def a_fixed_scenario(first, second):
+    """A scenario as a booklet file fixes it: an instruction, an anchor and a magic potential in
+    each army, a dwarf on `first`, an orc on `second`."""
+    return Scenario({
+        "numero": 7, "nom": "La guerre des nains", "source": "le livret", "nombre_de_tours": 10,
+        "armees": [
+            {"joueur": 1, "camp": ALLIANCE, "armee": "Nains", "consigne": "Au sud du volcan.",
+             "ancre": first, "unites": 1, "magie": 45, "jeteur_de_sorts": None},
+            {"joueur": 2, "camp": DARKNESS, "armee": "Orques", "consigne": "Dans l'Orcreich.",
+             "ancre": second, "unites": 1, "magie": 20, "jeteur_de_sorts": "Vorgtd"}],
+        "placement": {first: INFANTRY, second: ORC_INFANTRY}})
+
+
+class TestRecompose:
+    def test_the_number_and_the_source_are_kept(self, scenarios_directory, plain_squares):
+        """Even when the directory would give another number: the scenario stays itself."""
+        first, second, third = plain_squares
+        values = recompose(a_fixed_scenario(first, second), "Autre titre",
+                           {third: INFANTRY, second: ORC_INFANTRY}, 20)
+        assert values["numero"] == 7
+        assert values["source"] == "le livret"
+        assert values["nom"] == "Autre titre"
+        assert values["nombre_de_tours"] == 20
+        assert values["placement"] == {third: INFANTRY, second: ORC_INFANTRY}
+
+    def test_what_was_written_by_hand_is_kept_for_a_side_still_present(
+            self, scenarios_directory, plain_squares):
+        """The instruction, the anchor, the magic potential and the spellcaster: what the map
+        cannot give; the count of units and the army's name: what it gives, derived anew."""
+        first, second, third = plain_squares
+        values = recompose(a_fixed_scenario(first, second), "Essai",
+                           {first: INFANTRY, third: CROSSBOWMEN, second: ORC_INFANTRY})
+        dwarves, orcs = values["armees"]
+        assert dwarves == {
+            "joueur": 1, "camp": ALLIANCE, "armee": "Nains", "consigne": "Au sud du volcan.",
+            "ancre": first, "unites": 2, "magie": 45, "jeteur_de_sorts": None}
+        assert orcs["consigne"] == "Dans l'Orcreich."
+        assert orcs["jeteur_de_sorts"] == "Vorgtd"
+        assert orcs["unites"] == 1
+
+    def test_a_side_that_left_loses_its_entry(self, scenarios_directory, plain_squares):
+        first, second, _ = plain_squares
+        values = recompose(a_fixed_scenario(first, second), "Essai", {first: INFANTRY})
+        assert [army["camp"] for army in values["armees"]] == [ALLIANCE]
+        assert values["armees"][0]["joueur"] == 1
+
+    def test_a_side_that_arrives_gets_a_fresh_entry(self, scenarios_directory, plain_squares):
+        """Nothing written by hand for it: what the map cannot give stays `null`."""
+        first, second, third = plain_squares
+        existing = Scenario({"numero": 8, "nom": "Nains seuls", "source": "",
+                             "armees": [{"joueur": 1, "camp": ALLIANCE, "armee": "Nains",
+                                         "consigne": "Ici.", "ancre": first, "unites": 1,
+                                         "magie": 45, "jeteur_de_sorts": None}],
+                             "placement": {first: INFANTRY}})
+        values = recompose(existing, "Essai", {first: INFANTRY, third: ORC_INFANTRY})
+        dwarves, orcs = values["armees"]
+        assert dwarves["consigne"] == "Ici."
+        assert orcs == {
+            "joueur": 2, "camp": DARKNESS, "armee": "Orques", "consigne": None, "ancre": None,
+            "unites": 1, "magie": None, "jeteur_de_sorts": None}
+
+    def test_the_placement_is_written_side_by_side(self, scenarios_directory, plain_squares):
+        first, second, third = plain_squares
+        values = recompose(a_fixed_scenario(first, second), "Essai",
+                           {second: ORC_INFANTRY, third: FIRE_MARKER, first: INFANTRY})
+        assert list(values["placement"]) == [first, second, third]
+
+    def test_a_placement_without_a_side_is_refused(self, scenarios_directory, plain_squares):
+        first, second, _ = plain_squares
+        with pytest.raises(ValueError):
+            recompose(a_fixed_scenario(first, second), "Essai", {first: FIRE_MARKER})
+        with pytest.raises(ValueError):
+            recompose(a_fixed_scenario(first, second), "Essai", {"999,0,-999": INFANTRY})

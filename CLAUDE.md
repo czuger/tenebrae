@@ -90,7 +90,8 @@ the other's moves through SSE (`GET /stream`, `routes/stream.py` over the broadc
 `stream.py`), `mark_a_move` being the only point of publication; the log (`logs/`) goes to
 `logs/battle_log.log` and to an in-memory queue shown in the page, hence the rule **log before
 marking the move**. `/admin/map_fix` and `/admin/scenarios` — the second composes a scenario on the
-map and writes it as a new file in `tenebrae/scenarios/` — are reserved to `ADMIN_DISCORD_IDS`.
+map and writes it as a new file in `tenebrae/scenarios/`, or rewrites one opened on
+`/admin/scenarios/<number>/edit` — are reserved to `ADMIN_DISCORD_IDS`.
 
 ## Code style
 

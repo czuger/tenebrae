@@ -263,7 +263,10 @@ than an army quietly cut short.
 The engine also **composes** one: `compose(name, placement, max_turns, source)` assembles the values
 of a new file from `"q,r,s" → piece key` — the armies derived from the pieces placed, alliance
 first, the next free number after the booklet's five —, and `path_for(number, name)` names the
-file. It writes nothing: the application's `/admin/scenarios` page does, into
+file. `recompose(existing, name, placement, max_turns)` does the same for a scenario already on
+file: its number and source kept, and what its armies carried that the map cannot give
+(`HAND_WRITTEN`: instruction, anchor, magic potential, spellcaster) carried over for every side
+still present. Neither writes anything: the application's `/admin/scenarios` page does, into
 `tenebrae/scenarios/`.
 
 ## Movement cost

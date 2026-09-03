@@ -13,6 +13,16 @@
       "unites": 32,
       "magie": null,
       "jeteur_de_sorts": null
+    },
+    {
+      "joueur": 2,
+      "camp": "tenebres",
+      "armee": "Yzent",
+      "consigne": null,
+      "ancre": null,
+      "unites": 26,
+      "magie": null,
+      "jeteur_de_sorts": null
     }
   ],
   "placement": {
@@ -47,6 +57,34 @@
     "7,11,-18": "reissland-01-15-infanteries",
     "5,10,-15": "reissland-03-3-archers",
     "6,10,-16": "reissland-03-3-archers",
-    "7,10,-17": "reissland-03-3-archers"
-  }
+    "7,10,-17": "reissland-03-3-archers",
+    "5,7,-12": "yzent-03-8-archers",
+    "6,7,-13": "yzent-03-8-archers",
+    "7,7,-14": "yzent-03-8-archers",
+    "8,7,-15": "yzent-03-8-archers",
+    "9,7,-16": "yzent-03-8-archers",
+    "10,7,-17": "yzent-03-8-archers",
+    "11,7,-18": "yzent-03-8-archers",
+    "4,7,-11": "yzent-03-8-archers",
+    "11,6,-17": "yzent-02-6-infanteries-de-puissance-6",
+    "5,6,-11": "yzent-01-9-infanteries-de-puissance-4",
+    "4,6,-10": "yzent-01-9-infanteries-de-puissance-4",
+    "5,5,-10": "yzent-01-9-infanteries-de-puissance-4",
+    "6,5,-11": "yzent-01-9-infanteries-de-puissance-4",
+    "7,5,-12": "yzent-01-9-infanteries-de-puissance-4",
+    "8,5,-13": "yzent-01-9-infanteries-de-puissance-4",
+    "9,5,-14": "yzent-01-9-infanteries-de-puissance-4",
+    "10,5,-15": "yzent-01-9-infanteries-de-puissance-4",
+    "11,5,-16": "yzent-01-9-infanteries-de-puissance-4",
+    "6,4,-10": "yzent-04-3-catapultes",
+    "7,4,-11": "yzent-04-3-catapultes",
+    "8,4,-12": "yzent-04-3-catapultes",
+    "6,6,-12": "yzent-02-6-infanteries-de-puissance-6",
+    "7,6,-13": "yzent-02-6-infanteries-de-puissance-6",
+    "8,6,-14": "yzent-02-6-infanteries-de-puissance-6",
+    "10,6,-16": "yzent-02-6-infanteries-de-puissance-6",
+    "9,6,-15": "yzent-02-6-infanteries-de-puissance-6"
+  },
+  "total_points_alliance": 142,
+  "total_points_tenebres": 162
 }

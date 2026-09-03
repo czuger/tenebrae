@@ -1,0 +1,254 @@
+:root {
+  /* The palette's column, at the right of the window; the map takes what is left. */
+  --palette-width: 18rem;
+}
+
+body {
+  margin: 0;
+  background: #1b1713;
+  color: #f6e7c1;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+/* The frame, the canvas, the board and the toolbar are in zoom.css, the counters in pieces.css:
+   here only what composes a scenario. The frame stops where the palette begins, and the zoom fits
+   the map into it (see `fitScale` in zoom.js). */
+#frame {
+  right: var(--palette-width);
+}
+
+#board {
+  cursor: crosshair;
+}
+
+#highlight {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+/* The hexagon under the pointer. */
+#highlight .aimed {
+  fill: rgba(246, 231, 193, 0.18);
+  stroke: #f6e7c1;
+  stroke-width: 6;
+}
+
+/* The same, on a square no unit can occupy. */
+#highlight .refused {
+  fill: rgba(214, 108, 74, 0.25);
+  stroke: #d66c4a;
+  stroke-width: 6;
+}
+
+/* ── The palette ──────────────────────────────────────────────────────────────────────────────
+   A column of the toolbar's make - same border, same background, same font size - scrolling on
+   its own: the 121 pieces of the box do not fit in a window. */
+#palette {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--palette-width);
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 0.6rem 0.7rem;
+  border-left: 1px solid #6b5a44;
+  background: rgba(27, 23, 19, 0.96);
+  font-size: 0.85rem;
+  z-index: 2;
+}
+
+#palette h2 {
+  margin: 0 0 0.6rem;
+  font-size: 1.05rem;
+  font-weight: normal;
+}
+
+.faction h3 {
+  margin: 0.8rem 0 0.3rem;
+  padding-bottom: 0.15rem;
+  border-bottom: 1px solid #6b5a44;
+  font-size: 0.85rem;
+  font-weight: normal;
+  color: #d9c9a5;
+}
+
+.faction-pieces {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* One line per piece: the counter as a thumbnail, its description beside it. */
+.palette-piece {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid #6b5a44;
+  border-radius: 2px;
+  background: #2a2320;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.palette-piece:hover {
+  background: #3a3028;
+}
+
+/* The piece in hand. */
+.palette-piece.selected {
+  border-color: #f6e7c1;
+  background: #4a3d30;
+}
+
+.palette-piece img {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 2px;
+}
+
+/* ── The top-left panel ───────────────────────────────────────────────────────────────────────
+   The bar, and beneath it the messages: the pattern of the board's panel (map.css). The panel
+   carries the fixed placement zoom.css gave to #toolbar, which returns to the flow. */
+#panel {
+  position: fixed;
+  top: 0.6rem;
+  left: 0.6rem;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  max-width: calc(100vw - var(--palette-width) - 1.2rem);
+}
+
+#panel > #toolbar {
+  position: static;
+  max-width: 100%;
+  box-sizing: border-box;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+#counter,
+#in-hand {
+  padding-left: 0.5rem;
+  border-left: 1px solid #6b5a44;
+  color: #d9c9a5;
+  white-space: nowrap;
+}
+
+/* What the page refused, in the board's red; the last save, in the bar's tone. Both are boxes of
+   the bar's make, under it. */
+#message,
+#status {
+  padding: 0.4rem 0.7rem;
+  border-radius: 3px;
+  font-size: 0.85rem;
+  max-width: 26rem;
+}
+
+#message {
+  border: 1px solid #8a5a44;
+  background: rgba(60, 30, 22, 0.94);
+  color: #f6d7c1;
+}
+
+#status {
+  border: 1px solid #6b5a44;
+  background: rgba(27, 23, 19, 0.92);
+  color: #d9c9a5;
+}
+
+/* The box that follows the pointer and states the square, its terrain and its occupant. */
+#tooltip {
+  position: fixed;
+  z-index: 3;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid #6b5a44;
+  border-radius: 3px;
+  background: rgba(27, 23, 19, 0.94);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ── The save dialog ──────────────────────────────────────────────────────────────────────────
+   Modelled on the map-fixing dialog (map_fix.css). */
+#save-dialog {
+  border: 1px solid #6b5a44;
+  border-radius: 4px;
+  background: #241f1b;
+  color: inherit;
+  padding: 1rem 1.2rem;
+  font-size: 0.85rem;
+}
+
+#save-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+#save-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 20rem;
+}
+
+#save-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+#save-form label {
+  color: #d9c9a5;
+}
+
+#save-form input {
+  font: inherit;
+  padding: 0.3rem 0.5rem;
+  margin-bottom: 0.4rem;
+  border: 1px solid #6b5a44;
+  border-radius: 2px;
+  background: #2a2320;
+  color: inherit;
+}
+
+#save-form input:focus {
+  outline: none;
+  border-color: #f6e7c1;
+}
+
+/* What the server refused. */
+#save-error {
+  margin: 0.2rem 0 0;
+  color: #e8a184;
+}
+
+#save-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+#save-footer button {
+  font: inherit;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid #6b5a44;
+  border-radius: 2px;
+  background: #2a2320;
+  color: inherit;
+  cursor: pointer;
+}
+
+#save-footer button:hover {
+  background: #3a3028;
+}

@@ -21,12 +21,13 @@ from tenebrae.application.config import Config
 from tenebrae.application.persistence import wire_persistence
 from tenebrae.application.players import wire_authentication
 from tenebrae.application.routes import (authentication, combat, game, images, map_fix, movement,
-                                         phase, seats, stream, view)
+                                         phase, scenarios, seats, stream, view)
 
 # Every blueprint of `routes/`; the order is that of the README, it changes nothing.
 BLUEPRINTS: tuple[Blueprint, ...] = (
     authentication.blueprint, seats.blueprint, view.blueprint, game.blueprint, stream.blueprint,
-    movement.blueprint, phase.blueprint, combat.blueprint, map_fix.blueprint, images.blueprint)
+    movement.blueprint, phase.blueprint, combat.blueprint, map_fix.blueprint,
+    scenarios.blueprint, images.blueprint)
 
 
 def create_app(config: Optional[type] = None) -> Flask:

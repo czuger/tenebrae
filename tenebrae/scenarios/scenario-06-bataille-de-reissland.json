@@ -1,0 +1,52 @@
+{
+  "numero": 6,
+  "nom": "Bataille de Reissland",
+  "source": "composé sur /admin/scenarios le 2026-09-03",
+  "nombre_de_tours": 32,
+  "armees": [
+    {
+      "joueur": 1,
+      "camp": "alliance",
+      "armee": "Reissland et Population",
+      "consigne": null,
+      "ancre": null,
+      "unites": 32,
+      "magie": null,
+      "jeteur_de_sorts": null
+    }
+  ],
+  "placement": {
+    "12,11,-23": "population-01-20-populaces",
+    "10,9,-19": "population-01-20-populaces",
+    "6,8,-14": "population-01-20-populaces",
+    "3,13,-16": "population-01-20-populaces",
+    "2,8,-10": "population-01-20-populaces",
+    "4,14,-18": "population-01-20-populaces",
+    "11,10,-21": "reissland-02-8-cavaleries",
+    "11,11,-22": "reissland-02-8-cavaleries",
+    "13,9,-22": "reissland-02-8-cavaleries",
+    "14,9,-23": "reissland-02-8-cavaleries",
+    "12,9,-21": "reissland-02-8-cavaleries",
+    "12,10,-22": "reissland-02-8-cavaleries",
+    "14,10,-24": "reissland-02-8-cavaleries",
+    "13,10,-23": "reissland-02-8-cavaleries",
+    "7,12,-19": "reissland-01-15-infanteries",
+    "6,12,-18": "reissland-01-15-infanteries",
+    "5,12,-17": "reissland-01-15-infanteries",
+    "4,12,-16": "reissland-01-15-infanteries",
+    "3,12,-15": "reissland-01-15-infanteries",
+    "1,12,-13": "reissland-01-15-infanteries",
+    "2,12,-14": "reissland-01-15-infanteries",
+    "6,11,-17": "reissland-01-15-infanteries",
+    "5,11,-16": "reissland-01-15-infanteries",
+    "4,11,-15": "reissland-01-15-infanteries",
+    "3,11,-14": "reissland-01-15-infanteries",
+    "2,11,-13": "reissland-01-15-infanteries",
+    "8,12,-20": "reissland-01-15-infanteries",
+    "8,11,-19": "reissland-01-15-infanteries",
+    "7,11,-18": "reissland-01-15-infanteries",
+    "5,10,-15": "reissland-03-3-archers",
+    "6,10,-16": "reissland-03-3-archers",
+    "7,10,-17": "reissland-03-3-archers"
+  }
+}

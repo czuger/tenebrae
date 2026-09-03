@@ -2,9 +2,9 @@
 
 The map stays public, but everything that changes the state requires being logged in and holding
 the side whose phase it is: that is what `login_required`, `seat_required` and
-`active_side_required` set out. `administrator_required` reserves the map-fixing page to the
-accounts in `ADMIN_DISCORD_IDS`. Each refusal is a French message, with the status the browser
-reads: 401 for the anonymous, 403 for everyone else.
+`active_side_required` set out. `administrator_required` reserves the administration pages -
+fixing the map, composing a scenario - to the accounts in `ADMIN_DISCORD_IDS`. Each refusal is a
+French message, with the status the browser reads: 401 for the anonymous, 403 for everyone else.
 """
 
 from collections.abc import Callable
@@ -97,7 +97,7 @@ def administrator_required(view: RouteFunction) -> RouteFunction:
         """Answers 403 to a non-administrator, or lets the route through."""
         if not is_administrator(current_player()):
             return {"allowed": False,
-                    "message": "Corriger la carte demande un compte déclaré dans "
+                    "message": "Cette page d'administration demande un compte déclaré dans "
                                "ADMIN_DISCORD_IDS."}, 403
         return view(*args, **kwargs)
     return wrapper

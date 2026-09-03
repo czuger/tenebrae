@@ -244,6 +244,7 @@ from tenebrae.engine.scenario import scenario
 war_of_the_dwarves = scenario(4)  # read from tenebrae/scenarios/scenario-04-….json
 war_of_the_dwarves.armies  # one entry per player: side, instruction, anchor, magic
 war_of_the_dwarves.sides  # ('alliance', 'tenebres')
+war_of_the_dwarves.max_turns  # None: until one side is exterminated
 war_of_the_dwarves.placement  # "q,r,s" → piece key
 len(war_of_the_dwarves)  # 48 units
 war_of_the_dwarves.board()  # a fresh Board, each piece on its square
@@ -258,6 +259,12 @@ in `tenebrae/scenarios/README.md`.
 `board()` returns a **fresh** `Board` at each call: two games do not share their positions. A piece
 key unknown to the catalogue, or a square off the map, stops the read — better a refused scenario
 than an army quietly cut short.
+
+The engine also **composes** one: `compose(name, placement, max_turns, source)` assembles the values
+of a new file from `"q,r,s" → piece key` — the armies derived from the pieces placed, alliance
+first, the next free number after the booklet's five —, and `path_for(number, name)` names the
+file. It writes nothing: the application's `/admin/scenarios` page does, into
+`tenebrae/scenarios/`.
 
 ## Movement cost
 

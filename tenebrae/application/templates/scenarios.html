@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ave Tenebrae — composer un scénario</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='zoom.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='pieces.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='scenarios.css') }}">
+</head>
+<body>
+  <!-- The palette, the grid alignment and the whole map go out at once in these hidden fields:
+       placing, moving and removing ask the server nothing, only saving does. -->
+  <input type="hidden" id="pieces" value="{{ pieces }}">
+  <input type="hidden" id="grid" value="{{ grid }}">
+  <input type="hidden" id="hexagons" value="{{ hexagons }}">
+  <!-- The squares no unit can occupy: the page refuses them before the server does. -->
+  <input type="hidden" id="forbidden" value="{{ forbidden }}">
+
+  <div id="frame">
+    <div id="canvas">
+      <div id="board">
+        <img id="map" src="{{ url_for('images.map_image') }}" alt="Carte d'Ave Tenebrae">
+        <!-- The highlight of the hexagon under the pointer. -->
+        <svg id="highlight" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- The palette, at the right: every piece of the box, by faction. A click takes one in hand. -->
+  <aside id="palette">
+    <h2>Pions</h2>
+    <div id="palette-factions"></div>
+  </aside>
+
+  <!-- The top-left panel: the toolbar, and beneath it what the page has to say. -->
+  <div id="panel">
+    <div id="toolbar">
+      <button type="button" id="zoom-out" title="Reculer">−</button>
+      <span id="scale">—</span>
+      <button type="button" id="zoom-in" title="Approcher">+</button>
+      <button type="button" id="fit">ajuster</button>
+      <span id="counter">aucun pion</span>
+      <!-- What is in hand: the palette piece about to be placed, or the placed piece about to be
+           moved or removed. -->
+      <span id="in-hand" hidden></span>
+      <button type="button" id="remove" hidden>Retirer</button>
+      <button type="button" id="save" disabled>Enregistrer</button>
+    </div>
+    <!-- What the page refused: a square no unit can occupy. It fades away by itself. -->
+    <div id="message" hidden></div>
+    <!-- The last save: the number and the file written. -->
+    <div id="status" hidden></div>
+  </div>
+
+  <div id="tooltip" hidden></div>
+
+  <!-- The title and the number of turns are asked for when saving, and kept from one save to the
+       next. -->
+  <dialog id="save-dialog">
+    <form id="save-form">
+      <p id="save-title">Enregistrer le scénario</p>
+      <label for="save-name">Nom</label>
+      <input type="text" id="save-name" required autocomplete="off">
+      <label for="save-turns">Nombre de tours (vide : indéterminé)</label>
+      <input type="number" id="save-turns" min="1" step="1">
+      <p id="save-error" hidden></p>
+      <div id="save-footer">
+        <button type="button" id="save-cancel">Annuler</button>
+        <button type="submit" id="save-confirm">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="{{ url_for('static', filename='geometry.js') }}"></script>
+  <script src="{{ url_for('static', filename='zoom.js') }}"></script>
+  <script src="{{ url_for('static', filename='pieces.js') }}"></script>
+  <script src="{{ url_for('static', filename='scenarios.js') }}"></script>
+</body>
+</html>

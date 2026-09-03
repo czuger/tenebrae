@@ -4,11 +4,18 @@ These engine keep the placement consistent with the map: a terrain fix that woul
 lake would show up here, and not mid-game.
 """
 
+import json
+
 import pytest
 
+from tenebrae.engine import scenario as engine_scenario
 from tenebrae.engine.hexagon import MAP, UNINHABITABLE, Hex
+from tenebrae.engine.phase import Turn
 from tenebrae.engine.piece import ALLIANCE, CATALOGUE, DARKNESS
-from tenebrae.engine.scenario import SCENARIOS, Scenario, available_scenarios, read, scenario
+from tenebrae.engine.scenario import (BOOKLET_SCENARIOS, SCENARIOS, Scenario, available_scenarios,
+                                      compose, next_number, path_for, read, scenario, slug)
+
+from tests.engine.plains import well_surrounded_plain
 
 WAR_OF_THE_DWARVES = 4
 FORBIDDEN_TERRAINS = UNINHABITABLE | {"montagne"}
@@ -46,6 +53,10 @@ class TestWarOfTheDwarves:
         assert war_of_the_dwarves.number == WAR_OF_THE_DWARVES
         assert war_of_the_dwarves.name == "La guerre des nains"
         assert "ave_tenebrae_regles_fr.md" in war_of_the_dwarves.source
+
+    def test_it_lasts_until_one_side_is_exterminated(self, war_of_the_dwarves):
+        """The booklet sets no number of turns: the file carries none."""
+        assert war_of_the_dwarves.max_turns is None
 
     def test_two_armies_face_to_face(self, war_of_the_dwarves):
         assert [army["armee"] for army in war_of_the_dwarves.armies] == ["Nains", "Orques"]
@@ -281,3 +292,137 @@ def cube_line(origin, destination):
         rounded[drifted] = -sum(rounded[index] for index in range(3) if index != drifted)
         drawn.append(Hex(*rounded))
     return drawn
+
+
+# --- Composing a scenario -------------------------------------------------------------------------
+#
+# The engine assembles the values of a new file from a placement (`compose`): the armies derived
+# from the pieces placed, the next free number, the file named as `available_scenarios` reads it.
+# The directory is diverted to an empty temporary one: nothing here touches `tenebrae/scenarios/`.
+
+
+INFANTRY, CROSSBOWMEN = "nains-01-5-infanteries", "nains-02-4-arbaletriers"
+ORC_INFANTRY = "orques-01-15-infanteries"
+ELF_INFANTRY = "elfes-01-5-infanteries"
+FIRE_MARKER = "marqueurs-01-feu-mur-de-flammes"
+
+
+@pytest.fixture
+def scenarios_directory(tmp_path, monkeypatch):
+    """Diverts the scenarios directory to an empty temporary one, and returns it."""
+    monkeypatch.setattr(engine_scenario, "SCENARIOS", tmp_path)
+    return tmp_path
+
+
+@pytest.fixture
+def plain_squares():
+    """Three squares of bare plain, side by side: a centre and two of its neighbours."""
+    centre = well_surrounded_plain()
+    first, second = centre.neighbours()[:2]
+    return centre.key, first.key, second.key
+
+
+class TestNumberingAndNaming:
+    def test_the_number_comes_after_the_booklets_and_the_files_present(self, scenarios_directory):
+        """The booklet's five stay reserved even when their files do not exist yet."""
+        assert next_number() == BOOKLET_SCENARIOS + 1
+        (scenarios_directory / "scenario-07-essai.json").write_text("{}")
+        assert next_number() == 8
+
+    def test_the_real_directory_gives_a_free_number(self):
+        assert next_number() > BOOKLET_SCENARIOS
+        assert next_number() not in available_scenarios()
+
+    def test_the_slug_drops_accents_and_apostrophes(self):
+        assert slug("La guerre des nains") == "la-guerre-des-nains"
+        assert slug("L'aube des Ténèbres !") == "l-aube-des-tenebres"
+        assert slug("???") == ""
+
+    def test_the_file_is_named_as_the_catalogue_reads_it(self, scenarios_directory):
+        path = path_for(6, "L'aube des Ténèbres")
+        assert path == scenarios_directory / "scenario-06-l-aube-des-tenebres.json"
+        path.write_text("{}")
+        assert available_scenarios() == {6: path}
+
+    def test_a_title_without_a_slug_still_names_a_file(self, scenarios_directory):
+        assert path_for(7, "???").name == "scenario-07-sans-titre.json"
+
+
+class TestComposingAScenario:
+    def test_the_armies_are_derived_from_the_pieces_placed(self, scenarios_directory,
+                                                           plain_squares):
+        first, second, third = plain_squares
+        values = compose("Essai", {first: ORC_INFANTRY, second: INFANTRY, third: CROSSBOWMEN},
+                         max_turns=12, source="test")
+
+        assert values["numero"] == BOOKLET_SCENARIOS + 1
+        assert values["nom"] == "Essai"
+        assert values["source"] == "test"
+        assert values["nombre_de_tours"] == 12
+        assert values["armees"] == [
+            {"joueur": 1, "camp": ALLIANCE, "armee": "Nains", "consigne": None, "ancre": None,
+             "unites": 2, "magie": None, "jeteur_de_sorts": None},
+            {"joueur": 2, "camp": DARKNESS, "armee": "Orques", "consigne": None, "ancre": None,
+             "unites": 1, "magie": None, "jeteur_de_sorts": None},
+        ]
+
+    def test_the_placement_is_written_side_by_side(self, scenarios_directory, plain_squares):
+        """The alliance first, then the darkness, whatever the order of placing."""
+        first, second, third = plain_squares
+        values = compose("Essai", {first: ORC_INFANTRY, second: INFANTRY, third: CROSSBOWMEN})
+        assert list(values["placement"].items()) == [(second, INFANTRY), (third, CROSSBOWMEN),
+                                                     (first, ORC_INFANTRY)]
+
+    def test_several_factions_on_a_side_name_the_army_together(self, scenarios_directory,
+                                                               plain_squares):
+        first, second, _ = plain_squares
+        values = compose("Essai", {first: INFANTRY, second: ELF_INFANTRY})
+        assert [army["armee"] for army in values["armees"]] == ["Elfes et Nains"]
+        assert values["armees"][0]["unites"] == 2
+
+    def test_neutral_pieces_are_placed_but_belong_to_no_army(self, scenarios_directory,
+                                                             plain_squares):
+        first, second, _ = plain_squares
+        values = compose("Essai", {first: FIRE_MARKER, second: INFANTRY})
+        assert [(army["camp"], army["unites"]) for army in values["armees"]] == [(ALLIANCE, 1)]
+        assert list(values["placement"]) == [second, first]
+
+    def test_no_turn_limit_unless_one_is_given(self, scenarios_directory, plain_squares):
+        first, _, _ = plain_squares
+        assert compose("Essai", {first: INFANTRY})["nombre_de_tours"] is None
+
+    def test_a_placement_without_a_side_is_refused(self, scenarios_directory, plain_squares):
+        """A turn needs a side to play it: markers alone make no scenario, nor does nothing."""
+        first, _, _ = plain_squares
+        with pytest.raises(ValueError):
+            compose("Essai", {first: FIRE_MARKER})
+        with pytest.raises(ValueError):
+            compose("Essai", {})
+
+    def test_a_square_off_the_map_is_refused(self, scenarios_directory):
+        with pytest.raises(ValueError):
+            compose("Essai", {"999,0,-999": INFANTRY})
+
+    def test_an_unknown_piece_is_refused(self, scenarios_directory, plain_squares):
+        first, _, _ = plain_squares
+        with pytest.raises(KeyError):
+            compose("Essai", {first: "nains-99-inconnu"})
+
+    def test_the_composed_scenario_reads_back_and_plays(self, scenarios_directory, plain_squares):
+        """Written as it is, the file is one the engine reads and lays out like the booklet's."""
+        first, second, third = plain_squares
+        values = compose("L'essai", {first: ORC_INFANTRY, second: INFANTRY, third: CROSSBOWMEN},
+                         max_turns=12)
+        path = path_for(values["numero"], values["nom"])
+        path.write_text(json.dumps(values, ensure_ascii=False), encoding="utf-8")
+
+        composed = scenario(values["numero"])
+        assert composed.name == "L'essai"
+        assert composed.max_turns == 12
+        assert composed.sides == (ALLIANCE, DARKNESS)
+        assert len(composed) == 3
+        board = composed.board()
+        assert len(board.squares_held_by(ALLIANCE)) == 2
+        assert len(board.opponents_of(ALLIANCE)) == 1
+        turn = Turn(composed.sides, {army["camp"]: army["armee"] for army in composed.armies})
+        assert turn.label == "Phase de mouvement — Nains"

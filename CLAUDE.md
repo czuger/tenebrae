@@ -34,7 +34,7 @@ The following stay French and must not be translated:
 tenebrae/                       the package: nothing is installed, imported from the root
 ├── game_box/                   the game material — source of truth (has its own CLAUDE.md)
 ├── engine/                     the rules in Python, plus models/ and repositories/
-├── scenarios/                  one JSON per fixed set-up (only no. 4 so far)
+├── scenarios/                  one JSON per set-up: no. 4, plus those composed on /admin/scenarios
 └── application/                the Flask server: create_app in app.py, routes/, logs/
 tests/engine/, tests/application/   mirror the package
 material/base_material/         raw sources: PDF, blog page, 144 photos — DO NOT USE (own CLAUDE.md)
@@ -89,7 +89,8 @@ OAuth2 with no extra dependency; the second seat can go to the AI (`POST /game/n
 the other's moves through SSE (`GET /stream`, `routes/stream.py` over the broadcaster of
 `stream.py`), `mark_a_move` being the only point of publication; the log (`logs/`) goes to
 `logs/battle_log.log` and to an in-memory queue shown in the page, hence the rule **log before
-marking the move**. `/admin/map_fix` is reserved to `ADMIN_DISCORD_IDS`.
+marking the move**. `/admin/map_fix` and `/admin/scenarios` — the second composes a scenario on the
+map and writes it as a new file in `tenebrae/scenarios/` — are reserved to `ADMIN_DISCORD_IDS`.
 
 ## Code style
 

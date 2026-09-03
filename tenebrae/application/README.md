@@ -29,6 +29,10 @@ application writes into `tenebrae/game_box/`, and only into a file of its own. T
 those fixes at start-up — so the board is played on the fixed map. It is reserved to the accounts
 declared in `ADMIN_DISCORD_IDS`.
 
+A third page, `/admin/scenarios`, composes a scenario on the map: pieces taken from a palette, laid
+with a click, and saved as a **new file in `tenebrae/scenarios/`** — the only place where the
+application writes there. Reserved to the same accounts.
+
 The code is English; everything the player reads on screen is French, and so is the game data the
 application serves.
 
@@ -46,6 +50,7 @@ application serves.
 | `stream.py` | the broadcaster behind `/stream` |
 | `discord_client.py` | the OAuth2 flow, and the fake client of the tests |
 | `pieces.py`, `grid.py` | the pieces and the grid alignment, as the browser receives them |
+| `static/`, `templates/` | the three pages — the board, the map-fixing page, the scenario page — and what they share: `geometry.js`, `zoom.js`, `pieces.js` |
 | `extensions.py` | the MongoDB extension |
 | `models/`, `repositories/` | what is not the game: the connection and the map view (see "The models") |
 
@@ -57,7 +62,8 @@ From the root of the repository, with the pyenv virtualenv `tenebrae`:
 python3 -m tenebrae.application.app
 ```
 
-then <http://127.0.0.1:5000/> for the board, <http://127.0.0.1:5000/admin/map_fix> to fix the map.
+then <http://127.0.0.1:5000/> for the board, <http://127.0.0.1:5000/admin/map_fix> to fix the map,
+<http://127.0.0.1:5000/admin/scenarios> to compose a scenario.
 The board **resumes the game where it was left** (see "Game persistence"); `POST /game/new` starts
 it over.
 
@@ -532,6 +538,62 @@ that, after a restart, "Rétablir" would offer to reset the fix itself.
 absence would open everything would be a trap. A visitor with no account gets 401, an ordinary
 player 403.
 
+## Composing a scenario — `/admin/scenarios`
+
+The booklet's scenarios are fixed by hand, one JSON at a time (see `tenebrae/scenarios/README.md`).
+This page composes one on the map instead: the box's pieces in a **palette** at the right of the
+window, the map in the middle, and a click to lay each counter. What it saves is a **new file in
+`tenebrae/scenarios/`**, in the very format the engine reads — the only place where the application
+writes there.
+
+Like the map-fixing page, it receives everything at once in hidden fields and asks the server
+nothing until saving:
+
+| Hidden field | Contents |
+| --- | --- |
+| `#pieces` | the display catalogue — the 121 photographs showing a single counter — in the shape of the board's placed units: `image`, `name`, `side`, `faction` and the counter's values |
+| `#grid` | the same alignment as the board, `piece_size` included |
+| `#hexagons` | `"q,r,s" → terrain` for the 2280 hexagons of the **fixed** map — the one the game is played on, where the map-fixing page works on the scan |
+| `#forbidden` | the squares no unit can occupy: lakes, rivers, the rift (`UNINHABITABLE` in the engine) |
+
+- **The palette**, by faction with its side, scrolls on its own. A click takes a piece **in hand**
+  — the toolbar says which — and every click on a free square lays it down again: fifteen orc
+  infantry are fifteen clicks. A second click on the same palette piece puts it back.
+- **A placed piece**, clicked, comes in hand in its turn: the next click on a free square moves it,
+  "Retirer" — or the Delete key — removes it, a click on the piece itself puts it back. Escape
+  empties the hand.
+- **Hovering** highlights the hexagon and states `q,r,s — terrain`, and the occupant if any; a
+  forbidden square is ringed in red and refuses the piece with a message.
+- **The counters are laid by the board's own code**: `static/pieces.js` and `pieces.css`, shared by
+  both pages, centre the image on the hexagon and tilt it (see "The server's board"). Here the tilt
+  is drawn by the page: the pieces are not yet in a game, and the file carries none.
+- **The zoom** is the board's; the map fits into the frame beside the palette, not into the window.
+- **"Enregistrer"** opens a dialog asking for the **title** (required) and the **number of turns**
+  (empty for an undetermined one, as the booklet says of scenario no. 5), kept from one save to the
+  next. The scenario's number is not asked for: it is the next free one after the booklet's five
+  and the files present, so that a booklet scenario fixed later never collides with one composed
+  here. Each save is a new file — nothing here rewrites one.
+
+| Route | Response |
+| --- | --- |
+| `GET /admin/scenarios` | the page |
+| `POST /admin/scenarios` — body `{name, max_turns, placement}` | `{"saved": true, "number", "name", "file", "units"}` |
+
+`placement` is `"q,r,s" → piece key`, the engine's format. The route reads the request — a name, a
+positive integer or `null` for the turns, every square on the map and fit to be occupied, every
+piece one the palette offers — and the engine composes the file's values from it
+(`tenebrae.engine.scenario.compose`): the `armees` derived from the pieces placed, alliance first,
+named after their factions ("Nains", "Elfes et Nains"); the neutral pieces — spellcasters,
+conjurations, markers — placed but belonging to no army. A request no scenario can be composed from
+is refused with 400 and a French `message`, read in the dialog; a placement with no unit of a side
+among them, since a turn needs a side to play it.
+
+What is saved is a set-up and nothing more: the server goes on playing `SCENARIO_NUMBER`, and the
+turn limit is written in the file (`nombre_de_tours`, read as `Scenario.max_turns`) without the
+engine yet ending a game on it.
+
+**The route is reserved** to the same accounts as the map-fixing page.
+
 ## Two players, two sides
 
 A game brings together **two Discord accounts, one per side**: one holds the Dwarves (the
@@ -829,6 +891,12 @@ progress as long as it lives, and a single-threaded server would serve nothing e
 `tests/application/test_map_fix.py` and `tests/application/test_map_fix_browser.py` cover the
 map-fixing page — the second in Chromium: hovering, dialog, recording, zoom buttons. Both divert the
 path of the fixes file to a temporary directory: **no test writes into `tenebrae/game_box/`**.
+
+`tests/application/test_scenarios.py` and `tests/application/test_scenarios_browser.py` cover the
+scenario page the same way: the hidden fields, the file written in the engine's format and read
+back by it, each refusal with its message and no file written; and in Chromium the palette, laying,
+moving and removing pieces, the square refused, the save dialog and the server's refusal read in
+it. Both divert the scenarios directory: **no test writes into `tenebrae/scenarios/`**.
 
 `tests/application/test_server.py` queries Flask without a browser: the contents of the hidden
 fields — including the counter values the hover card reads there — the consistency of the

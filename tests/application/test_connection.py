@@ -259,13 +259,15 @@ def test_an_anonymous_visitor_moves_nothing(anonymous_client, deserted_map):
 
 
 def test_everything_that_changes_something_asks_for_a_session(anonymous_client):
-    """Playing, restarting, sitting down, fixing the map: 401 without an account. Moving is set
-    apart just above, because there the board must be checked as well."""
+    """Playing, restarting, sitting down, fixing the map, composing a scenario: 401 without an
+    account. Moving is set apart just above, because there the board must be checked as well."""
     assert anonymous_client.post("/phase/next").status_code == 401
     assert anonymous_client.post("/game/new").status_code == 401
     assert anonymous_client.post("/game/seat", json={"side": ALLIANCE}).status_code == 401
     assert anonymous_client.get("/admin/map_fix").status_code == 401
     assert anonymous_client.post("/admin/map_fix", json={}).status_code == 401
+    assert anonymous_client.get("/admin/scenarios").status_code == 401
+    assert anonymous_client.post("/admin/scenarios", json={}).status_code == 401
 
 
 # --- Each to their own side ----------------------------------------------------------------------

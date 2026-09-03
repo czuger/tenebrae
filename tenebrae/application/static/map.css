@@ -5,20 +5,8 @@ body {
 }
 
 /* The frame, the canvas, the board and the toolbar are in zoom.css, shared with the map-fixing
-   page; only the pieces placed on it are left here. */
-.piece {
-  position: absolute;
-  /* The piece is centred on the hexagon's centre, then slightly rotated. */
-  transform-origin: center;
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.55);
-  border-radius: 2px;
-  z-index: 1;
-}
-
-.piece.selected {
-  outline: 2px solid #f6e7c1;
-  box-shadow: 0 0 12px rgba(246, 231, 193, 0.8);
-}
+   page; the counters themselves are in pieces.css, shared with the scenario page. Only what the
+   game adds to them is left here. */
 
 /* The reachable squares: the same piece, faded, under the placed pieces. */
 .ghost {

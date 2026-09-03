@@ -106,6 +106,8 @@ asks the server where it can go, and the server answers from `tenebrae/engine/`.
   of being asked for it. The player's moves still leave as `POST`s, as before.
 - `/admin/map_fix` serves to fix the map transcription, reserved to the accounts declared in
   `ADMIN_DISCORD_IDS`. It is the only place where the application writes into `tenebrae/game_box/`.
+- `/admin/scenarios` composes a scenario on the map — pieces taken from a palette, laid with a
+  click — and saves it as a new file in `tenebrae/scenarios/`. Same accounts.
 
 It models **only the connection** (`models/connection.py`) — the link between a Flask session and
 the engine's player, designated by their Discord identifier — and the **map view**

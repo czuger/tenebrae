@@ -16,7 +16,9 @@ stand.
 | --- | --- |
 | `scenario-04-la-guerre-des-nains.json` | no. 4 — La guerre des nains: Dwarves against Orcs |
 
-Scenarios 1, 2, 3 and 5 of the booklet are not fixed yet.
+Scenarios 1, 2, 3 and 5 of the booklet are not fixed yet. Scenarios composed on the map, on the
+application's `/admin/scenarios` page, take the numbers from 6 on (see "Scenarios composed on the
+map").
 
 ## The format
 
@@ -27,6 +29,7 @@ Naming: `scenario-NN-<slugified-title>.json`, `NN` on two digits — that is whe
 | --- | --- |
 | `numero`, `nom` | the scenario's number in the booklet and its title |
 | `source` | where to read the scenario's text, in the transcription of the rules |
+| `nombre_de_tours` | how many turns the game lasts; absent or `null` for "an undetermined number of turns", as the booklet says of scenario no. 5 — read as `Scenario.max_turns`, which nothing in the engine enforces yet |
 | `armees` | one entry per player, in player order (see below) |
 | `placement` | `"q,r,s"` → piece key: **the set-up itself**, one unit per square |
 
@@ -39,6 +42,24 @@ designates —, the number of `unites` placed, the side's `magie` potential and 
 The piece keys are those of `tenebrae/game_box/pions/pions.json`; a counter named several times is
 placed that many times, one square each — the box really does carry 15 orc infantry counters under a
 single photograph.
+
+## Scenarios composed on the map
+
+The application's `/admin/scenarios` page (see `tenebrae/application/README.md`) lays pieces on the
+map and saves the result here, as a new file in the same format — the only case where a program
+writes into this directory. The values are assembled by `tenebrae.engine.scenario.compose`:
+
+- **The number** is the next free one after the booklet's five and the files present: 6 for the
+  first, whatever booklet scenarios are fixed or not. The booklet's numbers stay theirs.
+- **The armies are derived from the pieces placed**: one entry per side present, alliance first,
+  `armee` named after its factions ("Nains", "Elfes et Nains"), `unites` counted. What the map
+  cannot give stays `null`: `consigne`, `ancre`, `magie`, `jeteur_de_sorts`. The neutral pieces —
+  spellcasters, conjurations, markers — are placed but belong to no army.
+- **The placement is written side by side**: the alliance, then the darkness, then the neutrals.
+- `source` says the page and the day; `nombre_de_tours` is what was asked for when saving.
+
+A composed file is played like a fixed one; adjusting it by hand afterwards — an instruction, an
+anchor, a magic potential — is the way to make it a scenario of the booklet.
 
 ## Scenario no. 4 — La guerre des nains
 

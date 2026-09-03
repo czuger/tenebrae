@@ -8,15 +8,9 @@
 // Positions are in map.jpg pixels, hence in the frame of reference of #board, which carries the
 // image at its natural size and is only scaled afterwards: zooming in or out therefore changes
 // nothing about what is placed on the map. The zoom itself is in zoom.js, shared with the
-// map-fixing page.
+// map-fixing page, and the laying of the counters in pieces.js, shared with the scenario page.
 //
 // Everything the player reads stays in French; only the code is English.
-
-// The tilt of the placed pieces comes from the server: it is part of the game state, drawn at
-// random when the piece is placed and saved with it (see `tenebrae/engine/board.py`). The page
-// only draws one for the ghosts, which are placed nowhere - and for a piece arriving without one,
-// which the server does not do.
-const MAXIMUM_ROTATION = 5; // degrees, forwards or backwards
 
 // The counter's numeric values, in the order the card gives them to read (see the "Values read
 // off the counters" section of tenebrae/game_box/pions/README.md). "Mouvement" is the movement budget
@@ -70,6 +64,11 @@ const AI_NAME = "IA";
 let pieces = JSON.parse(document.getElementById("pieces").value);
 const grid = JSON.parse(document.getElementById("grid").value);
 const { centre: hexagonCentre, hexagonOfPixel } = alignment(grid);
+// The tilt of the placed pieces comes from the server, with the piece: it is part of the game
+// state (see `tenebrae/engine/board.py`). The layer only draws one for the ghosts, which are
+// placed nowhere.
+const { place, createImage } = pieceLayer({ board, centre: hexagonCentre,
+                                            pieceSize: grid.piece_size });
 
 // The images placed on the map: the pieces, and the ghosts of the selected piece.
 const placedPieces = [];
@@ -147,18 +146,6 @@ function clickedHexagon(event) {
   return hexagonOfPixel(x, y);
 }
 
-function place(image, hexagon, tilt) {
-  const centre = hexagonCentre(hexagon.q, hexagon.r);
-  const angle = tilt ?? (Math.random() * 2 - 1) * MAXIMUM_ROTATION;
-  image.dataset.q = hexagon.q;
-  image.dataset.r = hexagon.r;
-  image.dataset.s = hexagon.s;
-  image.style.left = `${centre.x}px`;
-  image.style.top = `${centre.y}px`;
-  // The half-offset centres the piece on the hexagon; the rotation comes after.
-  image.style.transform = `translate(-50%, -50%) rotate(${angle.toFixed(2)}deg)`;
-}
-
 // --- The card of the hovered unit ---
 //
 // Everything is already there: the server passed the counter's values in the hidden field, so
@@ -204,18 +191,6 @@ function isAPlacedPiece(element) {
   // repeating the same card would teach nothing.
   return element instanceof HTMLElement
     && element.classList.contains("piece") && !element.classList.contains("ghost");
-}
-
-function createImage(piece, hexagon, className, tilt) {
-  const image = document.createElement("img");
-  image.className = className;
-  image.src = `/pieces/${piece.image}`;
-  image.alt = piece.name;
-  image.style.width = `${grid.piece_size}px`;
-  image.style.height = `${grid.piece_size}px`;
-  place(image, hexagon, tilt);
-  board.appendChild(image);
-  return image;
 }
 
 function placeThePieces() {

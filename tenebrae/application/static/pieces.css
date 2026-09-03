@@ -1,0 +1,16 @@
+/* The counters laid on the map, shared by the pages that place them (see pieces.js). */
+.piece {
+  position: absolute;
+  /* The piece is centred on the hexagon's centre, then slightly rotated. */
+  transform-origin: center;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.55);
+  border-radius: 2px;
+  z-index: 1;
+}
+
+/* The piece in hand: the one whose moves are shown on the board, the one being moved or removed on
+   the scenario page. */
+.piece.selected {
+  outline: 2px solid #f6e7c1;
+  box-shadow: 0 0 12px rgba(246, 231, 193, 0.8);
+}

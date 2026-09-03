@@ -24,8 +24,10 @@ function zoom({ frame, canvas, board, map, display, onChange }) {
   let fittedToWindow = true;
 
   function fitScale() {
-    return Math.min(window.innerWidth / map.naturalWidth,
-                    window.innerHeight / map.naturalHeight);
+    // The frame's box, not the window's: a page that keeps a panel beside the map - the scenario
+    // page and its palette - fits the map into what is left.
+    const visible = frame.getBoundingClientRect();
+    return Math.min(visible.width / map.naturalWidth, visible.height / map.naturalHeight);
   }
 
   function apply(value) {

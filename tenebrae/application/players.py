@@ -89,7 +89,7 @@ def logged_in_player() -> PlayerRecord:
 
 
 def is_administrator(player: Optional[PlayerRecord]) -> bool:
-    """Says whether a player may fix the map.
+    """Says whether a player may use the administration pages - fix the map, compose a scenario.
 
     Args:
         player: The player, or `None` for an anonymous visitor.

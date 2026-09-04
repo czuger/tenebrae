@@ -26,6 +26,7 @@ move**.
 """
 
 import random
+import time
 from typing import Optional
 
 from tenebrae.application.logs.battle_log import LOG, log_lines
@@ -37,6 +38,7 @@ from tenebrae.application.stream import Broadcaster
 from tenebrae.engine import ai
 from tenebrae.engine.board import Board
 from tenebrae.engine.casualties import Casualties
+from tenebrae.engine.combat import CombatResult
 from tenebrae.engine.combat_register import CombatRegister
 from tenebrae.engine.hexagon import Hex
 from tenebrae.engine.models.seats import Seats
@@ -77,6 +79,19 @@ VERSION = 0
 
 # Whom to push the game to when it changes: one subscriber per open tab, in this process.
 BROADCASTER = Broadcaster()
+
+# How long the AI waits between two of its own actions, in seconds. Its turn is played inside one
+# request and pushed action by action (`let_the_ai_play`): without this the whole turn would land
+# on the watching browsers at once, counters teleporting to where they ended up. The request is
+# held for that long per action, which is what watching a turn being played costs.
+#
+# The tests set it to nothing - a suite that waited on the AI would take minutes - the way they fix
+# the die: `current_game.PAUSE_BETWEEN_AI_ACTIONS`, read here at call time.
+PAUSE_BETWEEN_AI_ACTIONS = 0.5
+
+# Whether the AI has already acted in the turn being played: the pause goes between two actions,
+# not before the first.
+AI_HAS_ACTED = False
 
 
 def roll_the_die() -> int:
@@ -272,24 +287,58 @@ def save_the_game() -> None:
     game_repository().save(snapshot_the_game())
 
 
+def pause_between_two_actions() -> None:
+    """Waits before the AI's next action, so that a watcher sees the turn played and not its end.
+
+    The first action of a turn does not wait: the pause goes **between** two, and a turn that
+    began with one would only look like a slow server. Nothing waits when the pause is zero, which
+    is how the tests run - a suite that watched the AI think would take minutes.
+    """
+    global AI_HAS_ACTED
+    if AI_HAS_ACTED and PAUSE_BETWEEN_AI_ACTIONS > 0:
+        time.sleep(PAUSE_BETWEEN_AI_ACTIONS)
+    AI_HAS_ACTED = True
+
+
+def the_ai_moves(origin: Hex, destination: Hex) -> None:
+    """Logs one move of the AI and pushes it to the browsers, then waits."""
+    pause_between_two_actions()
+    LOG.info("AI: move %s → %s", origin.key, destination.key)
+    mark_a_move()
+
+
+def the_ai_fights(target: Hex, attackers: list[Hex], result: CombatResult) -> None:
+    """Logs one combat of the AI - its outcome, its fall-backs, its computation - and pushes it.
+
+    The retreats it caused are already on the board: what goes out is the position after the
+    combat, counters fallen back included.
+    """
+    pause_between_two_actions()
+    if result.breakdown is not None:
+        LOG.info("AI: %s", describe_the_ratio(result))
+    LOG.info("AI: %s attacker(s) on %s — %s", len(attackers), target.key, combat_message(result))
+    for sentence in retreat_messages(result):
+        LOG.info("AI: %s", sentence)
+    mark_a_move()
+
+
 def let_the_ai_play() -> None:
     """Lets the AI play its whole turn if it holds the active side, then saves the game.
 
     Movement, combat, and play handed back to the other side, within the request. An `if`, not a
     `while`: the AI holds only one side and always hands play back, so a save never lands on a
     phase held by the AI.
+
+    Each action is logged and pushed as it is played rather than at the end, with a pause between
+    two: the AI plays a whole turn inside one request, and a single push would show the board it
+    left behind instead of the turn it played. The request is held for the length of the turn -
+    that is the price of watching it.
     """
     if SEATS.occupant(TURN.active_side) != ai.AI_PLAYER:
         return
-    moves, combats = ai.play_turn(BOARD, TURN, REGISTER, roll_the_die, CASUALTIES)
-    for origin, destination in moves:
-        LOG.info("AI: move %s → %s", origin.key, destination.key)
-    for target, attackers, result in combats:
-        if result.breakdown is not None:
-            LOG.info("AI: %s", describe_the_ratio(result))
-        LOG.info("AI: %s attacker(s) on %s — %s", len(attackers), target.key,
-                 combat_message(result))
-        for sentence in retreat_messages(result):
-            LOG.info("AI: %s", sentence)
+    global AI_HAS_ACTED
+    AI_HAS_ACTED = False
+    ai.play_turn(BOARD, TURN, REGISTER, roll_the_die, CASUALTIES,
+                 moving=the_ai_moves, fighting=the_ai_fights)
     LOG.info("AI: turn played — %s (turn %s)", TURN.label, TURN.number)
     save_the_game()

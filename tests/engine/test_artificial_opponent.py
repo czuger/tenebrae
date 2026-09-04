@@ -184,6 +184,54 @@ class TestPlayTurn:
         assert turn.number == 2
         assert register.to_dict() == {"engaged_attackers": [], "engaged_targets": []}
 
+    def test_each_action_is_told_as_it_is_played(self, corner):
+        """A caller handed the two lists at the end can only show the board the turn left behind;
+        one told as it goes can show the turn being played (`MoveWatcher`, `CombatWatcher`)."""
+        a, _, _, further = corner
+        board = Board([(a, piece(ELF)), (further, piece(ORC))])
+        turn = Turn(("alliance", "tenebres"))
+        turn.advance().advance()
+        seen = []
+
+        moves, combats = ai.play_turn(
+            board, turn, CombatRegister(), roll=lambda: 1,
+            moving=lambda origin, destination: seen.append(("move", origin, destination)),
+            fighting=lambda target, attackers, result: seen.append(("combat", target, result)))
+
+        assert [what for what, *_ in seen] == ["move", "combat"]
+        assert seen[0][1:] == moves[0]
+        assert (seen[1][1], seen[1][2]) == (combats[0][0], combats[0][2])
+
+    def test_the_board_is_already_moved_when_a_move_is_told(self, corner):
+        """The watcher is called after the move, not before it: what a caller pushes from there is
+        the position the unit has just reached."""
+        a, _, _, further = corner
+        board = Board([(a, piece(ELF)), (further, piece(ORC))])
+        turn = Turn(("alliance", "tenebres"))
+        turn.advance().advance()
+        arrivals = []
+
+        ai.play_turn(board, turn, CombatRegister(), roll=lambda: 1,
+                     moving=lambda _, destination: arrivals.append(
+                         board.piece_on(destination).key))
+
+        assert arrivals == [ORC]
+
+    def test_a_turn_watched_by_nobody_is_the_same_turn(self, corner):
+        """The watchers are optional and change nothing: the AI plays what it plays."""
+        a, _, _, further = corner
+        pieces = [(a, piece(ELF)), (further, piece(ORC))]
+
+        def played(**watchers):
+            turn = Turn(("alliance", "tenebres"))
+            turn.advance().advance()
+            board = Board(list(pieces))
+            moves, combats = ai.play_turn(board, turn, CombatRegister(), roll=lambda: 1,
+                                          **watchers)
+            return moves, [(target, result.outcome) for target, _, result in combats]
+
+        assert played() == played(moving=lambda *_: None, fighting=lambda *_: None)
+
     def test_the_ai_refuses_to_enter_outside_movement(self, corner):
         a, c, *_ = corner
         board = Board([(a, piece(ELF)), (c, piece(ORC))])

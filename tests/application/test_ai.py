@@ -6,6 +6,8 @@ HTTP. The die is fixed by `monkeypatch` on `current_game.roll_the_die`, as in th
 at equal die, the AI replays the same game.
 """
 
+import time
+
 import pytest
 
 from tenebrae.application import current_game
@@ -16,6 +18,10 @@ from tests.engine.plains import ring_of, well_surrounded_plain
 
 ELF = "elfes-01-5-infanteries"             # alliance, strength 7, movement 4
 ORC = "orques-01-15-infanteries"           # darkness, strength 8, movement 4
+
+# What the test that holds the pause puts in place of the half second the AI waits in play: long
+# enough to be measured, short enough not to be felt in the suite.
+A_SHORT_PAUSE = 0.05
 
 # A second human player, to exercise sides that are already held.
 GRISHNAK = DEFAULT_IDENTITY | {"discord_id": "100000000000000002", "nickname": "Grishnak"}
@@ -134,6 +140,42 @@ class TestTriggeringTheAI:
         assert any(neighbour for neighbour in a.neighbours()
                    if (placed := current_game.BOARD.piece_on(neighbour)) and placed.key == ELF)
         assert current_game.VERSION > version_before
+
+    def test_each_action_of_the_ai_is_pushed_as_it_is_played(self, alliance_client, face_to_face,
+                                                             monkeypatch):
+        """The turn is played inside one request, and a single push would show the board the AI
+        left behind rather than the turn it played: one per move, one per combat."""
+        monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
+        pushed = []
+        pushing = current_game.mark_a_move
+
+        def counted():
+            pushed.append(current_game.VERSION)
+            return pushing()
+
+        monkeypatch.setattr(current_game, "mark_a_move", counted)
+        alliance_client.post("/phase/next")
+        pushed.clear()
+        alliance_client.post("/phase/next")
+
+        # The phase change that hands play over, then the AI's move, then its combat, then the
+        # save that ends its turn.
+        assert len(pushed) == 4
+
+    def test_the_ai_waits_between_two_of_its_actions(self, alliance_client, face_to_face,
+                                                     monkeypatch):
+        """Half a second in play, a fiftieth of one here. The pause goes **between** two actions:
+        two actions are one pause, and a turn does not begin by waiting."""
+        monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
+        monkeypatch.setattr(current_game, "PAUSE_BETWEEN_AI_ACTIONS", A_SHORT_PAUSE)
+        alliance_client.post("/phase/next")
+
+        started = time.monotonic()
+        alliance_client.post("/phase/next")
+        waited = time.monotonic() - started
+
+        # Its move and its combat: one pause between the two of them.
+        assert waited >= A_SHORT_PAUSE
 
     def test_the_ais_side_cannot_be_taken(self, application, alliance_client, face_to_face,
                                           seat_the_player):

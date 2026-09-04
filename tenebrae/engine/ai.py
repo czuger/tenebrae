@@ -51,6 +51,14 @@ Move = tuple[Hex, Hex]
 # A combat fought: `(target, attackers, result)`.
 Combat = tuple[Hex, list[Hex], CombatResult]
 
+# Told of each action the moment it is played, rather than of all of them at the end. The AI plays
+# a whole turn in one go, and a caller handed the list afterwards can only show the board as it
+# ended up; a caller told as it goes can show the turn being played. What it does with that - log
+# it, push it to a browser, wait between two - is its own business: nothing here waits for anything
+# or knows who is watching.
+MoveWatcher = Callable[[Hex, Hex], None]
+CombatWatcher = Callable[[Hex, list[Hex], CombatResult], None]
+
 
 def target_priority(board: Board, origin: Hex, side: str) -> list[Hex]:
     """Ranks the opposing squares seen from `origin`: nearest first, weakest next.
@@ -94,7 +102,8 @@ def choose_target(board: Board, origin: Hex, side: str) -> Optional[Hex]:
     return targets[0] if targets else None
 
 
-def play_movement(board: Board, side: str) -> list[Move]:
+def play_movement(board: Board, side: str,
+                  watching: Optional[MoveWatcher] = None) -> list[Move]:
     """Plays the side's movement phase: each unit marches towards its target.
 
     A unit already within engagement range of its target does not move. The others take, among
@@ -109,6 +118,7 @@ def play_movement(board: Board, side: str) -> list[Move]:
     Args:
         board: The board, modified in place.
         side: The side that plays.
+        watching: Called with each move the moment it is played, if given.
 
     Returns:
         The `(origin, destination)` pairs played, in order.
@@ -140,6 +150,8 @@ def play_movement(board: Board, side: str) -> list[Move]:
             continue
         if board.move(origin, destination):
             moves_played.append((origin, destination))
+            if watching is not None:
+                watching(origin, destination)
     return moves_played
 
 
@@ -201,7 +213,8 @@ def worth_attacking(board: Board, target: Hex, attackers: list[Hex]) -> bool:
 
 
 def play_combat(board: Board, side: str, register: CombatRegister, roll: Callable[[], int],
-                casualties: Optional[Casualties] = None) -> list[Combat]:
+                casualties: Optional[Casualties] = None,
+                watching: Optional[CombatWatcher] = None) -> list[Combat]:
     """Plays the side's combat phase: attacks concentrate on the priority targets.
 
     Each still-available unit looks, in its order of priorities, for a target within range and not
@@ -214,6 +227,7 @@ def play_combat(board: Board, side: str, register: CombatRegister, roll: Callabl
         register: The phase register, the same one humans use; filled as combats are fought.
         roll: Called once per combat fought, returns the die.
         casualties: The game's register of units removed from play, passed to `combat.fight`.
+        watching: Called with each combat the moment it is fought, if given.
 
     Returns:
         The `(target, attackers, result)` triples of the combats fought, in order.
@@ -243,11 +257,15 @@ def play_combat(board: Board, side: str, register: CombatRegister, roll: Callabl
         register.record([result.square_after(hexagon).key for hexagon in attackers],
                         result.square_after(target).key)
         combats_fought.append((target, attackers, result))
+        if watching is not None:
+            watching(target, attackers, result)
     return combats_fought
 
 
 def play_turn(board: Board, turn: Turn, register: CombatRegister, roll: Callable[[], int],
-              casualties: Optional[Casualties] = None) -> tuple[list[Move], list[Combat]]:
+              casualties: Optional[Casualties] = None,
+              moving: Optional[MoveWatcher] = None,
+              fighting: Optional[CombatWatcher] = None) -> tuple[list[Move], list[Combat]]:
     """Plays the active side's whole turn - movement then combat - and hands play back.
 
     On entry, the current phase must be the movement phase of the AI's side; on exit, it is the
@@ -260,6 +278,8 @@ def play_turn(board: Board, turn: Turn, register: CombatRegister, roll: Callable
         register: The phase register, reset at each phase change.
         roll: Called once per combat fought, returns the die.
         casualties: The game's register of units removed from play, filled as they fall.
+        moving: Called with each move the moment it is played, if given.
+        fighting: Called with each combat the moment it is fought, if given.
 
     Returns:
         `(moves, combats)`, what the two phases played.
@@ -270,10 +290,10 @@ def play_turn(board: Board, turn: Turn, register: CombatRegister, roll: Callable
     if turn.phase_type != MOVEMENT:
         raise ValueError("the AI comes into play at its movement phase, nowhere else")
     side = turn.active_side
-    moves = play_movement(board, side)
+    moves = play_movement(board, side, moving)
     turn.advance()
     register.reset()
-    combats = play_combat(board, side, register, roll, casualties)
+    combats = play_combat(board, side, register, roll, casualties, fighting)
     turn.advance()
     register.reset()
     return moves, combats

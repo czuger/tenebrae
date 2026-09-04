@@ -380,6 +380,13 @@ board — while the other tabs get the whole scene again through the stream. `fa
 chain of pushes each square is handed to the unit behind, and a counter looked up after the first
 step would be the one that has just arrived on it.
 
+**One counter at a time, half a second apart** (`FALL_BACK_PAUSE`, the pause the AI takes between
+two of its actions): a chain of pushes is three or four units changing square at once, and laid
+out in one go the whole figure jumps and nothing says which unit went where. The combat is not
+cleared until they have all landed, so the "Attaquer" button goes when the fall-back is over and
+not before — which is also what the browser tests wait on. The other tabs are unaffected: they get
+the scene from the stream, in one piece, as they always did.
+
 `{"resolved": false, "message": …}` when it is not the combat phase, when the target is not an
 opponent, when it has already been attacked, or when no attacker is valid.
 
@@ -990,9 +997,23 @@ Its turn is played **on the server side, within the request that hands it play**
 `let_the_ai_play()`, called at the end of `POST /phase/next` — and at the creation of the game, in
 case the scenario opens on its side. The strategy lives in the engine (`tenebrae/engine/ai.py`, see
 `tenebrae/engine/README.md`); the application only passes it the die (`roll_the_die`), saves and
-logs. A single save at the end of the turn: the version rises, and the browser sees the AI's moves
-at once through the stream, as it would see a human opponent's. A save therefore never lands on a
-phase held by the AI — "/" never has to make it play.
+logs. A single save at the end of the turn, so a save never lands on a phase held by the AI — "/"
+never has to make it play.
+
+**Its turn is pushed as it is played, not when it is over.** The whole turn happens inside one
+request, and one push at the end would land the board the AI left behind on every browser at once,
+counters teleporting to where they ended up. So `let_the_ai_play` hands the engine two watchers
+(`moving`, `fighting` — see `tenebrae/engine/README.md`): each move and each combat is logged and
+marked the moment it is played, and **`PAUSE_BETWEEN_AI_ACTIONS`** — half a second — is waited
+between two. The stream then delivers the turn action by action, as it would a human opponent's.
+
+Three consequences worth knowing. `mark_a_move` gains callers beyond the two the rule named — the
+AI's watchers publish without saving, the save still coming once at the end. The request that
+handed play over **is held for the length of the AI's turn**: half a second per action is what
+watching it costs. And the tests set the pause to nothing, the way they fix the die
+(`current_game.PAUSE_BETWEEN_AI_ACTIONS`, an autouse fixture in `tests/application/conftest.py`);
+one test puts a fiftieth of a second back to hold that the pause is taken **between** two actions
+and not before the first.
 
 ### Following the opponent's game
 

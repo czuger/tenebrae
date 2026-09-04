@@ -561,6 +561,14 @@ edge of the engine: `roll` is a **callable**, called once per combat fought. Eve
 made by square keys: at equal die, two identical games replay identically — that is what makes the
 AI testable (`tests/engine/test_artificial_opponent.py`).
 
+**The turn can be watched as it is played.** `play_turn` takes two optional callables — `moving`,
+called with `(origin, destination)` the moment a move is applied, and `fighting`, called with
+`(target, attackers, result)` the moment a combat is fought — so that a caller sees the turn go by
+rather than only the board it left behind. The board is already moved when a watcher is called: a
+caller pushing a position from there pushes the one just reached. What a watcher does — log the
+action, push it to a browser, wait between two — is the caller's business: nothing here waits for
+anything, or knows who is watching. Omit them and the AI plays exactly the same turn.
+
 On the application's side, the AI occupies its seat under the `AI_PLAYER` sentinel (`"ia"`, which
 no Discord identifier — strings of digits — can carry) and is displayed under `AI_NAME`. The
 engine, for its part, knows nothing of this: `play_turn` plays the active side, whichever it is.

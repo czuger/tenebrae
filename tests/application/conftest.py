@@ -56,6 +56,18 @@ def the_scenario_the_server_opens_on():
         current_game.switch_to_the_scenario(scenario(current_game.DEFAULT_SCENARIO))
 
 
+@pytest.fixture(autouse=True)
+def the_ai_plays_without_waiting(monkeypatch):
+    """Takes the pause out of the AI's turn.
+
+    It is there for the eye - half a second between two actions, so that a watcher sees the turn
+    played rather than its result (`current_game.PAUSE_BETWEEN_AI_ACTIONS`) - and a suite that
+    waited on it would spend minutes doing nothing. The test that holds the pause sets it back
+    itself.
+    """
+    monkeypatch.setattr(current_game, "PAUSE_BETWEEN_AI_ACTIONS", 0)
+
+
 @pytest.fixture
 def seat_the_player():
     """Returns the means to seat a player at the table, and lifts the table on the way out.

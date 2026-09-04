@@ -436,8 +436,44 @@ downwards, the bar does not budge.
 
 It reads **the other way round from the file**: the server gives its lines from the oldest to the
 most recent, the column shows the last one at the top, where the eye returns. One therefore sees
-what has just happened without doing anything, and nothing scrolls anything in the player's stead;
-the scrollbar (`max-height: 40vh`) is for ancient history. Empty, the column does not appear.
+what has just happened without doing anything, and nothing scrolls anything in the player's stead.
+Beyond `max-height: 40vh` the older lines leave the column — they are read in `battle_log.log`,
+the column letting the click through and therefore not scrolling (see the next section). Empty,
+the column does not appear — as long as the player has not used its button (below).
+
+## The map is always the one that takes the click
+
+The panel is drawn over the map, at the top-left corner, which is where a scenario often has units:
+the log column alone is 22rem wide and up to 40vh tall. It was swallowing the clicks aimed at the
+counters underneath it — one saw the piece, one clicked it, and nothing happened.
+
+**Everything laid over the map lets the pointer through.** The rule is carried by the panel
+(`pointer-events: none` on `#panel` in `map.css`), not by each box: the card, the log column and
+the refusal message are click-through without saying anything, and whatever is added to the panel
+tomorrow is click-through by default. Two things take the pointer back (`pointer-events: auto`),
+both because they carry a button and both small: the toolbar, whose reference size is documented in
+`map.css`, and the log column's reduce button — the button alone, not the column around it. The
+tooltips of the two admin pages already worked this way.
+
+What it costs: the column can no longer be scrolled with the wheel, nor its text selected — the
+wheel over it zooms the map, as it does everywhere else. That is the trade accepted: the map comes
+first, and the most recent line, the one that is read, is at the top of the column anyway.
+
+`tests/application/test_log_browser.py` holds the rule: what `elementFromPoint` finds in the middle
+of the column is on the board and not in the panel, the toolbar's buttons and the column's reduce
+button still take their clicks, and a counter placed on a square the column covers is still
+selected by a click aimed at it.
+
+It **reduces to its button**: the column is tall and it lies over the map, and one does not always
+want to read it. The "−" at the top right of the box brings it down to itself and back ("+"), the
+state being the class `reduced` on `#log` alone — the lines are what a move played rewrites, not
+the box, so a reduced column stays reduced while the game goes on. A reload opens it again:
+nothing is stored for it, neither in the browser nor on the server.
+
+Once the button has been used, **the box no longer hides itself**, empty or not. A server restarted
+has an empty memory, and the stream hands that empty log over at the reconnection: hiding the box
+then — which is what an empty log did — took the button away with it, and nothing could bring the
+column back. Untouched, an empty column still does not appear.
 
 It arrives **through the stream**, and through it alone: `refreshTheLog` is called only at start-up
 and from `resumeTheGame`. A move played is published to every subscriber, including the tab that

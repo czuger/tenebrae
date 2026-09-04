@@ -42,7 +42,23 @@ body {
 /* The top-left panel: the toolbar, and the card stacked beneath it.
    It is now the panel that carries the fixed placement zoom.css gave to #toolbar; the bar,
    inside it, therefore returns to the flow (see the next rule). The map-fixing page, which does
-   not load this stylesheet, keeps zoom.css's fixed bar. */
+   not load this stylesheet, keeps zoom.css's fixed bar.
+
+   ── THE MAP IS ALWAYS THE ONE THAT TAKES THE CLICK ──
+   The panel is drawn over the map, at the top-left corner where a scenario often has units: the
+   log column alone is 22rem wide and up to 40vh tall, and it was swallowing the clicks aimed at
+   the counters underneath it. Everything the panel lays over the map therefore lets the pointer
+   through: a click goes to the counter, never to the box that happens to cover it.
+
+   The rule is the panel's own, not each box's: what is added to it tomorrow is click-through by
+   default and has to claim the pointer to get it. Two things do, both because they carry a button
+   and both small: the toolbar just below (see the reference size), and the log column's reduce
+   button - the button alone, not the column. The tooltips of the two admin pages already work this
+   way (`pointer-events: none` in map_fix.css and scenarios.css).
+
+   What it costs: the log column can no longer be scrolled with the wheel nor its text selected -
+   the wheel over it zooms the map, as everywhere else. Its most recent line is at the top, which
+   is the one that is read, and the whole account is in `logs/battle_log.log`. */
 #panel {
   position: fixed;
   top: 0.6rem;
@@ -53,6 +69,7 @@ body {
   align-items: flex-start;
   gap: 0.4rem;
   max-width: calc(100vw - 1.2rem);
+  pointer-events: none;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -73,6 +90,8 @@ body {
 #panel > #toolbar {
   /* The only change: the bar no longer places itself, the panel places it. */
   position: static;
+  /* The one box of the panel that takes the pointer: it carries buttons (see #panel). */
+  pointer-events: auto;
   max-width: 100%;
   box-sizing: border-box;
   /* The bar keeps its single line - wrapping would double its height. On a narrow window it lets
@@ -89,6 +108,7 @@ body {
    `hidden` must win over `display: flex`: without that guard, the card would stay visible when
    nothing is hovered. */
 #card {
+  /* It lets clicks through to the map, like everything else in the panel (see #panel). */
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
@@ -101,8 +121,6 @@ body {
   color: #f6e7c1;
   /* The same size as the toolbar: both boxes read to the same eye. */
   font-size: 0.85rem;
-  /* The bar carries buttons; the card, for its part, lets clicks through to the map. */
-  pointer-events: none;
 }
 
 #card[hidden] {
@@ -186,13 +204,22 @@ body {
 
    The lines are given from the oldest to the most recent, and rendered the other way round: the
    last one is at the top, under the card, where the eye already is. One therefore sees what has
-   just happened without doing anything; the scrollbar is for ancient history. */
+   just happened without doing anything - which is the whole of what the column is for: it lets
+   the click through to the map (see #panel), so the wheel does not scroll it, and the older lines
+   that overflow `max-height` are read in `logs/battle_log.log`.
+
+   The column is a flex column so that its button can sit at the top right of the box, above the
+   lines. `hidden` must win over `display: flex`, as for the card. */
 #log {
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   width: 22rem;
   max-width: 100%;
   max-height: 40vh;
-  overflow-y: auto;
+  /* The lines scroll, not the box: the button must stay in sight at the top of the column. */
+  overflow: hidden;
   padding: 0.4rem 0.7rem;
   border: 1px solid #6b5a44;
   border-radius: 3px;
@@ -205,6 +232,39 @@ body {
   display: none;
 }
 
+/* Reduced, the column comes down to its button: the lines go, and the box no longer holds its
+   22rem - a 22rem-wide empty strip over the map would have gained nothing. */
+#log.reduced {
+  width: auto;
+}
+
+#log.reduced #log-lines {
+  display: none;
+}
+
+/* The one thing in the column that takes the pointer, the panel letting everything through (see
+   #panel): it carries a button, like the bar. It is drawn like the bar's buttons - which are
+   styled by zoom.css inside #toolbar, hence repeated here - and kept to the width of its sign, at
+   the top right of the box, where the eye is not reading. */
+#log-toggle {
+  align-self: flex-end;
+  flex: none;
+  pointer-events: auto;
+  margin-bottom: 0.2rem;
+  font: inherit;
+  line-height: 1;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid #6b5a44;
+  border-radius: 2px;
+  background: #2a2320;
+  color: inherit;
+  cursor: pointer;
+}
+
+#log-toggle:hover {
+  background: #3a3028;
+}
+
 #log-lines {
   margin: 0;
   padding: 0;
@@ -212,6 +272,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
+  /* `min-height` so that the lines give way inside the column rather than push it past its
+     `max-height`. */
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* The time first, in a receding tone, then the line itself - which wraps without coming back

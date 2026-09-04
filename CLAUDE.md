@@ -91,7 +91,9 @@ scripts speak through and that stays silent unless it is turned on (`?debug=1`,
 the other's moves through SSE (`GET /stream`, `routes/stream.py` over the broadcaster of
 `stream.py`), `mark_a_move` being the only point of publication; the log (`logs/`) goes to
 `logs/battle_log.log` and to an in-memory queue shown in the page, hence the rule **log before
-marking the move**. `/admin/map_fix` and `/admin/scenarios` — the second composes a scenario on the
+marking the move**; **the map is always the one that takes the click** — the top-left panel is
+drawn over it and lets the pointer through (`pointer-events: none` on `#panel`), only what carries
+a button taking it back: the toolbar, and the log column's reduce button. `/admin/map_fix` and `/admin/scenarios` — the second composes a scenario on the
 map and writes it as a new file in `tenebrae/scenarios/`, or rewrites one opened on
 `/admin/scenarios/<number>/edit` — are reserved to `ADMIN_DISCORD_IDS`.
 

@@ -51,6 +51,7 @@ const cardRemarks = document.getElementById("card-remarks");
 
 const log = document.getElementById("log");
 const logLines = document.getElementById("log-lines");
+const logToggle = document.getElementById("log-toggle");
 
 const phaseLabel = document.getElementById("phase-label");
 const attackButton = document.getElementById("attack");
@@ -548,8 +549,28 @@ function refreshTheLog(entries) {
     line.append(time, text);
     logLines.appendChild(line);
   }
-  // Nothing to tell, nothing to frame: the column only appears once the game has begun.
-  log.hidden = entries.length === 0;
+  // Nothing to tell, nothing to frame: the column only appears once the game has begun - unless
+  // the player has used its button, after which the box stays whatever the lines. A server
+  // restarted has an empty memory, and the stream hands it over: hiding the box then would take
+  // the button away with it, and nothing could bring the column back.
+  log.hidden = entries.length === 0 && !logTouched;
+}
+
+
+// The column is tall and it lies over the map: the button reduces it to itself, and brings it
+// back. The state is the class alone - `refreshTheLog` rewrites the lines, not the box, so a
+// reduced column stays reduced while the game goes on. A reload opens it again: nothing is stored
+// for it anywhere.
+let logTouched = false; // the player has used the button: the box no longer hides itself
+
+function toggleTheLog() {
+  logTouched = true;
+  log.hidden = false;
+  const reduced = log.classList.toggle("reduced");
+  logToggle.textContent = reduced ? "+" : "−";
+  logToggle.title = reduced ? "Afficher le journal" : "Réduire le journal";
+  logToggle.setAttribute("aria-expanded", String(!reduced));
+  trace.info("the log column is toggled", { reduced });
 }
 
 
@@ -1054,6 +1075,7 @@ function start() {
     trace.info("\"localiser\" clicked", { marker: markedSquare });
     locate();
   });
+  logToggle.addEventListener("click", toggleTheLog);
   playerButton.addEventListener("click", () => {
     trace.info("the player button is clicked", { connected: table.connected });
     if (table.connected) openTheTable();

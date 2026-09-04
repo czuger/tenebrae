@@ -81,8 +81,15 @@
 
     <!-- The game log, in a column under the card: phase changes, combats declared and resolved,
          AI moves. It is the same account as `battle_log.log`, whose last lines the server keeps
-         in memory to push them with the game. Empty, the column does not appear. -->
+         in memory to push them with the game. Empty, the column does not appear - as long as the
+         player has not used its button.
+
+         The "−" button reduces it to itself, and brings it back: the column is tall, it lies over
+         the map, and one does not always want to read it. It is the second thing in the page to
+         take the pointer back from the panel (see map.css) - it carries a button, like the bar. -->
     <div id="log" hidden>
+      <button type="button" id="log-toggle" title="Réduire le journal"
+              aria-controls="log-lines" aria-expanded="true">−</button>
       <ol id="log-lines"></ol>
     </div>
   </div>

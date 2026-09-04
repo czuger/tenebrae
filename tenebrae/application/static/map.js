@@ -53,6 +53,9 @@ const log = document.getElementById("log");
 const logLines = document.getElementById("log-lines");
 const logToggle = document.getElementById("log-toggle");
 
+const panel = document.getElementById("panel");
+const panelSideButton = document.getElementById("panel-side");
+
 const phaseLabel = document.getElementById("phase-label");
 const attackButton = document.getElementById("attack");
 const cancelButton = document.getElementById("cancel-combat");
@@ -636,6 +639,52 @@ function toggleTheLog() {
 }
 
 
+// --- Which edge the block of information hangs from ---
+//
+// The bar, the message, the card and the log are one block, and that block lies over the map:
+// wherever it sits, it covers the pieces one is playing. So it moves - to the left edge of the
+// window or to the right one, and nowhere else: a block one could put anywhere would hide as much
+// map for a decision to be made at every game.
+//
+// The choice is kept in `localStorage`, as the debug log's is (`static/debug.js`): it belongs to
+// this browser and to nothing else - not to the player, whose stored view is the game's own
+// (`/view`), and not to the game.
+
+const PANEL_SIDE_KEY = "tenebrae.panelSide";
+const RIGHT_SIDE = "right";
+const LEFT_SIDE = "left";
+
+function storedPanelSide() {
+  try {
+    return window.localStorage.getItem(PANEL_SIDE_KEY) === RIGHT_SIDE ? RIGHT_SIDE : LEFT_SIDE;
+  } catch (error) {
+    // Private browsing and a blocked storage throw rather than answer: the block then opens where
+    // it always has.
+    return LEFT_SIDE;
+  }
+}
+
+function putThePanelOn(side) {
+  const onTheRight = side === RIGHT_SIDE;
+  panel.classList.toggle(RIGHT_SIDE, onTheRight);
+  panelSideButton.textContent = onTheRight ? "←" : "→";
+  panelSideButton.title = onTheRight
+    ? "Déplacer le panneau à gauche"
+    : "Déplacer le panneau à droite";
+  trace.info("the block of information is anchored", { side });
+}
+
+function swapThePanelSide() {
+  const side = panel.classList.contains(RIGHT_SIDE) ? LEFT_SIDE : RIGHT_SIDE;
+  putThePanelOn(side);
+  try {
+    window.localStorage.setItem(PANEL_SIDE_KEY, side);
+  } catch (error) {
+    // Nothing to do: the choice will simply not survive the reload.
+  }
+}
+
+
 async function nextPhase() {
   trace.enter("nextPhase", { from: phase.label });
   const answer = await send("/phase/next", { method: "POST" });
@@ -1139,6 +1188,8 @@ function start() {
     locate();
   });
   logToggle.addEventListener("click", toggleTheLog);
+  panelSideButton.addEventListener("click", swapThePanelSide);
+  putThePanelOn(storedPanelSide());
   playerButton.addEventListener("click", () => {
     trace.info("the player button is clicked", { connected: table.connected });
     if (table.connected) openTheTable();

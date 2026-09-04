@@ -72,6 +72,19 @@ body {
   pointer-events: none;
 }
 
+/* Hung from the right edge instead of the left, the whole block with it: the bar, the card, the
+   message and the log. The panel lies over the map wherever it is, and the pieces it covers are
+   the ones one is playing - so it moves rather than shrinks.
+
+   Two positions, and no more: a block one could put anywhere would hide as much map for a choice
+   to be made at every game. The boxes hang from the edge they are anchored to - `flex-end` where
+   the left side has `flex-start` - so that none of them jut out over the middle of the map. */
+#panel.right {
+  left: auto;
+  right: 0.6rem;
+  align-items: flex-end;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────────────────────
    TOOLBAR REFERENCE SIZE - to be kept as it stands.
 

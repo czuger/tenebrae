@@ -199,6 +199,22 @@ def test_the_column_does_not_take_the_click(board):
     assert found["onTheMap"] is True, found
 
 
+def test_the_column_follows_the_block_to_the_other_edge(board):
+    """The column is the tallest box of the panel, and the one that covers most map: it moves with
+    the block rather than staying behind on the left."""
+    fill_the_column(board)
+    on_the_left = centre_of(board, "log")
+
+    board.locator("#panel-side").click()
+    board.wait_for_function("document.getElementById('panel').classList.contains('right')")
+    edges = board.evaluate("""() => {
+        const box = (id) => document.getElementById(id).getBoundingClientRect();
+        return { log: box('log'), panel: box('panel') };
+    }""")
+    assert centre_of(board, "log")[0] > on_the_left[0], edges
+    assert round(edges["log"]["right"]) == round(edges["panel"]["right"]), edges
+
+
 def test_the_toolbar_still_takes_the_click(board):
     """The one box of the panel that keeps the pointer: it carries the buttons."""
     found = element_at(board, *centre_of(board, "zoom-in"))

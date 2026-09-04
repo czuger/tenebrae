@@ -475,9 +475,29 @@ Beyond `max-height: 40vh` the older lines leave the column — they are read in 
 the column letting the click through and therefore not scrolling (see the next section). Empty,
 the column does not appear — as long as the player has not used its button (below).
 
+## Moving the block of information
+
+Letting the pointer through is not enough: what the panel covers cannot be *read*, and a scenario
+puts its units where the panel sits. The **first button of the bar** therefore sends the whole
+block to the other edge of the window — the bar, the refusal message, the card and the log column
+together, `#panel.right` in `map.css` swapping `left` for `right` and aligning the boxes on the
+edge they now hang from.
+
+Two positions and nothing between them, hence a single button, which shows the edge it would go to
+(`→`, then `←`). A block one could drag anywhere would hide as much map for a decision to be made
+at every game; and the bar is clipped on the right, so the handle of the block comes **first** in
+it, where the clipping cannot reach it.
+
+The choice is kept in `localStorage` under `tenebrae.panelSide`, as the debug log's is: it belongs
+to this browser, and to nothing else. It is not the player's stored view — `/view` keeps the scale
+and the point one was manoeuvring at, which is the game seen from a pair of eyes, not where the
+buttons sit — and the reads and writes are guarded, a browser that refuses its storage opening the
+block where it always has.
+
 ## The map is always the one that takes the click
 
-The panel is drawn over the map, at the top-left corner, which is where a scenario often has units:
+The panel is drawn over the map, at the top-left corner by default, which is where a scenario often
+has units:
 the log column alone is 22rem wide and up to 40vh tall. It was swallowing the clicks aimed at the
 counters underneath it — one saw the piece, one clicked it, and nothing happened.
 
@@ -561,7 +581,10 @@ on its left edge. Neither of them moves.
   leaves empty.
 - **The panel is outside `#board`**: the zoom does not reach it, the card keeps its size at any
   scale. And it is **fixed in place**, out of the flow: nothing moves from one piece to another,
-  and the map occupies the window as if it did not exist.
+  and the map occupies the window as if it did not exist. It is fixed to one of the **two edges**
+  of the window, the bar's first button moving it from one to the other (see "Moving the block of
+  information"): the card hangs from the same edge as the bar, above the log, wherever the block
+  is.
 - **The card lets clicks through** (`pointer-events: none`) where the buttons take them: without
   which it would make the strip of map it covers unplayable.
 - **The ghosts have no card**: they repeat the already selected unit, and covering the map with

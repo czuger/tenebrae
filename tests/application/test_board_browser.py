@@ -717,6 +717,97 @@ def test_the_map_stays_whole_under_the_panel(board):
     assert board.evaluate(box) == bare
 
 
+# ── Moving the block of information ─────────────────────────────────────────────────────────────
+#
+# The panel lies over the map, and the pieces it covers are the ones being played. The first button
+# of the bar sends the whole block to the other edge of the window - the bar, the message, the card
+# and the log together.
+
+def panel_side(page):
+    """Where the block hangs from, measured rather than read off its class."""
+    return page.evaluate("""() => {
+        const panel = document.getElementById('panel').getBoundingClientRect();
+        return { left: panel.left, right: panel.right, width: window.innerWidth,
+                 marked: document.getElementById('panel').classList.contains('right') };
+    }""")
+
+
+def test_the_block_goes_to_the_right_edge_and_comes_back(board):
+    """One button and two positions: it shows the edge it would send the block to."""
+    assert board.locator("#panel-side").text_content().strip() == "→"
+    on_the_left = panel_side(board)
+    assert on_the_left["marked"] is False
+
+    board.locator("#panel-side").click()
+    board.wait_for_function("document.getElementById('panel').classList.contains('right')")
+    on_the_right = panel_side(board)
+    assert on_the_right["right"] > on_the_left["right"]
+    assert on_the_right["left"] > on_the_left["left"]
+    assert board.locator("#panel-side").text_content().strip() == "←"
+
+    board.locator("#panel-side").click()
+    board.wait_for_function("!document.getElementById('panel').classList.contains('right')")
+    assert panel_side(board)["left"] == on_the_left["left"]
+    assert board.locator("#panel-side").text_content().strip() == "→"
+
+
+def test_the_whole_block_travels_with_it(board):
+    """The bar and the card are one block: moved, they hang from the same edge as before, and from
+    the panel's own."""
+    hover(board, board.locator("img.piece:not(.ghost)").first)
+    board.locator("#panel-side").click()
+    board.wait_for_function("document.getElementById('panel').classList.contains('right')")
+
+    places = board.evaluate("""() => {
+        const box = (id) => document.getElementById(id).getBoundingClientRect();
+        return { panel: box('panel'), bar: box('toolbar'), card: box('card') };
+    }""")
+    assert places["card"]["top"] >= places["bar"]["bottom"], places  # still under the bar
+    assert round(places["bar"]["right"]) == round(places["panel"]["right"]), places
+    assert round(places["card"]["right"]) == round(places["panel"]["right"]), places
+
+
+def test_the_block_stays_in_the_window_on_the_right(board):
+    """The constraint the left edge is held to, held on the other side: at any width the block
+    fits in the window and the page does not scroll sideways."""
+    hover(board, board.locator("img.piece:not(.ghost)").first)
+    board.locator("#panel-side").click()
+    board.wait_for_function("document.getElementById('panel').classList.contains('right')")
+
+    for width in (1400, 800, 480):
+        board.set_viewport_size({"width": width, "height": 900})
+        board.wait_for_function("(w) => window.innerWidth === w", arg=width)
+        measurements = board.evaluate("""() => {
+            const panel = document.getElementById('panel').getBoundingClientRect();
+            return { left: panel.left, right: panel.right, width: window.innerWidth,
+                     scrolls: document.documentElement.scrollWidth > window.innerWidth };
+        }""")
+        assert measurements["left"] >= 0, (width, measurements)
+        assert measurements["right"] <= measurements["width"], (width, measurements)
+        assert not measurements["scrolls"], (width, measurements)
+
+
+def test_the_chosen_edge_survives_a_reload(board):
+    """The choice belongs to this browser: it is kept there, and not asked of the server - which
+    knows the player's view of the map, not where their buttons sit."""
+    board.locator("#panel-side").click()
+    board.wait_for_function("document.getElementById('panel').classList.contains('right')")
+
+    board.reload()
+    board.wait_for_function("document.getElementById('scale').textContent !== '—'")
+    board.wait_for_function("document.getElementById('panel').classList.contains('right')")
+    assert board.locator("#panel-side").text_content().strip() == "←"
+
+
+def test_the_moving_button_takes_its_own_click(board):
+    """It sits in the bar, the one box of the panel that keeps the pointer."""
+    found = board.evaluate("""() => {
+        const box = document.getElementById('panel-side').getBoundingClientRect();
+        return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2).id;
+    }""")
+    assert found == "panel-side", found
+
+
 def test_the_card_does_not_capture_clicks(board):
     """The bar carries buttons, but the card lets the click through to the map: without which it
     would make the strip of map it covers unplayable."""

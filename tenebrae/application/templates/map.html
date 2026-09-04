@@ -34,10 +34,19 @@
     </div>
   </div>
 
-  <!-- The top-left panel: the toolbar, and beneath it the card of the hovered unit. Both are
-       outside #board, so they escape the zoom. -->
+  <!-- The panel: the toolbar, and beneath it the card of the hovered unit. Both are outside
+       #board, so they escape the zoom. It hangs from the top left corner of the window, or from
+       the top right one - the first button of the bar sends it from one to the other, and the
+       whole block goes with it (see #panel.right in map.css). -->
   <div id="panel">
     <div id="toolbar">
+      <!-- Sends the whole panel to the other edge of the window - the bar, the card, the message
+           and the log with it. The block lies over the map, and wherever it sits it covers pieces;
+           two edges and nothing between them, hence a single button, which shows the edge it would
+           go to. It comes first in the bar because the bar is clipped on the right: the handle of
+           the block must not be what disappears. -->
+      <button type="button" id="panel-side" title="Déplacer le panneau à droite">→</button>
+
       <button type="button" id="zoom-out" title="Reculer">−</button>
       <span id="scale">—</span>
       <button type="button" id="zoom-in" title="Approcher">+</button>
@@ -57,7 +66,8 @@
       <!-- The player: a single button, whatever the state. Anonymous, it sends to Discord;
            connected, it opens the table dialog. Nothing else goes into the bar - its reference
            size is documented in map.css, and one more addition would make it overflow to the
-           right. -->
+           right. What the bar takes is a sign, like the one that moves the panel: a word would
+           cost the room this button needs. -->
       <button type="button" id="player"></button>
     </div>
 

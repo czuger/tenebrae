@@ -8,7 +8,8 @@ one player on both, straight on the register.
 from flask import Blueprint, abort, request
 from flask.typing import ResponseReturnValue
 
-from tenebrae.application.current_game import SCENARIO, SEATS, save_the_game
+from tenebrae.application import current_game
+from tenebrae.application.current_game import SEATS, save_the_game
 from tenebrae.application.logs.battle_log import LOG
 from tenebrae.application.players import logged_in_player, the_table
 from tenebrae.application.routes.authorization import login_required
@@ -28,8 +29,9 @@ def take_a_seat() -> ResponseReturnValue:
         `seated`, the side and the table; 400 for an unknown side, 409 for a refused seat.
     """
     side = (request.get_json(silent=True) or {}).get("side")
-    if side not in SCENARIO.sides:
-        abort(400, f"unknown side; expected one of {', '.join(SCENARIO.sides)}")
+    if side not in current_game.SCENARIO.sides:
+        abort(400, "unknown side; expected one of "
+              f"{', '.join(current_game.SCENARIO.sides)}")
 
     player = logged_in_player()["discord_id"]
     if SEATS.holds(player, side):

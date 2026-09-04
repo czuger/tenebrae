@@ -11,6 +11,12 @@ The same page **edits** a scenario: `/admin/scenarios/<number>/edit` opens it wi
 pieces already on the map, and saving there rewrites that file - the number kept, the title, the
 turns and the placement replaced, and what was written into the armies by hand carried over. That
 is the only route that rewrites a file in `tenebrae/scenarios/`.
+
+The `enabled` field is not set from this page: it is written into the file by hand, and it is what
+withdraws a scenario from the new-game chooser (`routes/game.py`). A save carries it through
+unchanged - a scenario disabled and then edited stays disabled - and the chooser in the toolbar
+marks the disabled ones, which are still opened for editing here, since re-enabling one means
+opening its file.
 """
 
 import datetime
@@ -64,11 +70,19 @@ def forbidden_squares() -> list[str]:
 def available() -> list[dict[str, object]]:
     """Lists the scenarios the page can open for editing: every file in `tenebrae/scenarios/`.
 
+    The disabled ones are listed too, and marked as such: `"enabled": false` withdraws a scenario
+    from the new-game chooser (`/game/scenarios`), not from the page that edits it - re-enabling
+    one means opening its file, so hiding it here would lock it away.
+
     Returns:
-        One entry per scenario, in numeric order: `number`, `name`, `file`.
+        One entry per scenario, in numeric order: `number`, `name`, `file`, `enabled`.
     """
-    return [{"number": number, "name": engine_scenario.read(path).name, "file": path.name}
-            for number, path in engine_scenario.available_scenarios().items()]
+    listed: list[dict[str, object]] = []
+    for number, path in engine_scenario.available_scenarios().items():
+        existing = engine_scenario.read(path)
+        listed.append({"number": number, "name": existing.name, "file": path.name,
+                       "enabled": existing.enabled})
+    return listed
 
 
 def to_edit(existing: Scenario) -> dict[str, object]:
@@ -78,10 +92,10 @@ def to_edit(existing: Scenario) -> dict[str, object]:
         existing: The scenario as read from its file.
 
     Returns:
-        `number`, `name`, `max_turns`, `placement`.
+        `number`, `name`, `max_turns`, `enabled`, `placement`.
     """
     return {"number": existing.number, "name": existing.name, "max_turns": existing.max_turns,
-            "placement": existing.placement}
+            "enabled": existing.enabled, "placement": existing.placement}
 
 
 def render_the_page(existing: Optional[Scenario] = None) -> str:

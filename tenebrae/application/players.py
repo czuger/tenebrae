@@ -16,7 +16,8 @@ from typing import Optional
 
 from flask import Flask, abort, current_app, g, session
 
-from tenebrae.application.current_game import SCENARIO, SEATS
+from tenebrae.application import current_game
+from tenebrae.application.current_game import SEATS
 from tenebrae.application.discord_client import DiscordClient, FakeDiscordClient
 from tenebrae.application.models.connection import Connection
 from tenebrae.application.persistence import player_repository
@@ -140,6 +141,6 @@ def table_for(player: Optional[PlayerRecord]) -> dict[str, object]:
         "administrator": is_administrator(player),
         # A list: ordinarily zero or one side, but the test suite seats one player on both.
         "sides": SEATS.sides_of(player["discord_id"]) if player else [],
-        "armies": {army["camp"]: army["armee"] for army in SCENARIO.armies},
-        "seats": {side: nickname_at(side) for side in SCENARIO.sides},
+        "armies": {army["camp"]: army["armee"] for army in current_game.SCENARIO.armies},
+        "seats": {side: nickname_at(side) for side in current_game.SCENARIO.sides},
     }

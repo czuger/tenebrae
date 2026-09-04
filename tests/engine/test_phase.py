@@ -96,3 +96,28 @@ class TestRestore:
         turn.restore("tenebres", COMBAT, 3)
         turn.advance()
         assert (turn.active_side, turn.phase_type, turn.number) == ("alliance", MOVEMENT, 4)
+
+
+class TestSetUp:
+    """A game changing scenario: the turn goes on to the new set-up's sides."""
+
+    def test_the_sides_and_the_army_names_become_the_new_ones(self, turn):
+        turn.set_up(("tenebres",), {"tenebres": "Orques"})
+        assert turn.active_side == "tenebres"
+        assert turn.active_army == "Orques"
+        # A single side: its movement, its combat, and the next turn is its own again.
+        assert turn.phase_type == MOVEMENT
+        assert turn.advance().phase_type == COMBAT
+        assert turn.advance().number == 2
+        assert (turn.active_side, turn.phase_type) == ("tenebres", MOVEMENT)
+
+    def test_the_game_starts_again_from_the_first_phase(self, turn):
+        turn.advance().advance()
+        assert (turn.active_side, turn.phase_type) == ("tenebres", MOVEMENT)
+
+        turn.set_up(SIDES, NAMES)
+        assert (turn.active_side, turn.phase_type) == ("alliance", MOVEMENT)
+        assert turn.number == 1
+
+    def test_it_returns_the_turn_itself(self, turn):
+        assert turn.set_up(SIDES, NAMES) is turn

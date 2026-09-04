@@ -15,6 +15,7 @@ stand.
 | File | Scenario |
 | --- | --- |
 | `scenario-04-la-guerre-des-nains.json` | no. 4 — La guerre des nains: Dwarves against Orcs |
+| `scenario-06-bataille-de-reissland.json` | no. 6 — Bataille de Reissland, composed on the map |
 
 Scenarios 1, 2, 3 and 5 of the booklet are not fixed yet. Scenarios composed on the map, on the
 application's `/admin/scenarios` page, take the numbers from 6 on (see "Scenarios composed on the
@@ -30,6 +31,7 @@ Naming: `scenario-NN-<slugified-title>.json`, `NN` on two digits — that is whe
 | `numero`, `nom` | the scenario's number in the booklet and its title |
 | `source` | where to read the scenario's text, in the transcription of the rules |
 | `nombre_de_tours` | how many turns the game lasts; absent or `null` for "an undetermined number of turns", as the booklet says of scenario no. 5 — read as `Scenario.max_turns`, which nothing in the engine enforces yet |
+| `enabled` | whether a new game may be opened on the scenario; absent means yes (see "Withdrawing a scenario") |
 | `armees` | one entry per player, in player order (see below) |
 | `placement` | `"q,r,s"` → piece key: **the set-up itself**, one unit per square |
 
@@ -42,6 +44,23 @@ designates —, the number of `unites` placed, the side's `magie` potential and 
 The piece keys are those of `tenebrae/game_box/pions/pions.json`; a counter named several times is
 placed that many times, one square each — the box really does carry 15 orc infantry counters under a
 single photograph.
+
+## Withdrawing a scenario
+
+`"enabled": false`, written **by hand** into a file, takes a scenario out of the chooser the table
+dialog offers when a new game is started (`/game/scenarios`). There is no button for it: it is a
+field of the file, edited like the instructions and the anchors.
+
+- **Absent means enabled.** None of the files here carries the field, and none had to: a scenario
+  is offered until it is disabled.
+- **The files are read again at every request.** Setting the field takes effect at once — no
+  restart, no reload of the page: the chooser is filled when the dialog opens, and the server
+  checks the number again when the game is asked for.
+- **A game under way is not interrupted.** Disabling withdraws a scenario from the **new** games:
+  the game being played on it goes on, and reloading `/` resumes it as it stood.
+- **It stays editable on `/admin/scenarios`.** Its chooser lists it with `(désactivé)` beside its
+  name — hiding it would lock the file away, since re-enabling it means opening it — and a save
+  keeps the field as it was.
 
 ## Scenarios composed on the map
 
@@ -56,7 +75,8 @@ writes into this directory. The values are assembled by `tenebrae.engine.scenari
   cannot give stays `null`: `consigne`, `ancre`, `magie`, `jeteur_de_sorts`. The neutral pieces —
   spellcasters, conjurations, markers — are placed but belong to no army.
 - **The placement is written side by side**: the alliance, then the darkness, then the neutrals.
-- `source` says the page and the day; `nombre_de_tours` is what was asked for when saving.
+- `source` says the page and the day; `nombre_de_tours` is what was asked for when saving;
+  `enabled` is `true` — a scenario just composed is offered.
 
 A composed file is played like a fixed one; adjusting it by hand afterwards — an instruction, an
 anchor, a magic potential — is the way to make it a scenario of the booklet.
@@ -66,7 +86,8 @@ anchor, a magic potential — is the way to make it a scenario of the booklet.
 The same page opens any file here on `/admin/scenarios/<number>/edit` — a fixed one as well as a
 composed one — and rewrites it on save, through `tenebrae.engine.scenario.recompose`:
 
-- **The number and the `source` stay.** A new title renames the file; the old one is removed.
+- **The number, the `source` and `enabled` stay.** A new title renames the file; the old one is
+  removed. A scenario disabled by hand and then edited on the map stays disabled.
 - **The armies are derived again** from the pieces placed — `armee`, `unites`, `joueur` — but what
   was written by hand into an army whose side is still on the map is kept: `consigne`, `ancre`,
   `magie`, `jeteur_de_sorts`. A side that left the map loses its entry; a side that arrives gets

@@ -245,6 +245,7 @@ war_of_the_dwarves = scenario(4)  # read from tenebrae/scenarios/scenario-04-…
 war_of_the_dwarves.armies  # one entry per player: side, instruction, anchor, magic
 war_of_the_dwarves.sides  # ('alliance', 'tenebres')
 war_of_the_dwarves.max_turns  # None: until one side is exterminated
+war_of_the_dwarves.enabled  # True: a new game may be opened on it
 war_of_the_dwarves.placement  # "q,r,s" → piece key
 len(war_of_the_dwarves)  # 48 units
 war_of_the_dwarves.board()  # a fresh Board, each piece on its square
@@ -256,6 +257,14 @@ taken once and for all, outside the code, and lives in `tenebrae/scenarios/*.jso
 only reads that file**. The format, the detail of scenario no. 4 and the caveats that go with it are
 in `tenebrae/scenarios/README.md`.
 
+A file may be **withdrawn** from the set-ups a new game can be opened on by writing `"enabled":
+false` into it by hand: `enabled_scenarios()` gives number → scenario for those still offered, and
+that is what the application's `/game/scenarios` serves. The field is absent from every file
+written before it existed and read as `True` there, so nothing had to be added to the scenarios
+already fixed. Every call reads the files again — the field is honoured without a restart — and
+disabling withdraws a scenario from the **new** games only: a game under way on it goes on, and
+`scenario(number)` still reads it.
+
 `board()` returns a **fresh** `Board` at each call: two games do not share their positions. A piece
 key unknown to the catalogue, or a square off the map, stops the read — better a refused scenario
 than an army quietly cut short.
@@ -264,9 +273,10 @@ The engine also **composes** one: `compose(name, placement, max_turns, source)` 
 of a new file from `"q,r,s" → piece key` — the armies derived from the pieces placed, alliance
 first, the next free number after the booklet's five —, and `path_for(number, name)` names the
 file. `recompose(existing, name, placement, max_turns)` does the same for a scenario already on
-file: its number and source kept, and what its armies carried that the map cannot give
-(`HAND_WRITTEN`: instruction, anchor, magic potential, spellcaster) carried over for every side
-still present. Neither writes anything: the application's `/admin/scenarios` page does, into
+file: its number, source and `enabled` kept — a scenario disabled by hand and then edited on the
+map stays disabled —, and what its armies carried that the map cannot give (`HAND_WRITTEN`:
+instruction, anchor, magic potential, spellcaster) carried over for every side still present. A
+composed scenario is enabled. Neither writes anything: the application's `/admin/scenarios` page does, into
 `tenebrae/scenarios/`.
 
 ## Movement cost

@@ -13,8 +13,8 @@ from tenebrae.engine.hexagon import MAP, UNINHABITABLE, Hex
 from tenebrae.engine.phase import Turn
 from tenebrae.engine.piece import ALLIANCE, CATALOGUE, DARKNESS
 from tenebrae.engine.scenario import (BOOKLET_SCENARIOS, SCENARIOS, Scenario, available_scenarios,
-                                      compose, next_number, path_for, read, recompose, scenario,
-                                      slug)
+                                      compose, enabled_scenarios, next_number, path_for, read,
+                                      recompose, scenario, slug)
 
 from tests.engine.plains import well_surrounded_plain
 
@@ -509,3 +509,75 @@ class TestRecompose:
             recompose(a_fixed_scenario(first, second), "Essai", {first: FIRE_MARKER})
         with pytest.raises(ValueError):
             recompose(a_fixed_scenario(first, second), "Essai", {"999,0,-999": INFANTRY})
+
+
+# --- Enabled and disabled scenarios -------------------------------------------------------------
+#
+# `"enabled": false`, written by hand into a file, withdraws a scenario from the ones a new game
+# can be opened on. The field is absent from every file written before it existed: absent means
+# enabled, and nothing had to be added to the files already fixed.
+
+
+def write_a_scenario(number, name="Essai", **fields):
+    """Writes a minimal readable scenario file, with whatever fields the test adds to it."""
+    values = {"numero": number, "nom": name, "source": "test", "nombre_de_tours": None,
+              "armees": [{"joueur": 1, "camp": ALLIANCE, "armee": "Nains"}],
+              "placement": {}, **fields}
+    path = path_for(number, name)
+    path.write_text(json.dumps(values, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+class TestTheEnabledField:
+    def test_a_file_without_the_field_is_enabled(self, scenarios_directory):
+        """Every scenario fixed before the field existed goes on being offered."""
+        path = write_a_scenario(6)
+        assert "enabled" not in json.loads(path.read_text(encoding="utf-8"))
+        assert read(path).enabled is True
+
+    @pytest.mark.parametrize("written, expected", [(True, True), (False, False)])
+    def test_the_field_is_read_as_it_is_written(self, scenarios_directory, written, expected):
+        path = write_a_scenario(6, enabled=written)
+        assert read(path).enabled is expected
+
+    def test_the_fixed_files_are_all_offered(self):
+        """In the real directory: nothing is disabled in the repository as it stands."""
+        assert enabled_scenarios().keys() == available_scenarios().keys()
+
+    def test_only_the_enabled_ones_are_offered(self, scenarios_directory):
+        write_a_scenario(6, name="Offert")
+        write_a_scenario(7, name="Retire", enabled=False)
+
+        assert list(available_scenarios()) == [6, 7]
+        assert list(enabled_scenarios()) == [6]
+        assert enabled_scenarios()[6].name == "Offert"
+
+    def test_the_files_are_read_again_at_every_call(self, scenarios_directory):
+        """Nothing is kept between two calls: a field just edited by hand is honoured."""
+        write_a_scenario(6)
+        assert list(enabled_scenarios()) == [6]
+
+        write_a_scenario(6, enabled=False)
+        assert list(enabled_scenarios()) == []
+
+
+class TestTheEnabledFieldThroughAnEdit:
+    def test_a_composed_scenario_is_enabled(self, scenarios_directory, plain_squares):
+        first, _, _ = plain_squares
+        assert compose("Essai", {first: INFANTRY})["enabled"] is True
+
+    @pytest.mark.parametrize("written", [True, False])
+    def test_recomposing_carries_the_field_through(self, scenarios_directory, plain_squares,
+                                                   written):
+        """A scenario disabled by hand and then edited on the map stays disabled."""
+        first, second, _ = plain_squares
+        path = write_a_scenario(6, enabled=written)
+
+        values = recompose(read(path), "Essai", {first: INFANTRY, second: ORC_INFANTRY})
+        assert values["enabled"] is written
+
+    def test_a_file_without_the_field_gains_it_enabled_when_edited(self, scenarios_directory,
+                                                                   plain_squares):
+        first, _, _ = plain_squares
+        path = write_a_scenario(6)
+        assert recompose(read(path), "Essai", {first: INFANTRY})["enabled"] is True

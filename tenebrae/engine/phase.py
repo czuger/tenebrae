@@ -45,10 +45,24 @@ class Turn:
             sides: The sides in player order, e.g. `("alliance", "tenebres")`.
             names: Side -> readable army name, e.g. `{"alliance": "Nains"}`.
         """
+        self.set_up(sides, names)
+
+    def set_up(self, sides: Iterable[str], names: Optional[Mapping[str, str]] = None) -> Self:
+        """Puts the turn on another set of sides, back at the first phase of the first turn.
+
+        What a game changing scenario goes through: the sides and the army names are those of the
+        new set-up, and nothing of the previous game's progress is kept.
+
+        Args:
+            sides: The sides in player order.
+            names: Side -> readable army name.
+
+        Returns:
+            The turn itself.
+        """
         self._sides = tuple(sides)
         self._names = dict(names or {})
-        self._i = 0
-        self.number = 1
+        return self.restart()
 
     @property
     def _sequence(self) -> list[tuple[str, str]]:

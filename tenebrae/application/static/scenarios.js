@@ -110,7 +110,10 @@ function buildTheChooser() {
   for (const entry of scenarios) {
     const option = document.createElement("option");
     option.value = entry.number;
-    option.textContent = `n° ${entry.number} — ${entry.name}`;
+    // A scenario disabled by hand in its file is still edited here - that is the only way back -,
+    // but it is marked: it is no longer offered when a new game is opened.
+    option.textContent = `n° ${entry.number} — ${entry.name}`
+      + (entry.enabled ? "" : " (désactivé)");
     chooser.appendChild(option);
   }
   chooser.value = scenario ? String(scenario.number) : "";

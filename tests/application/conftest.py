@@ -8,11 +8,13 @@ from werkzeug.serving import make_server
 
 from tenebrae.application.app import create_app
 from tenebrae.application.config import TestingConfig
-from tenebrae.application.current_game import BOARD, REGISTER, SCENARIO, SEATS, TURN
+from tenebrae.application import current_game
+from tenebrae.application.current_game import BOARD, REGISTER, SEATS, TURN
 from tenebrae.application.discord_client import DEFAULT_IDENTITY
 from tenebrae.application.models.view import View
 from tenebrae.engine.models.game import Game
 from tenebrae.engine.models.player import Player
+from tenebrae.engine.scenario import scenario
 
 
 @pytest.fixture(scope="session")
@@ -41,6 +43,19 @@ def empty_base(application):
     View.objects.delete()
 
 
+@pytest.fixture(autouse=True)
+def the_scenario_the_server_opens_on():
+    """Puts the server back on its default scenario after a test that opened a game on another.
+
+    The scenario being played is a module global like the board (`current_game.SCENARIO`): a test
+    that starts a game on another set-up would leave the next one playing it, with other sides,
+    another placement and a turn that no longer matches what the suite expects.
+    """
+    yield
+    if current_game.SCENARIO_NUMBER != current_game.DEFAULT_SCENARIO:
+        current_game.switch_to_the_scenario(scenario(current_game.DEFAULT_SCENARIO))
+
+
 @pytest.fixture
 def seat_the_player():
     """Returns the means to seat a player at the table, and lifts the table on the way out.
@@ -55,7 +70,7 @@ def seat_the_player():
 
     def seat(application, client=None, identity=DEFAULT_IDENTITY, sides=None):
         application.extensions["player_repository"].record(identity)
-        for side in (SCENARIO.sides if sides is None else sides):
+        for side in (current_game.SCENARIO.sides if sides is None else sides):
             SEATS.seat(side, identity["discord_id"])
         if client is not None:
             with client.session_transaction() as session:

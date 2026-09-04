@@ -92,6 +92,14 @@
   <dialog id="table-dialog">
     <p id="table-title"></p>
     <div id="table-seats"></div>
+    <!-- The set-up the next game opens on. The list is fetched when the dialog opens, not laid
+         in the page: a scenario disabled in its file since the tab was loaded must leave the
+         chooser without a reload. Hidden as long as no new game can be started from here. -->
+    <div id="table-scenario" hidden>
+      <label for="table-scenario-choice">Scénario</label>
+      <select id="table-scenario-choice"></select>
+    </div>
+
     <div id="table-footer">
       <button type="button" id="table-against-ai" hidden>Nouvelle partie contre l'IA</button>
       <button type="button" id="table-leave" hidden>Quitter ma place</button>

@@ -1,0 +1,26 @@
+# Task: Introduce `enabled` Flag for Scenarios + Wire Into New Game Creation
+
+Define a new `enabled` convention for scenario JSON files (defaulting to `true`), enforce it in `tenebrae/application/routes/scenarios.py`, and use it in `tenebrae/application/routes/game.py` to filter scenario choices when creating a new game.
+
+## Context
+Scenarios are stored/managed as JSON files handled in `scenarios.py` (load, save, list, edit — per earlier work in this file). There is currently no `enabled`/`disabled` field. We're defining the convention now:
+- Field name: `enabled` (boolean)
+- Default: `true` when the key is absent (so existing scenario files without this field continue to work unmodified)
+- Manually setting `"enabled": false` in the JSON file disables the scenario from selection in new-game creation
+- No UI toggle is being added for this in this round — it's purely a manually-edited JSON flag, but the load/save logic must respect and preserve it
+
+## Requirements
+
+### 1. `scenarios.py` — establish the convention
+- Wherever scenario JSON is parsed/loaded into a Python dict/object, add a helper (or inline default) so `enabled` is treated as `True` when missing: `scenario.get("enabled", True)`
+- Wherever scenario JSON is written back to disk (save/edit routes from earlier), ensure the `enabled` field is preserved if present in the source data — don't silently drop it during round-trip edits (check the update/edit-persist route added earlier; confirm it merges rather than overwrites wholesale, or explicitly carries this field through)
+- If any scenario model/schema class exists (MongoEngine or plain dataclass) rather than raw dict, add the `enabled` field there too, with `default=True`
+
+### 2. `game.py` — respect the flag in new-game creation
+- When building the list of scenarios offered during new game creation, filter using the helper/default logic from step 1: only include scenarios where `enabled` is `True` (explicit or default)
+- Server-side validation on POST must also re-check `enabled` status (don't trust the client-submitted scenario id blindly) — reject with a flashed error if the chosen scenario is disabled or missing
+- Ensure no caching layer (if one exists for scenario JSON loading) masks a freshly-edited `enabled: false` value — reload from disk or bust cache as needed
+
+### 3. Consistency
+- Match existing JSON load/save helper function signatures and error-handling style already present in `scenarios.py`
+- Add the `enabled` badge/column to the admin list template only if a listing template already exists — don't scaffold a whole new page for this

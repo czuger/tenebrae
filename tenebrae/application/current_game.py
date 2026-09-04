@@ -1,18 +1,21 @@
 """The current game - one per process, in module globals - and the moves that change it.
 
-The server lays out a scenario's set-up - no. 4, "La guerre des nains" -, read once and for all
-from `tenebrae/scenarios/`. The rules are not here: the possible moves and their validation come
-from `tenebrae.engine`; this module holds the state the routes expose (`BOARD`, `TURN`, `REGISTER`,
-`SEATS`, `VERSION`), the snapshots the browsers receive of it, and the operations every move goes
-through. Only the die roll (`roll_the_die`) is here, so that the tests can fix it.
+The server lays out a scenario's set-up, read from `tenebrae/scenarios/` - no. 4, "La guerre des
+nains", until a new game is opened on another one. The rules are not here: the possible moves and
+their validation come from `tenebrae.engine`; this module holds the state the routes expose
+(`SCENARIO`, `BOARD`, `TURN`, `REGISTER`, `SEATS`, `VERSION`), the snapshots the browsers receive
+of it, and the operations every move goes through. Only the die roll (`roll_the_die`) is here, so
+that the tests can fix it.
 
 Two ways of reaching the globals, and the difference matters:
 
-- `BOARD`, `TURN`, `REGISTER`, `SEATS` and `SCENARIO` are bound once and changed in place: import
-  them by name;
-- `VERSION` is rebound at every move, and `BROADCASTER` and `roll_the_die` are substituted by the
-  tests: read them from the module - `current_game.VERSION`, `current_game.roll_the_die()` - so
-  that the substitution reaches every caller.
+- `BOARD`, `TURN`, `REGISTER` and `SEATS` are bound once and changed in place: import them by
+  name;
+- `VERSION` is rebound at every move, `SCENARIO` and `SCENARIO_NUMBER` whenever a new game is
+  opened on another set-up (`switch_to_the_scenario`), and `BROADCASTER` and `roll_the_die` are
+  substituted by the tests: read all of them from the module - `current_game.VERSION`,
+  `current_game.SCENARIO`, `current_game.roll_the_die()` - so that the new binding reaches every
+  caller.
 
 The game is **saved in MongoDB** through the repository `wire_persistence` hooked on
 (`persistence.py`), in state dicts, after every move; "/" resumes it where it was left. Each
@@ -38,18 +41,21 @@ from tenebrae.engine.models.seats import Seats
 from tenebrae.engine.phase import Turn
 from tenebrae.engine.piece import CATALOGUE
 from tenebrae.engine.repositories.game import GameState
-from tenebrae.engine.scenario import scenario
+from tenebrae.engine.scenario import Scenario, available_scenarios, read, scenario
 
-# The scenario the server lays out: "La guerre des nains" (see `tenebrae/scenarios/README.md`).
-SCENARIO_NUMBER = 4
+# The scenario the server opens on: "La guerre des nains" (see `tenebrae/scenarios/README.md`).
+DEFAULT_SCENARIO = 4
 
-# The set-up being played, read once at start-up.
+# The set-up being played, and its number. Read at start-up, then rebound by
+# `switch_to_the_scenario` each time a new game is opened on another one.
+SCENARIO_NUMBER = DEFAULT_SCENARIO
 SCENARIO = scenario(SCENARIO_NUMBER)
 
 # The pieces currently placed: rebuilt at every board load, followed at every move.
 BOARD = Board()
 
-# The current phase: which side plays, and at what. Reset with the board at every load of "/".
+# The current phase: which side plays, and at what. Reset with the board at every load of "/",
+# and set up again on the sides of the scenario a new game is opened on.
 TURN = Turn(SCENARIO.sides, {army["camp"]: army["armee"] for army in SCENARIO.armies})
 
 # What the current combat phase has already consumed. Emptied at every phase change.
@@ -76,6 +82,47 @@ def roll_the_die() -> int:
         An integer from 1 to 6.
     """
     return random.randint(1, 6)
+
+
+# --- The scenario being played ------------------------------------------------------------------
+
+
+def switch_to_the_scenario(chosen: Scenario) -> None:
+    """Puts the server on another set-up, ready for `lay_out_the_scenario` to place it.
+
+    The board is not touched here: the caller lays the pieces out, which is what marks the move.
+    The table is not touched either - changing scenario sends nobody away from their seat -, but
+    the turn is, since the sides and the army names are the new scenario's.
+
+    Args:
+        chosen: The scenario to play, already read from its file.
+    """
+    global SCENARIO, SCENARIO_NUMBER
+    SCENARIO = chosen
+    SCENARIO_NUMBER = chosen.number
+    TURN.set_up(SCENARIO.sides, {army["camp"]: army["armee"] for army in SCENARIO.armies})
+
+
+def resume_the_scenario(number: int) -> bool:
+    """Puts the server back on the scenario a saved game was played on, if its file is still there.
+
+    A game under way is resumed whatever the file says of `enabled`: disabling a scenario withdraws
+    it from the ones a **new** game can be opened on, it does not interrupt the game in progress.
+
+    Args:
+        number: The scenario number the saved game carries.
+
+    Returns:
+        True if the server is now on that scenario - it may already have been -, False if no file
+        has that number any more, in which case nothing was changed.
+    """
+    if number == SCENARIO_NUMBER:
+        return True
+    files = available_scenarios()
+    if number not in files:
+        return False
+    switch_to_the_scenario(read(files[number]))
+    return True
 
 
 # --- The game state and its snapshots -----------------------------------------------------------

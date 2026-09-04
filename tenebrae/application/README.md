@@ -119,8 +119,9 @@ brings up (`MONGODB_URI_TEST`, see "Tests"), emptied before each test.
 
 | Route | Effect |
 | --- | --- |
-| `GET /` | resumes the last game; failing that — an empty base, or a save of another scenario — lays the scenario out again and opens one |
-| `POST /game/new` | lays the scenario out again and opens a new game, **without lifting the table**; with the body `{"against_ai": true}`, entrusts the opposing side to the AI (see "Playing against the AI"); returns `{"pieces": […], "phase": {…}}` and the table |
+| `GET /` | resumes the last game, on the scenario it was played on; failing that — an empty base, or a saved scenario whose file has gone — lays the current set-up out again and opens one |
+| `GET /game/scenarios` | the set-ups a new game may be opened on — `number`, `name`, `max_turns`, `units` — and the `current` number; read from the files at every request, public like the map |
+| `POST /game/new` | lays a scenario out again and opens a new game, **without lifting the table**; with `{"scenario": N}`, on that set-up rather than the one being played; with `{"against_ai": true}`, entrusts the opposing side to the AI (see "Playing against the AI"); returns `{"pieces": […], "phase": {…}}` and the table, 409 for a scenario not on offer |
 | `POST /view` — body `{scale, x, y, fitted}` | keeps where this player is on the map, and returns it as it stands; **login required, a seat not**; it is not a move played (see "Finding one's map view again") |
 
 The previous games stay in base: `POST /game/new` erases nothing, it opens one more document, and
@@ -197,6 +198,10 @@ scrolling — in `static/zoom.js` and `static/zoom.css`.
 | `#grid` | `origin`, `matrix` and `piece_size`: the alignment of the grid on `map.jpg` |
 | `#phase` | the current phase: `{side, type, army, label, number, unavailable}` (see "Phases and combat") |
 | `#table` | who is watching and who holds which side: `{connected, nickname, avatar, administrator, sides, armies, seats}` (see "Two players, two sides") |
+
+The table dialog's scenario chooser is **not** among them: it is fetched from `/game/scenarios`
+each time the dialog opens, so that a scenario disabled since the tab was loaded leaves the list
+without a reload (see "The set-up").
 | `#version` | the game's version number, by which the browser sees that the opponent has played |
 | `#view` | where this player was on the map: `{scale, x, y, fitted}`, or `null` (see "Finding one's map view again") |
 | `#initial-log` | the game log when the page opens: `[{time, text}, …]`, from the oldest line to the most recent (see "The log column") |
@@ -557,8 +562,8 @@ nothing until saving:
 | `#grid` | the same alignment as the board, `piece_size` included |
 | `#hexagons` | `"q,r,s" → terrain` for the 2280 hexagons of the **fixed** map — the one the game is played on, where the map-fixing page works on the scan |
 | `#forbidden` | the squares no unit can occupy: lakes, rivers, the rift (`UNINHABITABLE` in the engine) |
-| `#scenarios` | the scenarios on file — `number`, `name`, `file` —, for the chooser in the toolbar |
-| `#scenario` | when editing, the scenario opened: `number`, `name`, `max_turns`, `placement`; empty when composing |
+| `#scenarios` | the scenarios on file — `number`, `name`, `file`, `enabled` —, for the chooser in the toolbar |
+| `#scenario` | when editing, the scenario opened: `number`, `name`, `max_turns`, `enabled`, `placement`; empty when composing |
 
 - **The palette**, by faction with its side, scrolls on its own. A click takes a piece **in hand**
   — the toolbar says which — and every click on a free square lays it down again: fifteen orc
@@ -608,9 +613,11 @@ the magic potential, the spellcaster, written by hand into a booklet scenario �
 side still present. The `source` stays what it was. The old file is removed once the new one is
 written when the title changes, since two files with one number would be read as one.
 
-What is saved is a set-up and nothing more: the server goes on playing `SCENARIO_NUMBER`, and the
-turn limit is written in the file (`nombre_de_tours`, read as `Scenario.max_turns`) without the
-engine yet ending a game on it.
+What is saved is a set-up and nothing more: the turn limit is written in the file
+(`nombre_de_tours`, read as `Scenario.max_turns`) without the engine yet ending a game on it. The
+file's `enabled` is carried through a save unchanged — it is written by hand, not from this page —
+and the chooser in the toolbar marks a disabled scenario `(désactivé)` rather than hiding it,
+since re-enabling one means opening its file (see `tenebrae/scenarios/README.md`).
 
 **The route is reserved** to the same accounts as the map-fixing page.
 
@@ -652,9 +659,11 @@ Logging out does not give up one's seat: one comes back to sit in it.
 
 The second account can be a machine. The **"Nouvelle partie contre l'IA"** button in the table
 dialog — visible when one is seated and the other side is there to give: free, or already held by
-the AI — sends `POST /game/new` with the body `{"against_ai": true}`: the scenario is laid out
-again, and the side the requester does not hold is entrusted to the AI. A side held by another
-human is not there to give — 409, nobody is thrown out, and the set-up is not rebuilt.
+the AI — sends `POST /game/new` with the body `{"against_ai": true}` and the number the scenario
+chooser beside it shows: the scenario is laid out again, and the side the requester does not hold
+is entrusted to the AI. A side held by another human is not there to give — 409, nobody is thrown
+out, and the set-up is not rebuilt. A scenario no longer on offer is refused the same way, and
+before any seat is given away: the request is read in full before anything moves.
 
 The AI has neither a session nor a Discord account: it occupies its seat under the `ai.AI_PLAYER`
 sentinel (`"ia"`, which no Discord identifier — strings of digits — can carry), which travels in
@@ -834,9 +843,23 @@ The portal asks for **no scope to tick**: it is claimed by the authorization URL
 
 ## The set-up
 
-The server no longer draws anything at random: it reads the set-up of scenario `SCENARIO_NUMBER` (4)
-from `tenebrae/scenarios/` through `tenebrae.engine.scenario`, once at start-up, and lays it out
-again at the first load of `/` — or at each, if persistence is unplugged.
+The server no longer draws anything at random: it reads a set-up from `tenebrae/scenarios/` through
+`tenebrae.engine.scenario` — no. 4 at start-up (`DEFAULT_SCENARIO`) — and lays it out again at the
+first load of `/` — or at each, if persistence is unplugged.
+
+**Which scenario is played is part of the state**: `current_game.SCENARIO` and `SCENARIO_NUMBER` are
+rebound by `switch_to_the_scenario()` when a new game is opened on another set-up, and `/` puts the
+server back on the scenario the saved game names (`resume_the_scenario()`). They are therefore read
+through the module — `current_game.SCENARIO` — and never imported by name. The turn follows: it is
+set up again on the new scenario's sides and army names. The table does not: changing scenario
+sends nobody away from their seat.
+
+**Choosing it.** The table dialog carries a chooser, filled from `GET /game/scenarios` when the
+dialog opens rather than from the page, so that a scenario disabled in its file leaves the list
+without a reload; `POST /game/new` reads the files again and refuses a number that is not among
+them (409, a French `message` under the toolbar). A scenario is offered unless its file carries
+`"enabled": false`, written there by hand — see `tenebrae/scenarios/README.md`. Disabling one
+withdraws it from the **new** games only: a game under way on it is resumed as it stood.
 
 - - **The placement comes from the file, not from the server.**
   `tenebrae/scenarios/scenario-04-la-guerre-des-nains.json` gives "square → piece key"; the
@@ -918,6 +941,18 @@ back by it, each refusal with its message and no file written; and in Chromium t
 moving and removing pieces, the square refused, the save dialog and the server's refusal read in
 it. Both divert the scenarios directory: **no test writes into `tenebrae/scenarios/`**.
 
+`tests/application/test_scenario_choice.py` and
+`tests/application/test_scenario_choice_browser.py` cover the choice of the scenario a new game
+opens on, and the `enabled` field that withdraws one: the list `/game/scenarios` serves, read from
+the files at every request, the number `POST /game/new` accepts and the 409 it answers a disabled
+or unknown one with — including one disabled between the chooser being filled and the click, which
+is the whole point of the second reading — the board, the turn and the table that follow the new
+set-up, the refusal that leaves the game exactly where it was and gives away no seat, and the saved
+game resumed on its own scenario, disabled or not. In Chromium: the chooser filled when the table
+dialog opens, absent to a player with no seat, a scenario leaving it without a reload once its file
+disables it, and the set-up chosen being the one laid out. Both work on a temporary **copy** of the
+scenarios directory: no test writes into `tenebrae/scenarios/` here either.
+
 `tests/application/test_server.py` queries Flask without a browser: the contents of the hidden
 fields — including the counter values the hover card reads there — the consistency of the
 coordinates, the files served, the set-up served square by square — it must be the scenario's, and
@@ -963,7 +998,7 @@ themselves — and plays the server's restart: memory emptied, only the base kno
 stood. It covers the opening of a game at the first load, resumption after that restart (the move
 found again, the phase found again, the combat register found again), the elimination that does not
 come back, the **tilts** written, resumed and rewritten on a move — and the save without that field
-that stays resumable — a save of another scenario discarded, `POST /game/new` which opens a second
+that stays resumable — a save whose scenario has no file discarded, `POST /game/new` which opens a second
 document without erasing the first — including when both share the same date, the identifier
 breaking the tie — the repository's round trip alone, and what only a real base shows: the placement
 keys admitted as document keys, the dates that come back readable. Every other test file runs on

@@ -103,8 +103,12 @@ class TestResumingTheGame:
         client.get("/")
         assert current_game.TURN.phase_type == COMBAT
 
-    def test_a_saved_game_of_another_scenario_is_discarded(self, client):
-        """Changing scenario does not resume a game that no longer relates to it."""
+    def test_a_saved_game_whose_scenario_has_no_file_is_discarded(self, client):
+        """No file carries that number any more: there is nothing to lay out, so a game opens.
+
+        A save on a scenario still on file is resumed on that scenario instead - the server puts
+        itself back on it (see `test_scenario_choice.py`).
+        """
         client.get("/")
         Game.objects.update(set__scenario=99)
         client.get("/")

@@ -313,7 +313,7 @@ def test_the_page_lists_the_scenarios_on_file(client, fixed_scenario):
     scenarios = read_hidden_field(client.get("/admin/scenarios").get_data(as_text=True),
                                   "scenarios")
     assert scenarios == [{"number": FIXED_NUMBER, "name": "La guerre des nains",
-                          "file": FIXED_FILE}]
+                          "file": FIXED_FILE, "enabled": True}]
 
 
 def test_composing_carries_no_scenario_and_saves_as_a_new_file(client, scenarios_directory):
@@ -328,7 +328,7 @@ def test_the_edit_page_carries_the_scenario_and_saves_into_its_file(client, fixe
     page = client.get(f"/admin/scenarios/{FIXED_NUMBER}/edit").get_data(as_text=True)
     assert read_hidden_field(page, "scenario") == {
         "number": FIXED_NUMBER, "name": "La guerre des nains", "max_turns": 10,
-        "placement": fixed_scenario["placement"]}
+        "enabled": True, "placement": fixed_scenario["placement"]}
     assert f'data-url="/admin/scenarios/{FIXED_NUMBER}/edit"' in page
     assert f"modifier le scénario n° {FIXED_NUMBER}" in page
     # The same page, the same palette and map.

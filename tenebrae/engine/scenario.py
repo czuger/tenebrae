@@ -10,6 +10,10 @@ as such here.
 
 A scenario yields a `Board` ready to play, with each side already in place.
 
+A file may be **withdrawn** from the scenarios a new game can be opened on by setting `"enabled":
+false` in it by hand - `enabled_scenarios()` is what the application offers. The field is absent
+from every file written before it existed, and read as `True` there.
+
 The engine also **composes** a scenario from a placement (`compose`): the values of a new file, its
 armies derived from the pieces placed. It **recomposes** an existing one the same way
 (`recompose`), keeping its number and what was written into it by hand. Writing the file is left to
@@ -40,16 +44,35 @@ UNTITLED = "sans-titre"
 # What an army entry carries that the map cannot give: written by hand, kept through a recompose.
 HAND_WRITTEN = ("consigne", "ancre", "magie", "jeteur_de_sorts")
 
+# What a scenario file whose `enabled` field is absent means: every file written before the field
+# existed goes on being offered. `"enabled": false`, set by hand in the file, withdraws a scenario
+# from the ones a new game can be opened on - a game already under way on it is not interrupted.
+ENABLED_BY_DEFAULT = True
+
+
+# Any: the raw JSON of a scenario file, in the French vocabulary of the box.
+def is_enabled(values: Mapping[str, Any]) -> bool:
+    """Says whether a scenario's values offer it for a new game.
+
+    Args:
+        values: The file's fields.
+
+    Returns:
+        The `enabled` field as a boolean, `ENABLED_BY_DEFAULT` where the file carries none.
+    """
+    return bool(values.get("enabled", ENABLED_BY_DEFAULT))
+
 
 class Scenario:
     """A set-up: the armies present, and the piece placed on each square."""
 
-    __slots__ = ("number", "name", "source", "max_turns", "armies", "placement")
+    __slots__ = ("number", "name", "source", "max_turns", "enabled", "armies", "placement")
 
     number: int
     name: str
     source: str
     max_turns: Optional[int]
+    enabled: bool
     armies: tuple[dict[str, str], ...]
     placement: dict[str, str]
 
@@ -58,14 +81,16 @@ class Scenario:
         """Reads a scenario from its JSON values.
 
         Args:
-            values: The file's fields: `numero`, `nom`, `source`, `armees`, `placement`, and
+            values: The file's fields: `numero`, `nom`, `source`, `armees`, `placement`,
                 `nombre_de_tours` - absent or `null` for a game "with an undetermined number of
-                turns", as the booklet puts it.
+                turns", as the booklet puts it - and `enabled`, absent in every file written
+                before the field existed and read as `True` there (`ENABLED_BY_DEFAULT`).
         """
         self.number = values["numero"]
         self.name = values["nom"]
         self.source = values["source"]
         self.max_turns = values.get("nombre_de_tours")
+        self.enabled = is_enabled(values)
         self.armies = tuple(values["armees"])
         self.placement = dict(values["placement"])
 
@@ -120,6 +145,19 @@ def available_scenarios() -> dict[int, Path]:
     for path in sorted(SCENARIOS.glob("scenario-*.json")):
         files[int(path.stem.split("-")[1])] = path
     return files
+
+
+def enabled_scenarios() -> dict[int, Scenario]:
+    """Reads the scenarios a new game can be opened on: the files, minus those disabled by hand.
+
+    Every file is read from disk at each call - nothing is kept between two - so that an `enabled`
+    just set to `false` in a file is honoured without restarting the server.
+
+    Returns:
+        Number -> scenario, in numeric order.
+    """
+    read_files = {number: read(path) for number, path in available_scenarios().items()}
+    return {number: found for number, found in read_files.items() if found.enabled}
 
 
 def scenario(number: int) -> Scenario:
@@ -277,7 +315,7 @@ def compose(name: str, placement: Mapping[str, str], max_turns: Optional[int] = 
     """
     armies = checked_armies(placement)
     return {"numero": next_number(), "nom": name, "source": source,
-            "nombre_de_tours": max_turns, "armees": armies,
+            "nombre_de_tours": max_turns, "enabled": ENABLED_BY_DEFAULT, "armees": armies,
             "placement": grouped_by_side(placement)}
 
 
@@ -309,5 +347,5 @@ def recompose(existing: Scenario, name: str, placement: Mapping[str, str],
         if army["camp"] in kept:
             army.update((field, kept[army["camp"]].get(field)) for field in HAND_WRITTEN)
     return {"numero": existing.number, "nom": name, "source": existing.source,
-            "nombre_de_tours": max_turns, "armees": armies,
+            "nombre_de_tours": max_turns, "enabled": existing.enabled, "armees": armies,
             "placement": grouped_by_side(placement)}

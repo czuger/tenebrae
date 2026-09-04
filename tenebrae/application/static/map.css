@@ -324,6 +324,35 @@ body {
   font-style: italic;
 }
 
+/* The scenario chooser, on the seat lines' pattern: the label on the left, the list on the
+   right. As for the card, `hidden` must win over `display: flex`: the row is out of the dialog
+   until the list has arrived, and altogether when no game can be started from there. */
+#table-scenario {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-top: 0.6rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #6b5a44;
+  border-radius: 2px;
+  background: #2a2320;
+}
+
+#table-scenario[hidden] {
+  display: none;
+}
+
+#table-scenario select {
+  font: inherit;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid #6b5a44;
+  border-radius: 2px;
+  background: #241f1b;
+  color: inherit;
+  max-width: 14rem;
+}
+
 #table-footer {
   display: flex;
   justify-content: flex-end;

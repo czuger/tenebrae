@@ -57,6 +57,8 @@ const tableTitle = document.getElementById("table-title");
 const tableSeats = document.getElementById("table-seats");
 const leaveButton = document.getElementById("table-leave");
 const againstAIButton = document.getElementById("table-against-ai");
+const scenarioRow = document.getElementById("table-scenario");
+const scenarioChoice = document.getElementById("table-scenario-choice");
 
 // The nickname the server gives to the seat held by the AI (see `tenebrae/engine/ai.py`).
 const AI_NAME = "IA";
@@ -549,11 +551,41 @@ function buildTheSeats() {
     || !opposing.every((side) => !table.seats[side] || table.seats[side] === AI_NAME);
 }
 
+// The scenarios a new game may be opened on - those whose file does not disable them. Fetched at
+// every opening of the dialog rather than laid in the page: the list is the server's, as it stands
+// now, and the server checks it again when the game is asked for.
+async function fillTheScenarios(keepTheChoice) {
+  scenarioRow.hidden = true;
+  if (againstAIButton.hidden) return; // nothing can be started from here anyway
+  const answer = await fetch("/game/scenarios").catch(() => null);
+  if (!answer || !answer.ok) return;
+  const { scenarios, current } = await answer.json();
+  // The dialog is rebuilt at every move played, ours or the opponent's: a scenario picked a
+  // moment ago must survive that, or one could never pick anything while the other side plays.
+  const chosen = keepTheChoice ? scenarioChoice.value : "";
+  scenarioChoice.textContent = "";
+  for (const entry of scenarios) {
+    const option = document.createElement("option");
+    option.value = entry.number;
+    option.textContent = `n° ${entry.number} — ${entry.name}`;
+    scenarioChoice.appendChild(option);
+  }
+  // Failing a choice, the set-up being played is the proposal; it is not in the list when it has
+  // been disabled since, and the chooser then falls back on the first one still offered.
+  scenarioChoice.value = chosen || String(current);
+  if (!scenarioChoice.value && scenarios.length) {
+    scenarioChoice.value = String(scenarios[0].number);
+  }
+  scenarioRow.hidden = scenarios.length === 0;
+}
+
 function openTheTable() {
   tableTitle.textContent = table.sides.length
     ? `Vous jouez ${table.sides.map((side) => table.armies[side]).join(", ")}`
     : "Prenez place à un camp pour jouer";
   buildTheSeats();
+  // Already open: this is the rebuild that follows a move, not a player opening the dialog.
+  fillTheScenarios(tableDialog.open);
   tableDialog.showModal();
 }
 
@@ -586,12 +618,21 @@ async function leaveTheSeat() {
 }
 
 async function newGameAgainstAI() {
-  const answer = await send("/game/new", {
+  // No scenario chosen - the list has not arrived, or has nothing to offer - leaves the server on
+  // the set-up being played.
+  const chosen = scenarioRow.hidden ? null : Number(scenarioChoice.value);
+  const answer = await fetch("/game/new", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ against_ai: true }),
+    body: JSON.stringify({ against_ai: true, scenario: chosen }),
   });
-  if (!answer) return;
+  // A scenario withdrawn between the dialog opening and this click is refused here, and the
+  // player is told rather than left before an unchanged board.
+  if (!answer.ok) {
+    const { message } = await answer.json().catch(() => ({}));
+    report(message ?? "Nouvelle partie refusée.");
+    return;
+  }
   const result = await answer.json();
   // The answer carries the whole fresh game - and if the AI opened the scenario, its first turn is
   // already played: the pieces arrive as it left them.

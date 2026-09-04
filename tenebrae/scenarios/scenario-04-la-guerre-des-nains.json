@@ -2,6 +2,8 @@
   "numero": 4,
   "nom": "La guerre des nains",
   "source": "game_box/ave_tenebrae_regles_fr.md, § « Scénario n° 4 — La guerre des nains »",
+  "nombre_de_tours": 32,
+  "enabled": false,
   "armees": [
     {
       "joueur": 1,
@@ -73,5 +75,7 @@
     "50,-17,-33": "orques-02-5-cavaleries",
     "51,-17,-34": "orques-02-5-cavaleries",
     "52,-18,-34": "orques-02-5-cavaleries"
-  }
+  },
+  "total_points_alliance": 192,
+  "total_points_tenebres": 270
 }

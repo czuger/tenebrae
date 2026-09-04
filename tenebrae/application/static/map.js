@@ -55,6 +55,7 @@ const logToggle = document.getElementById("log-toggle");
 
 const panel = document.getElementById("panel");
 const panelSideButton = document.getElementById("panel-side");
+const pawnStyleButton = document.getElementById("pawn-style");
 
 const phaseLabel = document.getElementById("phase-label");
 const attackButton = document.getElementById("attack");
@@ -82,8 +83,12 @@ const { centre: hexagonCentre, hexagonOfPixel } = alignment(grid);
 // The tilt of the placed pieces comes from the server, with the piece: it is part of the game
 // state (see `tenebrae/engine/board.py`). The layer only draws one for the ghosts, which are
 // placed nowhere.
+// The layer draws and places; what a pawn shows is this file's business, and it passes it in (see
+// "The face the pawns show"): a counter created at any moment - a scene laid out again, a ghost
+// born under a selection - is dressed in the face in use, without anything having to think of it.
 const { place, createImage } = pieceLayer({ board, centre: hexagonCentre,
-                                            pieceSize: grid.piece_size });
+                                            pieceSize: grid.piece_size,
+                                            dress: (image, piece) => dressThePawn(image, piece) });
 
 // The images placed on the map: the pieces, and the ghosts of the selected piece.
 const placedPieces = [];
@@ -306,7 +311,6 @@ function placeThePieces() {
   trace.enter("placeThePieces", { pieces: pieces.length });
   for (const piece of pieces) {
     const image = createImage(piece, { q: piece.q, r: piece.r, s: piece.s }, "piece", piece.tilt);
-    image.piece = piece; // the piece drawn by the server, for its ghosts and its card
     placedPieces.push(image);
   }
   trace.exit("placeThePieces", { placed: placedPieces.length });
@@ -721,6 +725,76 @@ function swapThePanelSide() {
   } catch (error) {
     // Nothing to do: the choice will simply not survive the reload.
   }
+}
+
+
+// --- The face the pawns show ---
+//
+// The counter photographed is the game's own object, and at the scale the map opens at it is a
+// small grey square: the second button of the bar puts a drawn icon on the units that have one,
+// in the colour of their army (`static/pawns.js`), and puts the photographs back.
+//
+// A pawn is an <img> in both faces, and only its source changes: nothing else in this file - the
+// selection, the ghosts, the card, the click - knows which face is showing. The face is not
+// applied piece by piece from here either: it is handed to the layer as `dress`, so that a counter
+// born after the choice - the scene laid out again after a move, a ghost under a selection -
+// arrives wearing it.
+//
+// What has no icon keeps its photograph, and the board then shows both at once. The choice is kept
+// in `localStorage` like the panel's edge, and guarded like it: it is this browser's, not the
+// player's and not the game's.
+
+const PAWN_STYLE_KEY = "tenebrae.pawnStyle";
+const ICON_PAWNS = "icons";
+const COUNTER_PAWNS = "counters";
+
+let pawnStyle = COUNTER_PAWNS;
+
+function storedPawnStyle() {
+  try {
+    return window.localStorage.getItem(PAWN_STYLE_KEY) === ICON_PAWNS ? ICON_PAWNS : COUNTER_PAWNS;
+  } catch (error) {
+    // Private browsing and a blocked storage throw rather than answer: the board then opens on
+    // the counters, as it always has.
+    return COUNTER_PAWNS;
+  }
+}
+
+// The one place that says what a pawn wears. An icon not yet read - or a unit that has none, or an
+// icon set that could not be read at all - falls back on the photograph, which is never missing.
+function dressThePawn(image, piece) {
+  const icon = pawnStyle === ICON_PAWNS ? pawnIconSource(piece) : null;
+  image.src = icon ?? `/pieces/${piece.image}`;
+  image.classList.toggle("icon", Boolean(icon));
+}
+
+function showThePawnStyle() {
+  const icons = pawnStyle === ICON_PAWNS;
+  pawnStyleButton.setAttribute("aria-pressed", String(icons));
+  pawnStyleButton.title = icons
+    ? "Revenir aux pions photographiés"
+    : "Afficher les pions en icônes";
+  for (const image of [...placedPieces, ...ghosts]) dressThePawn(image, image.piece);
+  trace.info("the pawns are dressed", { style: pawnStyle, pawns: placedPieces.length,
+                                        ghosts: ghosts.length });
+}
+
+// The icons are read the first time they are asked for, and not before: a player who never leaves
+// the counters fetches nothing. What has been read is kept, so the swap back and forth is free.
+async function applyThePawnStyle() {
+  if (pawnStyle === ICON_PAWNS) await loadThePawnIcons(pieces);
+  showThePawnStyle();
+}
+
+async function swapThePawnStyle() {
+  pawnStyle = pawnStyle === ICON_PAWNS ? COUNTER_PAWNS : ICON_PAWNS;
+  trace.info("the face of the pawns is swapped", { style: pawnStyle });
+  try {
+    window.localStorage.setItem(PAWN_STYLE_KEY, pawnStyle);
+  } catch (error) {
+    // Nothing to do: the choice will simply not survive the reload.
+  }
+  await applyThePawnStyle();
 }
 
 
@@ -1194,6 +1268,11 @@ function layThePiecesOut(fresh) {
   forgetThePiece();
   pieces = fresh;
   placeThePieces();
+  // The pieces are already dressed in the face in use; a game opened on another scenario may
+  // nevertheless bring a unit, or an army, whose icon has not been drawn yet. Reading it is not
+  // waited for: the board is complete without it, and the icons take the place of the photographs
+  // as soon as they are there.
+  if (pawnStyle === ICON_PAWNS) applyThePawnStyle();
 
   // The unit may have been eliminated meanwhile: there is then nothing left to aim at.
   const found = marker && placedPieces.find((image) => key(image.dataset) === marker);
@@ -1229,6 +1308,11 @@ function start() {
   logToggle.addEventListener("click", toggleTheLog);
   panelSideButton.addEventListener("click", swapThePanelSide);
   putThePanelOn(storedPanelSide());
+  pawnStyleButton.addEventListener("click", swapThePawnStyle);
+  // The counters are already laid: on the icons, the board is opened with the photographs and they
+  // are put on as soon as the set is read, rather than the page waiting on five files for a face.
+  pawnStyle = storedPawnStyle();
+  applyThePawnStyle();
   playerButton.addEventListener("click", () => {
     trace.info("the player button is clicked", { connected: table.connected });
     if (table.connected) openTheTable();

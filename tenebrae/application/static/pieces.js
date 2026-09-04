@@ -14,8 +14,14 @@ const MAXIMUM_ROTATION = 5; // degrees, forwards or backwards
 // "trace", the level one drops when only the moves played matter (debug.js).
 const piecesTrace = debugScope("pieces.js");
 
-function pieceLayer({ board, centre, pieceSize }) {
-  piecesTrace.info("piece layer mounted", { board: board?.id, pieceSize });
+function pieceLayer({ board, centre, pieceSize, dress }) {
+  piecesTrace.info("piece layer mounted", { board: board?.id, pieceSize, dressed: Boolean(dress) });
+
+  // How a counter is dressed: the source it takes, and whatever class goes with it. The board
+  // passes its own, which swaps the photographs for icons (map.js, "The face the pawns show");
+  // with none given, a piece wears its photograph - what the scenario page wants, where the
+  // counter is the thing being placed.
+  const dressThePiece = dress ?? ((image, piece) => { image.src = `/pieces/${piece.image}`; });
 
   function place(image, hexagon, tilt) {
     const point = centre(hexagon.q, hexagon.r);
@@ -34,8 +40,11 @@ function pieceLayer({ board, centre, pieceSize }) {
   function createImage(piece, hexagon, className, tilt) {
     const image = document.createElement("img");
     image.className = className;
-    image.src = `/pieces/${piece.image}`;
+    dressThePiece(image, piece);
     image.alt = piece.name;
+    // The counter the image carries, on the image itself: its card, its ghosts and its face are
+    // all read from here, and a ghost knows its unit as the piece it doubles does.
+    image.piece = piece;
     image.style.width = `${pieceSize}px`;
     image.style.height = `${pieceSize}px`;
     place(image, hexagon, tilt);

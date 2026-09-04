@@ -225,7 +225,6 @@ function pieceOn(hexagon) {
 function layAPiece(piece, hexagon) {
   scenariosTrace.info("piece laid", { piece: piece.key, square: key(hexagon) });
   const image = createImage(piece, hexagon, "piece");
-  image.piece = piece;
   image.dataset.key = piece.key;
   image.title = piece.name;
   placed.push(image);

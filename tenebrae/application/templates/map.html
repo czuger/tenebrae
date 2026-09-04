@@ -47,6 +47,16 @@
            the block must not be what disappears. -->
       <button type="button" id="panel-side" title="Déplacer le panneau à droite">→</button>
 
+      <!-- The face the pawns show: the counters photographed, or an icon per kind of unit in the
+           colour of its army (see static/pawns.js). Two faces and nothing between them, hence a
+           single button - which keeps its sign rather than swapping it, the bar being held to its
+           reference size and a second glyph not being held to the width of the first. What it
+           says is in "aria-pressed" and in the tooltip. It sits beside the button that moves the
+           panel because it is of the same kind: a choice of display, this browser's alone, which
+           the clipping on the right must not reach. -->
+      <button type="button" id="pawn-style" aria-pressed="false"
+              title="Afficher les pions en icônes">♟&#xFE0E;</button>
+
       <button type="button" id="zoom-out" title="Reculer">−</button>
       <span id="scale">—</span>
       <button type="button" id="zoom-in" title="Approcher">+</button>
@@ -136,6 +146,7 @@
   <script src="{{ url_for('static', filename='geometry.js') }}"></script>
   <script src="{{ url_for('static', filename='zoom.js') }}"></script>
   <script src="{{ url_for('static', filename='pieces.js') }}"></script>
+  <script src="{{ url_for('static', filename='pawns.js') }}"></script>
   <script src="{{ url_for('static', filename='map.js') }}"></script>
 </body>
 </html>

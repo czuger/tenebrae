@@ -8,6 +8,15 @@
   z-index: 1;
 }
 
+/* The pawn showing its drawn face instead of its photograph (see static/pawns.js): a flat square of
+   the army's colour, where the counter is a scan of cardboard. The hairline gives the clear blue an
+   edge on a pale plain; `border-box` keeps the icon the size of the counter it stands in for - the
+   line eats inwards rather than widening the square. */
+.piece.icon {
+  box-sizing: border-box;
+  border: 1px solid rgba(27, 23, 19, 0.55);
+}
+
 /* The piece in hand: the one whose moves are shown on the board, the one being moved or removed on
    the scenario page. */
 .piece.selected {

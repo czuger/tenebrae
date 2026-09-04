@@ -51,7 +51,7 @@ application serves.
 | `stream.py` | the broadcaster behind `/stream` |
 | `discord_client.py` | the OAuth2 flow, and the fake client of the tests |
 | `pieces.py`, `grid.py` | the pieces and the grid alignment, as the browser receives them |
-| `static/`, `templates/` | the three pages — the board, the map-fixing page, the scenario page — and what they share: `geometry.js`, `zoom.js`, `pieces.js`, `debug.js` |
+| `static/`, `templates/` | the three pages — the board, the map-fixing page, the scenario page — and what they share: `geometry.js`, `zoom.js`, `pieces.js`, `debug.js`; `pawns.js` is the board's alone |
 | `extensions.py` | the MongoDB extension |
 | `models/`, `repositories/` | what is not the game: the connection and the map view (see "The models") |
 
@@ -507,6 +507,72 @@ to this browser, and to nothing else. It is not the player's stored view — `/v
 and the point one was manoeuvring at, which is the game seen from a pair of eyes, not where the
 buttons sit — and the reads and writes are guarded, a browser that refuses its storage opening the
 block where it always has.
+
+## The face the pawns show
+
+The counter photographed is the game's own object, and it is what the board lays. Fitted to the
+window, the map is a thousand pixels wide and a counter some fifteen: what one reads there is a
+small grey square, and which of two grey squares carries the cavalry is a matter of memory. The
+**second button of the bar** puts a drawn icon on the units that have one, and puts the photographs
+back.
+
+Five kinds of unit are drawn, which are the five the battle of Reissland fields. They are named in
+the counters' own vocabulary — the `symbole` read off the counter and, where the symbol alone does
+not tell two of them apart, the values printed on it:
+
+| The unit | Its icon |
+| --- | --- |
+| infantry 4/4 | `lorc/barbute` |
+| infantry 6/4 | `lorc/visored-helm` |
+| cavalry | `delapouite/cavalry` |
+| archers | `lorc/bowman` |
+| catapult | `heavenly-dog/catapult` |
+
+**What has no icon keeps its photograph** — a phalanx, a ram, a leader, the populace, an infantry
+of other values — and the board then shows both faces at once. That is the honest answer: an icon
+invented for a unit the table does not name would say something the box does not.
+
+**The colour is the army's**, and it is put on here. `static/icons/` is the game-icons.net set, and
+it carries one variant only: a black drawing on a white square, which is what `000000/ffffff` says
+in the path. So the file is read once and its two fills — the square, the drawing — are exchanged
+for the army's two colours; what comes out is a `data:` URL an `<img>` takes as it takes any other
+source. No second set of coloured files is written to disk.
+
+| The army | Its square | Its drawing |
+| --- | --- | --- |
+| Reissland | clear blue | dark |
+| Yzent | deep blue | pale |
+| every other faction | the tone of the cardboard | dark |
+
+The two blues were given for the two armies of that battle. **Every other faction takes the
+cardboard's own tone** rather than a blue invented for it, so that an icon never claims a colour
+the box does not give it; adding an army is one line of `ARMY_COLOURS` in `static/pawns.js`.
+
+A pawn is an **`<img>` in both faces, and only its source changes**: the selection, the ghosts, the
+card, the click and the tests all go on reading `img.piece`, and nothing else in `map.js` knows
+which face is showing. Nor is the face applied piece by piece from there: it is handed to the layer
+as `dress`, so that a counter born after the choice — the scene laid out again after a move or a
+phase, a ghost under a selection — arrives already wearing it. The scenario page passes nothing and
+therefore keeps the photographs, the counter being the thing one places there.
+
+**The card keeps the photograph**, whichever face the board wears: the icon is a reading aid on the
+map, and the card is where the counter itself is read.
+
+The icons are read **the first time they are asked for**, and not before: a player who never leaves
+the counters fetches nothing, and what has been read is kept, so the swap back and forth is free. A
+set that cannot be read at all leaves the counters alone rather than empty the board.
+
+The choice is kept in `localStorage` under `tenebrae.pawnStyle`, as the panel's edge is, and
+guarded like it: it belongs to this browser, not to the player and not to the game. The button
+**keeps its sign** rather than swapping it — the bar is held to the reference size `map.css`
+documents, and a second glyph is not held to the width of the first — so what it says is in
+`aria-pressed` and in its tooltip. It sits beside the button that moves the panel, being of the
+same kind and, like it, out of reach of the clipping on the right.
+
+`tests/application/test_pawns_browser.py` holds all of it: which unit is drawn and which keeps its
+counter, the five files read from the server, the two blues told apart, the icons landing on the
+counters' own squares at the counters' own size, the ghosts and the scene laid out again wearing
+the face in use, and the choice surviving the reload.
 
 ## The map is always the one that takes the click
 

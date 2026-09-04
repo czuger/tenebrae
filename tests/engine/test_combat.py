@@ -8,9 +8,10 @@ import pytest
 
 from tenebrae.engine import combat
 from tenebrae.engine.board import Board
+from tenebrae.engine.casualties import Casualties
 from tenebrae.engine.combat import AE, AR, DE, DR, EX
 from tenebrae.engine.combat_register import CombatRegister
-from tenebrae.engine.hexagon import MAP, Hex
+from tenebrae.engine.hexagon import MAP, UNINHABITABLE, Hex
 from tenebrae.engine.piece import piece
 from tests.engine.plains import ring_of, well_surrounded_plain
 
@@ -176,11 +177,12 @@ class TestFight:
         """The booklet exempts missile troops from retreat and exchange only, not from `AE`."""
         target, shooter = pair
         board = Board([(target, piece(DWARF)), (shooter, piece(CROSSBOWMAN))])
-        # CROSSBOWMAN 6 against DWARF 12 -> 1-2; die 3 -> AR, which the engine leaves without
-        # effect: the shooter stays where it is, as does the target.
+        # CROSSBOWMAN 6 against DWARF 12 -> 1-2; die 3 -> AR, which missile troops do not suffer:
+        # the shooter stays where it is, as does the target.
         result = combat.fight(board, target, [shooter], roll=3)
         assert result.outcome == AR
         assert result.eliminated == []
+        assert result.retreats == []
         assert board.piece_on(shooter) is not None
 
         board = Board([(target, piece(DWARF)), (shooter, piece(ARCHER))])
@@ -189,13 +191,93 @@ class TestFight:
         assert result.outcome == AE
         assert board.piece_on(shooter) is None
 
-    def test_a_retreat_changes_nothing(self, pair):
+    def test_the_defender_falls_back_one_square(self, pair):
+        """`DR`: the target leaves its square for an adjacent one, and nobody is eliminated."""
         target, attacker = pair
         board = Board([(target, piece(ORC)), (attacker, piece(DWARF))])
-        before = dict(board.pieces)
         result = combat.fight(board, target, [attacker], roll=1)  # 1-1, die 1 -> DR
-        assert result.outcome in (AR, DR)
-        assert board.pieces == before
+
+        assert result.outcome == DR
+        assert result.eliminated == []
+        assert board.piece_on(target) is None
+        destination = result.retreats[0].destination
+        assert destination.distance(target) == 1
+        assert board.piece_on(destination).key == ORC
+        assert board.piece_on(attacker).key == DWARF
+
+    def test_the_attacker_falls_back_one_square(self, pair):
+        """`AR`, on an attacker that does not fire: it is the attacker that gives ground."""
+        target, attacker = pair
+        board = Board([(target, piece(DWARF)), (attacker, piece(ORC))])
+        # ORC 8 against DWARF 12 -> 1-2; die 4 -> AR.
+        result = combat.fight(board, target, [attacker], roll=4)
+
+        assert result.outcome == AR
+        assert board.piece_on(attacker) is None
+        assert board.piece_on(result.retreats[0].destination).key == ORC
+        assert board.piece_on(target).key == DWARF
+
+    def test_a_defender_with_nowhere_to_go_is_eliminated(self, pair):
+        """A target ringed by the enemy has no square to fall back to: it leaves the board, and
+        the square is listed among the cleared ones like any other."""
+        target, attacker = pair
+        ring = [(square, piece(DWARF)) for square in target.neighbours()]
+        board = Board([(target, piece(ORC))] + ring)
+        result = combat.fight(board, target, [attacker], roll=1)  # 1-1, die 1 -> DR
+
+        assert result.outcome == DR
+        assert result.eliminated == [target]
+        assert board.piece_on(target) is None
+        assert result.retreats[0].eliminated == target
+
+    def test_a_defender_in_a_castle_does_not_fall_back(self):
+        """"A unit defending in a castle or a citadel does not suffer DR results."
+
+        The castle is looked up on the map like every other terrain here. It multiplies the
+        defence by three - 8 x 3 = 24 against 12, that is 1-2 - and a die of 1 still reads `DR`.
+        """
+        castle = hexagon_of_terrain("chateau")
+        attacker = next(hexagon for hexagon in castle.neighbours()
+                        if hexagon.terrain not in UNINHABITABLE)
+        board = Board([(castle, piece(ORC)), (attacker, piece(DWARF))])
+        result = combat.fight(board, castle, [attacker], roll=1)
+
+        assert result.outcome == DR
+        assert result.retreats == []
+        assert board.piece_on(castle).key == ORC
+
+    def test_the_units_that_fell_back_are_told_square_by_square(self, pair):
+        """What the application logs and the browser follows: each unit, from where to where."""
+        target, attacker = pair
+        board = Board([(target, piece(ORC)), (attacker, piece(DWARF))])
+        result = combat.fight(board, target, [attacker], roll=1)
+
+        assert [origin.key for origin, _ in result.moves] == [target.key]
+        assert result.square_after(target) == result.retreats[0].destination
+        assert result.square_after(attacker) == attacker
+
+    def test_the_fallen_are_entered_in_the_register_of_casualties(self, pair):
+        """Whichever way they fell: by the table, or for want of a retreat."""
+        target, attacker = pair
+        casualties = Casualties()
+        board = Board([(target, piece(ARCHER)), (attacker, piece(DWARF))])
+        combat.fight(board, target, [attacker], roll=6, casualties=casualties)  # 6-1, die 6 -> EX
+
+        assert [loss["piece"] for loss in casualties.lost_by("tenebres")] == [ARCHER]
+        assert [loss["piece"] for loss in casualties.taken_by("alliance")] == [ARCHER]
+        assert casualties.points_taken_by("alliance") == 2
+
+    def test_a_unit_that_could_not_fall_back_is_entered_too(self, pair):
+        """"Eliminated units are kept by the player who eliminated them": the side that forced the
+        retreat is the one that takes the unit it could not save."""
+        target, attacker = pair
+        casualties = Casualties()
+        ring = [(square, piece(DWARF)) for square in target.neighbours()]
+        board = Board([(target, piece(ORC))] + ring)
+        combat.fight(board, target, [attacker], roll=1, casualties=casualties)
+
+        assert [loss["square"] for loss in casualties.taken_by("alliance")] == [target.key]
+        assert casualties.points_taken_by("alliance") == 8
 
     def test_the_defenders_terrain_counts(self, pair):
         _, attacker = pair

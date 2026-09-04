@@ -495,10 +495,34 @@ async function attack() {
   const result = await answer.json();
   trace.info("combat resolved", result);
   if (result.resolved) {
+    // The eliminations first: a unit that falls back may be taking over the square of one that
+    // has just left the board, and the square must be free before it gets there.
     for (const eliminated of result.eliminated) removeThePiece(eliminated);
+    fallThePiecesBack(result.retreats);
   }
   clearTheCombat();
   markTheUnavailable(result.unavailable);
+}
+
+// A retreat moves counters - the unit that gives ground, and the friends it pushes to make room
+// (tenebrae/engine/retreat.py). The other tabs get the whole scene again through the stream; this
+// one has the answer in hand and moves them straight away, as it clears the eliminated squares.
+function fallThePiecesBack(retreats) {
+  if (!retreats?.length) return;
+  trace.enter("fallThePiecesBack", { retreats: retreats.length });
+  // Every unit is taken by the square it holds **before** any of them moves: along a chain of
+  // pushes each square is handed to the unit behind, and looking one up after the first step would
+  // find the unit that has just arrived on it rather than the one that must leave.
+  const falling = retreats.map((retreat) => ({ ...retreat, image: pieceOnHexagon(retreat.from) }));
+  for (const { image, from, to, tilt } of falling) {
+    if (!image) {
+      trace.warn("nothing to fall back on this square", { square: key(from) });
+      continue;
+    }
+    trace.info("piece falls back", { piece: image.piece?.key, from: key(from), to: key(to) });
+    place(image, to, tilt);
+  }
+  trace.exit("fallThePiecesBack", { moved: falling.filter((one) => one.image).length });
 }
 
 function removeThePiece(hexagon) {

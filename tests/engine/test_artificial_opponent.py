@@ -123,15 +123,18 @@ class TestPlayCombat:
         a, c, x1, _ = corner
         board = Board([(a, piece(ORC)), (c, piece(DWARF)), (x1, piece(ELF))])
         register = CombatRegister()
-        # Dwarf and elf (12 + 7) against the orc (8): 2-1; die 1 -> DR, nobody falls.
+        # Dwarf and elf (12 + 7) against the orc (8): 2-1; die 1 -> DR, the orc falls back.
         combats = ai.play_combat(board, "alliance", register, roll=lambda: 1)
         assert len(combats) == 1
         target, attackers, result = combats[0]
         assert target == a
         assert sorted(hexagon.key for hexagon in attackers) == sorted([c.key, x1.key])
         assert result.outcome == DR
+        # The register counts units by their square, and the target has just changed square: it is
+        # marked where it now stands, or it could be attacked again this very phase.
         assert register.to_dict() == {"engaged_attackers": sorted([c.key, x1.key]),
-                                      "engaged_targets": [a.key]}
+                                      "engaged_targets": [result.square_after(a).key]}
+        assert result.square_after(a) != a
 
     def test_a_unit_attacks_only_once(self, corner):
         a, c, x1, _ = corner

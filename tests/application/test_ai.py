@@ -122,14 +122,17 @@ class TestTriggeringTheAI:
         version_before = current_game.VERSION
         # End of the Alliance's combat: play passes to the Darkness, hence to the AI, which plays
         # its whole turn - the orc marches into contact and engages the elf (8 against 7: 1-1,
-        # die 1, a retreat without effect) - then hands play back.
+        # die 1, `DR`: the elf falls back one square) - then hands play back.
         answer = alliance_client.post("/phase/next")
         assert (answer.json["side"], answer.json["type"]) == ("alliance", "mouvement")
         assert answer.json["number"] == 2
         assert current_game.BOARD.piece_on(further) is None
         assert any(neighbour for neighbour in a.neighbours()
                    if (placed := current_game.BOARD.piece_on(neighbour)) and placed.key == ORC)
-        assert current_game.BOARD.piece_on(a).key == ELF
+        # The elf has given ground: it has left its square for one of those around it.
+        assert current_game.BOARD.piece_on(a) is None
+        assert any(neighbour for neighbour in a.neighbours()
+                   if (placed := current_game.BOARD.piece_on(neighbour)) and placed.key == ELF)
         assert current_game.VERSION > version_before
 
     def test_the_ais_side_cannot_be_taken(self, application, alliance_client, face_to_face,

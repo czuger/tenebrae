@@ -7,6 +7,7 @@ import pytest
 
 from tenebrae.application import current_game, pieces
 from tenebrae.application.grid import GRID_MATRIX, GRID_ORIGIN, PIECE_SIZE
+from tenebrae.application.logs.battle_log import log_lines
 from tenebrae.application.routes import combat as combat_routes
 from tenebrae.engine.board import MAXIMUM_TILT
 from tenebrae.engine.hexagon import DEFAULT_MOVEMENT, MAP, Hex
@@ -472,15 +473,73 @@ def test_a_won_combat_removes_the_defender(client, monkeypatch):
     assert current_game.BOARD.piece_on(Hex(**PLAIN)).key == DWARF
 
 
-def test_a_retreat_changes_nothing_on_the_board(client, monkeypatch):
+def test_a_retreat_falls_the_defender_back(client, monkeypatch):
+    """`DR`: the target leaves its square, the attacker stays on its own, and the answer says
+    where each unit went - the browser lays the scene out again from the stream, but the route
+    tells it all the same."""
     monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
     place(PLAIN, DWARF)                       # strength 12
     place(NEIGHBOUR, ORC)                     # strength 8 -> ratio 1-1, die 1 -> DR
     client.post("/phase/next")
     answer = client.post("/combat", json={"target": NEIGHBOUR, "attackers": [PLAIN]}).json
-    assert answer["outcome"] in ("AR", "DR")
-    assert current_game.BOARD.piece_on(Hex(**NEIGHBOUR)).key == ORC
+
+    assert answer["outcome"] == "DR"
+    assert answer["eliminated"] == []
+    assert len(answer["retreats"]) == 1
+    fall_back = answer["retreats"][0]
+    assert {name: fall_back["from"][name] for name in ("q", "r", "s")} == NEIGHBOUR
+    assert current_game.BOARD.piece_on(Hex(**NEIGHBOUR)) is None
+    assert current_game.BOARD.piece_on(Hex(**{name: fall_back["to"][name]
+                                              for name in ("q", "r", "s")})).key == ORC
     assert current_game.BOARD.piece_on(Hex(**PLAIN)).key == DWARF
+
+
+def test_a_retreat_is_told_in_the_log(client, monkeypatch):
+    """One line per unit that gave ground, under the outcome it comes from."""
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
+    place(PLAIN, DWARF)
+    place(NEIGHBOUR, ORC)
+    client.post("/phase/next")
+    answer = client.post("/combat", json={"target": NEIGHBOUR, "attackers": [PLAIN]}).json
+
+    destination = answer["retreats"][0]["to"]
+    lines = [line["text"] for line in log_lines()]
+    assert f"Recul : {Hex(**NEIGHBOUR).key} → " \
+           f"{Hex(destination['q'], destination['r'], destination['s']).key}" in lines
+
+
+def test_a_unit_that_cannot_fall_back_is_eliminated(client, monkeypatch):
+    """Ringed by the enemy, the target has nowhere to go: it leaves the board, and the browser is
+    told to clear its square like any other elimination."""
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
+    target = Hex(**NEIGHBOUR)
+    place(NEIGHBOUR, ORC)
+    for square in target.neighbours():
+        current_game.BOARD.place(square, CATALOGUE[DWARF])
+    client.post("/phase/next")
+    attacker = {"q": PLAIN["q"], "r": PLAIN["r"], "s": PLAIN["s"]}
+    answer = client.post("/combat", json={"target": NEIGHBOUR, "attackers": [attacker]}).json
+
+    assert answer["outcome"] == "DR"
+    assert answer["eliminated"] == [{**NEIGHBOUR, "terrain": "plaine"}]
+    assert answer["retreats"] == []
+    assert current_game.BOARD.piece_on(target) is None
+    lines = [line["text"] for line in log_lines()]
+    assert f"Recul impossible : unité éliminée en {target.key}" in lines
+
+
+def test_an_eliminated_unit_is_kept_for_the_end_of_the_game(client, monkeypatch):
+    """"Eliminated units are kept by the player who eliminated them, to establish their total of
+    points at the end of the game." """
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
+    place(PLAIN, DWARF)       # strength 12
+    place(NEIGHBOUR, ARCHER)  # strength 2 -> ratio 6-1, die 1 -> DE
+    client.post("/phase/next")
+    client.post("/combat", json={"target": NEIGHBOUR, "attackers": [PLAIN]})
+
+    assert [loss["piece"] for loss in current_game.CASUALTIES.taken_by(ALLIANCE)] == [ARCHER]
+    assert current_game.CASUALTIES.points_taken_by(ALLIANCE) == 2
+    assert current_game.CASUALTIES.points_lost_by(DARKNESS) == 2
 
 
 def test_an_attacker_out_of_range_does_not_resolve_the_combat(client):
@@ -502,29 +561,40 @@ def test_the_target_must_be_an_opponent(client):
 
 # --- One combat per unit and per phase ------------------------------------------------------------
 
-# Two more adjacent squares: a second orc within reach of the dwarf on PLAIN, and a second dwarf
-# within reach of the orc on NEIGHBOUR. Enough to exercise the two rules separately.
+# Two more adjacent squares: a second darkness unit within reach of the one on PLAIN, and a second
+# alliance unit within reach of the one on NEIGHBOUR. Enough to exercise the two rules separately.
 CONTACT = {"q": 1, "r": 27, "s": -28}
 SUPPORT = {"q": 2, "r": 27, "s": -29}
 
-# A die of 1 on DWARF 12 against ORC 8 gives a 1-1 ratio: a retreat, which the engine leaves
-# without effect. Both units therefore survive the combat - and must nonetheless stay marked by it.
-A_RETREAT = 1
+# These tests want a combat that **leaves the board exactly as it was**: the register is what is
+# being looked at, and a unit that moved would no longer be where the test placed it. Since the
+# retreats are played, one case alone answers that - the booklet's "a unit firing missiles can in
+# no case suffer a retreat or exchange result". Missile troops on both sides, and a die that reads
+# `AR` in both directions:
+#
+#     crossbowmen 6 against orc archers 4 -> 1-1, die 4 -> AR
+#     orc archers 4 against crossbowmen 6 -> 1-2, die 4 -> AR
+#
+# In both, it is the attacker that should fall back, and in both it fires: nobody moves, and the
+# combat counts all the same.
+SHOOTER = "nains-02-4-arbaletriers"       # alliance, strength 6, fire 4, range 2
+ORC_SHOOTER = "orques-03-5-archers"       # darkness, strength 4, fire 8, range 3
+A_STILL_RETREAT = 4
 
 
 @pytest.fixture
 def combat_phase(client, monkeypatch):
-    """Moves to the Dwarves' combat phase, the die fixed on a retreat: nobody is eliminated."""
-    monkeypatch.setattr(current_game, "roll_the_die", lambda: A_RETREAT)
+    """Moves to the Dwarves' combat phase, the die fixed on a retreat nobody suffers."""
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: A_STILL_RETREAT)
     client.post("/phase/next")
     return client
 
 
 def test_an_attacker_cannot_attack_twice(combat_phase):
     """Even without effect - a retreat - the combat took place: the attacker has had its turn."""
-    place(PLAIN, DWARF)
-    place(NEIGHBOUR, ORC)
-    place(CONTACT, ORC)
+    place(PLAIN, SHOOTER)
+    place(NEIGHBOUR, ORC_SHOOTER)
+    place(CONTACT, ORC_SHOOTER)
     first = combat_phase.post("/combat", json={"target": NEIGHBOUR, "attackers": [PLAIN]}).json
     assert first["resolved"] is True
     assert first["outcome"] in ("AR", "DR")
@@ -532,14 +602,14 @@ def test_an_attacker_cannot_attack_twice(combat_phase):
     second = combat_phase.post("/combat", json={"target": CONTACT, "attackers": [PLAIN]}).json
     assert second["resolved"] is False
     assert combat_routes.ALREADY_ATTACKED in second["messages"]
-    assert current_game.BOARD.piece_on(Hex(**CONTACT)).key == ORC
+    assert current_game.BOARD.piece_on(Hex(**CONTACT)).key == ORC_SHOOTER
 
 
 def test_a_target_cannot_be_attacked_twice(combat_phase):
     """Even by another attacker: it is the target that is consumed, not the pairing."""
-    place(PLAIN, DWARF)
-    place(SUPPORT, DWARF)
-    place(NEIGHBOUR, ORC)
+    place(PLAIN, SHOOTER)
+    place(SUPPORT, SHOOTER)
+    place(NEIGHBOUR, ORC_SHOOTER)
     assert combat_phase.post("/combat",
                              json={"target": NEIGHBOUR, "attackers": [PLAIN]}).json["resolved"]
 
@@ -550,10 +620,10 @@ def test_a_target_cannot_be_attacked_twice(combat_phase):
 
 def test_the_whole_group_of_attackers_is_marked(combat_phase):
     """Attacking in pairs engages both, not only the one designated first."""
-    place(PLAIN, DWARF)
-    place(SUPPORT, DWARF)
-    place(NEIGHBOUR, ORC)
-    place(CONTACT, ORC)
+    place(PLAIN, SHOOTER)
+    place(SUPPORT, SHOOTER)
+    place(NEIGHBOUR, ORC_SHOOTER)
+    place(CONTACT, ORC_SHOOTER)
     combat_phase.post("/combat", json={"target": NEIGHBOUR, "attackers": [PLAIN, SUPPORT]})
 
     for origin in (PLAIN, SUPPORT):
@@ -565,10 +635,10 @@ def test_the_whole_group_of_attackers_is_marked(combat_phase):
 def test_two_units_of_the_same_counter_are_tracked_apart(combat_phase):
     """One counter stands for several units - `orques-01-15-infanteries` is placed fifteen times in
     scenario no. 4. Attacking one of the two orcs must therefore not consume the other."""
-    place(PLAIN, DWARF)
-    place(SUPPORT, DWARF)
-    place(NEIGHBOUR, ORC)
-    place(CONTACT, ORC)
+    place(PLAIN, SHOOTER)
+    place(SUPPORT, SHOOTER)
+    place(NEIGHBOUR, ORC_SHOOTER)
+    place(CONTACT, ORC_SHOOTER)
     combat_phase.post("/combat", json={"target": NEIGHBOUR, "attackers": [PLAIN]})
 
     other = combat_phase.post("/combat", json={"target": CONTACT, "attackers": [SUPPORT]}).json
@@ -577,9 +647,9 @@ def test_two_units_of_the_same_counter_are_tracked_apart(combat_phase):
 
 def test_the_next_phase_frees_the_units(client, monkeypatch):
     """Each combat phase starts again with all its units - the other side's, and the next turn."""
-    monkeypatch.setattr(current_game, "roll_the_die", lambda: A_RETREAT)
-    place(PLAIN, DWARF)
-    place(NEIGHBOUR, ORC)
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: A_STILL_RETREAT)
+    place(PLAIN, SHOOTER)
+    place(NEIGHBOUR, ORC_SHOOTER)
     client.post("/phase/next")  # the Dwarves' combat
     assert client.post("/combat",
                        json={"target": NEIGHBOUR, "attackers": [PLAIN]}).json["resolved"]
@@ -596,9 +666,9 @@ def test_the_next_phase_frees_the_units(client, monkeypatch):
 
 
 def test_the_range_check_refuses_an_already_engaged_attacker(combat_phase):
-    place(PLAIN, DWARF)
-    place(NEIGHBOUR, ORC)
-    place(CONTACT, ORC)
+    place(PLAIN, SHOOTER)
+    place(NEIGHBOUR, ORC_SHOOTER)
+    place(CONTACT, ORC_SHOOTER)
     query = {"cq": CONTACT["q"], "cr": CONTACT["r"], "cs": CONTACT["s"],
              "aq": PLAIN["q"], "ar": PLAIN["r"], "as": PLAIN["s"]}
     before = combat_phase.get("/combat/range", query_string=query).json
@@ -611,8 +681,8 @@ def test_the_range_check_refuses_an_already_engaged_attacker(combat_phase):
 
 
 def test_the_target_check_refuses_an_already_attacked_unit(combat_phase):
-    place(PLAIN, DWARF)
-    place(NEIGHBOUR, ORC)
+    place(PLAIN, SHOOTER)
+    place(NEIGHBOUR, ORC_SHOOTER)
     query = {"cq": NEIGHBOUR["q"], "cr": NEIGHBOUR["r"], "cs": NEIGHBOUR["s"]}
     assert combat_phase.get("/combat/target",
                             query_string=query).json["available"] is True
@@ -625,8 +695,8 @@ def test_the_target_check_refuses_an_already_attacked_unit(combat_phase):
 
 def test_the_unavailable_are_told_to_the_browser(combat_phase):
     """The map's greying is set from these two lists, given as squares."""
-    place(PLAIN, DWARF)
-    place(NEIGHBOUR, ORC)
+    place(PLAIN, SHOOTER)
+    place(NEIGHBOUR, ORC_SHOOTER)
     answer = combat_phase.post("/combat",
                                json={"target": NEIGHBOUR, "attackers": [PLAIN]}).json
 

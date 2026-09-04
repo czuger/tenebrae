@@ -10,12 +10,13 @@ calls `load`, `save` and `new_game`, and that is all.
 from datetime import datetime, timezone
 from typing import Optional, TypedDict
 
-from tenebrae.engine.models.game import Game
+from tenebrae.engine.casualties import Casualty as CasualtyEntry
+from tenebrae.engine.models.game import Casualty, Game
 
 
 class GameState(TypedDict):
     """The whole game state, as the repositories exchange it: the board, the turn, the combat
-    register and the seats, in their serialised forms."""
+    register, the units removed from play and the seats, in their serialised forms."""
 
     scenario: int
     placement: dict[str, str]
@@ -25,6 +26,7 @@ class GameState(TypedDict):
     turn_number: int
     engaged_attackers: list[str]
     engaged_targets: list[str]
+    casualties: list[CasualtyEntry]
     seats: dict[str, str]
 
 
@@ -56,6 +58,7 @@ class MongoGameRepository:
                 "turn_number": game.turn_number,
                 "engaged_attackers": list(game.engaged_attackers),
                 "engaged_targets": list(game.engaged_targets),
+                "casualties": [_entry_of(loss) for loss in game.casualties],
                 "seats": dict(game.seats)}
 
     def save(self, state: GameState) -> None:
@@ -100,6 +103,7 @@ class MongoGameRepository:
         game.turn_number = state["turn_number"]
         game.engaged_attackers = state["engaged_attackers"]
         game.engaged_targets = state["engaged_targets"]
+        game.casualties = [Casualty(**loss) for loss in state.get("casualties") or []]
         game.seats = state.get("seats") or {}
         game.updated_at = self._now()
         return game
@@ -112,3 +116,16 @@ class MongoGameRepository:
             Now, in UTC.
         """
         return datetime.now(timezone.utc)
+
+
+def _entry_of(loss: Casualty) -> CasualtyEntry:
+    """Reads one casualty back into the plain dict the engine's register holds.
+
+    Args:
+        loss: The embedded document.
+
+    Returns:
+        Its four fields, an absent `taken_by` read as an empty side.
+    """
+    return {"square": loss.square, "piece": loss.piece,
+            "side": loss.side, "taken_by": loss.taken_by or ""}

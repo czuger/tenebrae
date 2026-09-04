@@ -55,9 +55,9 @@ class TestWarOfTheDwarves:
         assert war_of_the_dwarves.name == "La guerre des nains"
         assert "ave_tenebrae_regles_fr.md" in war_of_the_dwarves.source
 
-    def test_it_lasts_until_one_side_is_exterminated(self, war_of_the_dwarves):
-        """The booklet sets no number of turns: the file carries none."""
-        assert war_of_the_dwarves.max_turns is None
+    def test_it_is_played_over_thirty_two_turns(self, war_of_the_dwarves):
+        """The booklet sets no number of turns; the file fixes one, as every set-up here does."""
+        assert war_of_the_dwarves.max_turns == 32
 
     def test_two_armies_face_to_face(self, war_of_the_dwarves):
         assert [army["armee"] for army in war_of_the_dwarves.armies] == ["Nains", "Orques"]
@@ -540,9 +540,10 @@ class TestTheEnabledField:
         path = write_a_scenario(6, enabled=written)
         assert read(path).enabled is expected
 
-    def test_the_fixed_files_are_all_offered(self):
-        """In the real directory: nothing is disabled in the repository as it stands."""
-        assert enabled_scenarios().keys() == available_scenarios().keys()
+    def test_the_war_of_the_dwarves_alone_is_withdrawn(self):
+        """In the real directory: no. 4 is set aside on file, every other set-up is offered."""
+        assert WAR_OF_THE_DWARVES not in enabled_scenarios()
+        assert enabled_scenarios().keys() == available_scenarios().keys() - {WAR_OF_THE_DWARVES}
 
     def test_only_the_enabled_ones_are_offered(self, scenarios_directory):
         write_a_scenario(6, name="Offert")

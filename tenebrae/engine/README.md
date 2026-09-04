@@ -15,6 +15,8 @@ French, as they are in `tenebrae/game_box/`.
 | `phase.py` | the state machine of a turn: which side plays, and at what (`Turn`) |
 | `combat.py` | combat resolution after the booklet's Table I |
 | `combat_register.py` | the register of one combat per unit and per target, per phase (`CombatRegister`) |
+| `retreat.py` | what becomes of a unit a combat forces to fall back: the chain of pushes, or its elimination |
+| `casualties.py` | the units removed from play, kept for the count at the end of the game (`Casualties`) |
 | `ai.py` | the artificial opponent: the side the server plays on its own |
 | `models/` | the game entities, one file per model: `Game`, `Player`, `Seats` |
 | `repositories/` | their database access, one module per subject: `game.py`, `player.py` |
@@ -338,8 +340,10 @@ from tenebrae.engine.combat import fight, in_range, resolve
 
 in_range(attacker_hex, attacking_piece, target_hex)  # distance ≤ 1, or ≤ range if the piece fires
 resolve([12, 4], defending_piece, defender_hex, roll=3)  # → "DE", "AE", "EX", "AR", "DR"
-result = fight(board, target_hex, [attacker_hex], roll=3)
+result = fight(board, target_hex, [attacker_hex], roll=3, casualties=casualties)
 result.outcome, result.eliminated, result.ratio, result.die
+result.retreats   # what each unit forced to fall back did (`retreat.py`)
+result.moves      # [(origin, destination), …] — every unit that gave ground, in order
 result.breakdown  # the computation piece by piece, or None if nothing could be resolved
 ```
 
@@ -386,9 +390,72 @@ The engine builds **no sentence**: it returns numbers and a terrain name. Puttin
 the application's business (`describe_the_ratio` in `tenebrae/application/logs/combat_sentences.py`), which makes it
 the log line `Rapport 2-1 : attaque 12 + 8 = 20 contre défense 8 × 3 = 24 (montagne) — dé 4`.
 
-**Only three outcomes change the board**, and `fight` applies them by removing pieces: `AE`
-(attacker eliminated), `DE` (defender eliminated), `EX` (both). `AR` and `DR` — the retreats — are
-read but left without effect, for want of a retreat rule. See the caveats below.
+**The five outcomes change the board.** `fight` removes the pieces the three eliminations name —
+`AE` (attacker eliminated), `DE` (defender eliminated), `EX` (both) — and makes the units fall back
+on the two retreats, `AR` and `DR`, which are a rule of their own: `retreat.py`, below. Whichever
+way a square is emptied, it comes back in `result.eliminated`; the fall-backs themselves are in
+`result.retreats`, and the units removed from play are entered in the game's register of casualties
+(`casualties.py`). Two exemptions from the booklet are applied before falling anybody back: "a unit
+firing missiles can in no case suffer a retreat or exchange result", and a defender in a fort or a
+castle does not suffer `DR`. The advance after combat is not played — the booklet makes it a
+decision announced by the attacker, and nothing here asks for one. See the caveats below.
+
+### Retreat or elimination — `retreat.py`
+
+```python
+from tenebrae.engine.retreat import fall_back, fall_back_together
+
+outcome = fall_back(board, hexagon)          # the board is modified in place
+outcome.moves          # [(origin, destination), …] — the retreating unit first, its pushes after
+outcome.destination    # where it got to, or None
+outcome.eliminated     # the square it fell on, for want of anywhere to go
+outcome.pushed         # how many friends had to give way
+```
+
+> A unit that finds itself unable to fall back (presence of a lake, a river or an enemy zone of
+> control) is removed from play, unless it is surrounded by friendly units. In that case, it pushes
+> one of those units and takes its place. This simultaneous falling back of one or more units must
+> make the retreating unit fall back by seeking the least movement and by pushing back as few
+> friendly units as possible.
+
+Three rules in one sentence, and the third is a search: pushing the nearest friend may cost three
+displacements where pushing another would cost one. `shortest_chain` therefore looks for the whole
+chain and not its first link — a **breadth-first walk** from the retreating unit, hopping from
+friend to friend, stopping at the first free square that can be stood on. A breadth-first walk
+finds the shortest chain, and a chain of *k* links is *k* units falling back, the retreating one
+included: the same walk satisfies "the least movement" and "as few friendly units as possible" at
+once, without weighing one against the other. Ties are broken by square key, as everywhere in the
+engine: two identical games fall back identically.
+
+A square can be stood on if it is **on the map**, habitable — `UNINHABITABLE`, the engine's reading
+of "a lake, a river", the Rift of Tsaroth included — and free of enemy control. Nothing else: a
+retreat is not a movement, it spends no points, so terrain cost and the mountains' access rule have
+no say in it.
+
+`fall_back_together` makes a whole group give ground — the attackers of an `AR` — one after
+another, in square order, each seeing the board as the one before it left it.
+
+### The fallen — `casualties.py`
+
+```python
+from tenebrae.engine.casualties import Casualties
+
+casualties = Casualties()
+casualties.record(hexagon, piece, taken_by="tenebres")
+casualties.points_taken_by("tenebres")   # the booklet's total
+casualties.points_lost_by("alliance")    # the same count, read the other way
+```
+
+> Eliminated units are kept by the player who eliminated them, to establish their total of points at
+> the end of the game.
+
+The booklet counts them for the **eliminator**; a unit is also, and as plainly, a loss for the army
+it came from. The register therefore keeps the fact and not the reading of it: each entry says
+which piece fell, on which square, on which side it fought and which side took it. It is the third
+thing a game keeps beside its board, along with the turn and the combat register, and it is kept
+the same way — a plain object, serialised into the saved game by `repositories/game.py`, knowing
+nothing of MongoDB. A unit has no identity of its own here, so an entry names the piece and the
+square, and nothing more.
 
 ### One combat per unit and per phase
 
@@ -410,11 +477,13 @@ register.reset()  # new combat phase: everyone is free
 Three choices read in it:
 
 - **It keeps squares**, as "q,r,s" keys, and not piece keys. One counter stands for several units
-  and `CATALOGUE` returns only one object for it; the square designates only one. Nothing moves
-  during a combat phase, so the equivalence is exact for as long as the register lives (see the
+  and `CATALOGUE` returns only one object for it; the square designates only one. The only thing
+  that moves a unit during a combat phase is a fall-back, and the caller enters the square it holds
+  **after** the combat — `CombatResult.square_after`, which follows a unit through the retreats of
+  its own combat. Without that, the register would mark a square its unit has left (see the
   caveats).
-- **A combat counts as soon as it is fought**, whatever its outcome: a retreat, which the engine
-  leaves without effect, engages its units just as much as an elimination.
+- **A combat counts as soon as it is fought**, whatever its outcome: a retreat engages its units
+  just as much as an elimination — a unit that gave ground has had its turn.
 - **It knows nothing of the turn nor of the board** — it is the caller that empties it. The
   application does so at every phase change (`POST /phase/next`), which covers moving from one
   combat phase to the other as well as the next turn.
@@ -503,11 +572,23 @@ As for the map and the counter inventory, doubts are kept, not settled.
 - **Magic is not played.** The magic phase is provided for in the booklet's sequence;
   `Turn.advance()` steps over it without doing anything. Spells, magic potential, spellcasters and
   special abilities (fear, paralysis, protection rolls) are waiting.
-- **Combat stops at the three eliminations.** `AR` and `DR` — the retreats — are not played, so
-  there is no retreat, no elimination for want of a retreat, and no advance after combat. `EX`
-  removes **all** the attackers, without the booklet's "strength at least equal" filter. Neither
-  cavalry charge (× 2), nor phalanx (× 3), nor day/night alternation, nor missile troops' immunity
-  to retreat: the counter's strength and the defender's terrain are the only factors.
+- **The advance after combat is not played.** The booklet lets the attacker occupy the square the
+  defender has just left, "the decision must be announced immediately after the combat": that is a
+  player's decision, and nothing asks for one. `EX` removes **all** the attackers, without the
+  booklet's "strength at least equal" filter. Neither cavalry charge (× 2), nor phalanx (× 3), nor
+  day/night alternation: apart from the two exemptions from retreat — missile troops, and a
+  defender in a fort or a castle — the counter's strength and the defender's terrain are the only
+  factors.
+- **A fall-back is read narrowly, and three readings are ours.** The booklet names three
+  impediments and no more, so a unit falls back into any habitable square on the map that no enemy
+  controls, whatever the terrain costs. From there: the ban on falling back into an enemy zone of
+  control **does not lift because a friend is standing there**, so such a friend is not pushed
+  either; the "simultaneous falling back" of a group is played one unit after another, in square
+  order, each seeing the board as the one before it left it; and a unit **already pushed** by a
+  comrade's chain has given its ground and does not give it twice.
+- **The fallen are kept, the victory is not counted.** `casualties.py` registers every unit removed
+  from play and totals the strengths, for the eliminator as for the army that lost them; no
+  scenario declares a winner on that total, and nothing reads it back yet.
 - **One combat per unit and per phase, counted by square.** The rule is kept (see `CombatRegister`
   above), but the register designates units by their **square**, for want of a unit identity in the
   engine: one counter stands for all the units it represents — `orques-01-15-infanteries` is placed
@@ -517,9 +598,10 @@ As for the map and the counter inventory, doubts are kept, not settled.
 - **Stacking is not handled beyond one unit per square**: the booklet allows 3 units in a town, a
   village or a citadel, and counts neither leaders nor magicians. The board places only one piece
   per square.
-- **The zones of control weigh only on movement.** Their other effects — the ban on retreating into
-  them, the unit eliminated for want of a retreat, the invisibility that ignores them — assume a
-  retreat rule that does not exist. Every unit remains a ground unit.
+- **The zones of control weigh on movement and on retreat**, which is the whole of what the booklet
+  gives them here: the ban on falling back into them, and the unit eliminated for want of anywhere
+  else, are applied (`retreat.py`). The invisibility that ignores them waits on the special
+  abilities; every unit remains a ground unit.
 - **The AI marches as the crow flies.** `moves()` returns the reachable squares, not the cost of
   paths; the AI therefore chooses the square that reduces the cube distance, which can make it
   stall against a lake instead of going round it the short way. It plays neither withdrawal, nor

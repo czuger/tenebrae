@@ -75,5 +75,8 @@ def test_the_ai_opens_the_scenario_when_it_holds_the_alliance(page, server):
     assert current_game.SEATS.occupant(ALLIANCE) == ai.AI_PLAYER
     assert (current_game.TURN.active_side, current_game.TURN.phase_type) == (DARKNESS, "mouvement")
     assert current_game.BOARD.to_dict() != current_game.SCENARIO.placement
-    # And the page shows it: the phase displayed is the human player's.
-    assert "Orques" in page.locator("#phase-label").inner_text()
+    # And the page shows it: the phase displayed is the human player's. Its army is read off the
+    # set-up the game opened on, which is whichever the chooser offers first.
+    darkness = next(army["armee"] for army in current_game.SCENARIO.armies
+                    if army["camp"] == DARKNESS)
+    assert darkness in page.locator("#phase-label").inner_text()

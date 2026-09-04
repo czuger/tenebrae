@@ -4,6 +4,10 @@ The server revalidates everything the browser proposes - the phase, the target's
 attacker's range and availability -, rolls the die, applies the result to the board and logs the
 outcome in French (`logs/combat_sentences.py`). A unit fights only once per phase: the combat
 register (`tenebrae/engine/combat_register.py`) is what refuses a second turn.
+
+A retreat moves units, so the register is filled with the squares they hold **after** the combat
+(`CombatResult.square_after`): a unit that has fought and then fallen back must stay marked, and it
+is no longer where it was when it was marked.
 """
 
 from collections.abc import Mapping
@@ -12,10 +16,11 @@ from flask import Blueprint, request
 from flask.typing import ResponseReturnValue
 
 from tenebrae.application import current_game
-from tenebrae.application.current_game import (BOARD, REGISTER, TURN, save_the_game,
+from tenebrae.application.current_game import (BOARD, CASUALTIES, REGISTER, TURN, save_the_game,
                                                unavailable_units)
 from tenebrae.application.logs.battle_log import LOG
-from tenebrae.application.logs.combat_sentences import combat_message, describe_the_ratio
+from tenebrae.application.logs.combat_sentences import (combat_message, describe_the_ratio,
+                                                        retreat_messages)
 from tenebrae.application.routes.authorization import active_side_required
 from tenebrae.application.routes.reading import read_a_hexagon
 from tenebrae.engine import combat
@@ -126,8 +131,8 @@ def fight() -> ResponseReturnValue:
     register **whatever its outcome**.
 
     Returns:
-        `resolved`, and on success the outcome, the eliminated squares, the roll, the die, the
-        ratio and the units now unavailable.
+        `resolved`, and on success the outcome, the eliminated squares, the fall-backs, the roll,
+        the die, the ratio and the units now unavailable.
     """
     demand = request.get_json(silent=True) or {}
     if TURN.phase_type != COMBAT:
@@ -148,13 +153,17 @@ def fight() -> ResponseReturnValue:
 
     # Read from the module at call time: the tests fix the die there, for the AI as for this route.
     roll = current_game.roll_the_die()
-    result = combat.fight(BOARD, target, valid, roll)
-    REGISTER.record([hexagon.key for hexagon in valid], target.key)
+    result = combat.fight(BOARD, target, valid, roll, CASUALTIES)
+    REGISTER.record([result.square_after(hexagon).key for hexagon in valid],
+                    result.square_after(target).key)
     message = combat_message(result)
-    # The computation first, the outcome next: the browser's column reads bottom-up, so the outcome
-    # ends up at the top, its breakdown just below.
+    # The outcome is logged **last** and therefore read **first**: the browser's column shows the
+    # most recent line at the top. Under it come the fall-backs it caused, and under those the
+    # computation that gave it - the headline, then its explanation.
     if result.breakdown is not None:
         LOG.info(describe_the_ratio(result))
+    for sentence in retreat_messages(result):
+        LOG.info(sentence)
     LOG.info(message)
     save_the_game()
     return {
@@ -162,6 +171,11 @@ def fight() -> ResponseReturnValue:
         "outcome": result.outcome,
         "message": message,
         "eliminated": [hexagon.to_dict() for hexagon in result.eliminated],
+        # The angle travels with the square: the unit has been picked up, and it is the server that
+        # drew the fresh angle it lies down at - as for a move (`routes/movement.py`).
+        "retreats": [{"from": origin.to_dict(), "to": destination.to_dict(),
+                      "tilt": BOARD.tilt_on(destination)}
+                     for origin, destination in result.moves],
         "roll": roll,
         "die": result.die,
         "ratio": list(result.ratio) if result.ratio else None,

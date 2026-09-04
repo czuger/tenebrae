@@ -28,6 +28,7 @@ from typing import Optional
 
 from tenebrae.engine import combat
 from tenebrae.engine.board import Board
+from tenebrae.engine.casualties import Casualties
 from tenebrae.engine.combat import CombatResult
 from tenebrae.engine.combat_register import CombatRegister
 from tenebrae.engine.hexagon import Hex
@@ -199,8 +200,8 @@ def worth_attacking(board: Board, target: Hex, attackers: list[Hex]) -> bool:
     return combat.ratio_column(strengths, defending_strength) >= MINIMUM_RATIO
 
 
-def play_combat(board: Board, side: str, register: CombatRegister,
-                roll: Callable[[], int]) -> list[Combat]:
+def play_combat(board: Board, side: str, register: CombatRegister, roll: Callable[[], int],
+                casualties: Optional[Casualties] = None) -> list[Combat]:
     """Plays the side's combat phase: attacks concentrate on the priority targets.
 
     Each still-available unit looks, in its order of priorities, for a target within range and not
@@ -212,6 +213,7 @@ def play_combat(board: Board, side: str, register: CombatRegister,
         side: The side that plays.
         register: The phase register, the same one humans use; filled as combats are fought.
         roll: Called once per combat fought, returns the die.
+        casualties: The game's register of units removed from play, passed to `combat.fight`.
 
     Returns:
         The `(target, attackers, result)` triples of the combats fought, in order.
@@ -235,14 +237,17 @@ def play_combat(board: Board, side: str, register: CombatRegister,
         if not worth_attacking(board, target, attackers):
             continue
 
-        result = combat.fight(board, target, attackers, roll())
-        register.record([hexagon.key for hexagon in attackers], target.key)
+        result = combat.fight(board, target, attackers, roll(), casualties)
+        # The squares after the combat, not before it: a retreat moves the units, and the register
+        # counts them by their square (see `CombatResult.square_after`).
+        register.record([result.square_after(hexagon).key for hexagon in attackers],
+                        result.square_after(target).key)
         combats_fought.append((target, attackers, result))
     return combats_fought
 
 
-def play_turn(board: Board, turn: Turn, register: CombatRegister,
-              roll: Callable[[], int]) -> tuple[list[Move], list[Combat]]:
+def play_turn(board: Board, turn: Turn, register: CombatRegister, roll: Callable[[], int],
+              casualties: Optional[Casualties] = None) -> tuple[list[Move], list[Combat]]:
     """Plays the active side's whole turn - movement then combat - and hands play back.
 
     On entry, the current phase must be the movement phase of the AI's side; on exit, it is the
@@ -254,6 +259,7 @@ def play_turn(board: Board, turn: Turn, register: CombatRegister,
         turn: The turn, advanced in place.
         register: The phase register, reset at each phase change.
         roll: Called once per combat fought, returns the die.
+        casualties: The game's register of units removed from play, filled as they fall.
 
     Returns:
         `(moves, combats)`, what the two phases played.
@@ -267,7 +273,7 @@ def play_turn(board: Board, turn: Turn, register: CombatRegister,
     moves = play_movement(board, side)
     turn.advance()
     register.reset()
-    combats = play_combat(board, side, register, roll)
+    combats = play_combat(board, side, register, roll, casualties)
     turn.advance()
     register.reset()
     return moves, combats

@@ -5,8 +5,11 @@ number is checked again on the way in: the browser's chooser was filled when the
 opened, and a file disabled in between must not be playable.
 
 The scenarios directory is diverted to a temporary copy of the real one, so that no test writes
-`"enabled": false` into `tenebrae/scenarios/`. The scenario being played is a module global, put
-back on the way out by the `the_scenario_the_server_opens_on` fixture of `conftest.py`.
+`"enabled": false` into `tenebrae/scenarios/`. The copies all start **offered**, whatever their
+originals say - no. 4 is withdrawn in the repository as it stands: the list a test reads is then
+the one it has itself composed, and a scenario set aside on file changes none of these tests. The
+scenario being played is a module global, put back on the way out by the
+`the_scenario_the_server_opens_on` fixture of `conftest.py`.
 """
 
 import json
@@ -43,18 +46,24 @@ def alliance_client(application, seat_the_player):
 
 @pytest.fixture
 def scenarios_directory(tmp_path, monkeypatch):
-    """Diverts the scenarios directory to a copy of the real one, and returns it."""
+    """Diverts the scenarios directory to a copy of the real one, every scenario offered."""
     for path in engine_scenario.SCENARIOS.glob("scenario-*.json"):
-        shutil.copy(path, tmp_path / path.name)
+        copy = tmp_path / path.name
+        shutil.copy(path, copy)
+        write_the_field(copy, True)
     monkeypatch.setattr(engine_scenario, "SCENARIOS", tmp_path)
     return tmp_path
 
 
 def disable(directory, number):
     """Writes `"enabled": false` into a scenario's file, as an administrator would by hand."""
-    path = next(directory.glob(f"scenario-{number:02d}-*.json"))
+    write_the_field(next(directory.glob(f"scenario-{number:02d}-*.json")), False)
+
+
+def write_the_field(path, enabled):
+    """Sets the `enabled` field of a scenario file, leaving the rest of it as it was."""
     values = json.loads(path.read_text(encoding="utf-8"))
-    values["enabled"] = False
+    values["enabled"] = enabled
     path.write_text(json.dumps(values, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
@@ -73,7 +82,7 @@ def test_the_list_carries_every_scenario_on_file(client, scenarios_directory):
     assert [entry["number"] for entry in answer["scenarios"]] == [WAR_OF_THE_DWARVES, REISSLAND]
     dwarves = answer["scenarios"][0]
     assert dwarves["name"] == "La guerre des nains"
-    assert dwarves["max_turns"] is None
+    assert dwarves["max_turns"] == 32
     assert dwarves["units"] == 48
 
 

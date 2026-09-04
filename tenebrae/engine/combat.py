@@ -6,25 +6,37 @@ battle: attacker eliminated, defender eliminated, exchange, or one of the two re
 transcribes that table, computes the strength ratio ("always rounded in the defender's favour") and
 applies the terrain modifiers from the *Terrain table*.
 
-Retreats are not played: `AR` and `DR` leave the board untouched. `EX` removes the engaged units,
-without the booklet's "attackers totalling a strength at least equal" sorting - but **missile
-troops escape it**: "a unit firing missiles can in no case suffer a retreat or exchange result".
-Special abilities, the cavalry charge, phalanxes and the day/night alternation are out of reach -
-see `tenebrae/engine/README.md`.
+`AR` and `DR` make the units fall back, and the fall-back is a rule of its own -
+`tenebrae.engine.retreat`, which this module calls and which alone knows what to do when there is
+nowhere to fall back to. `EX` removes the engaged units, without the booklet's "attackers totalling
+a strength at least equal" sorting - but **missile troops escape both**: "a unit firing missiles
+can in no case suffer a retreat or exchange result", and a defender in a fort or a castle escapes
+`DR` too. Special abilities, the cavalry charge, phalanxes and the day/night alternation are out of
+reach - see `tenebrae/engine/README.md`.
 
-What a combat phase has already consumed is kept apart, in `tenebrae.engine.combat_register`.
+The advance after combat is not played: the booklet lets the attacker occupy the square the
+defender has just left, "the decision must be announced immediately after the combat", and that is
+a player's decision, which nothing here asks for.
+
+What a combat phase has already consumed is kept apart, in `tenebrae.engine.combat_register`, and
+the units removed from play in `tenebrae.engine.casualties`.
 """
 
 from collections.abc import Iterable, Sequence
 from typing import Optional
 
 from tenebrae.engine.board import Board
+from tenebrae.engine.casualties import Casualties
 from tenebrae.engine.hexagon import Hex
-from tenebrae.engine.piece import Piece
+from tenebrae.engine.piece import OPPONENTS, Piece
+from tenebrae.engine.retreat import RetreatOutcome, fall_back, fall_back_together
 
-# The five possible outcomes. Only `AE`, `DE` and `EX` change anything on the board; the retreats
-# `AR` and `DR` are read but left without effect, for want of a retreat rule.
+# The five possible outcomes. `AE`, `DE` and `EX` clear squares, `AR` and `DR` make units fall
+# back: all five change the board.
 AE, DE, EX, AR, DR = "AE", "DE", "EX", "AR", "DR"
+
+# A defender holding one of these "does not suffer DR results (defender retreats)".
+RETREAT_PROOF_TERRAINS = frozenset({"fort", "chateau"})
 
 # The ten strength ratios of Table I, from 1 against 5 to 6 against 1, attacker in the numerator.
 COLUMNS = ((1, 5), (1, 4), (1, 3), (1, 2), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1))
@@ -269,59 +281,134 @@ def resolve(attacking_strengths: Iterable[int], defending_piece: Piece,
 
 
 class CombatResult:
-    """What a combat gave: its outcome, the squares cleared, the strength ratio and the die played.
+    """What a combat gave: its outcome, the squares cleared, the fall-backs, the ratio and the die.
 
     `outcome` is `None` when the combat could not be resolved (target absent, strength illegible);
     `eliminated` is then empty, and so is `breakdown`. `ratio` and `die` repeat those of
     `breakdown` as attributes of their own.
+
+    `eliminated` holds **every** square cleared, whether the table said so or a unit fell for want
+    of a retreat; `retreats` tells the fall-backs themselves, one outcome per unit that had to give
+    ground (`tenebrae/engine/retreat.py`).
     """
 
-    __slots__ = ("outcome", "eliminated", "ratio", "die", "breakdown")
+    __slots__ = ("outcome", "eliminated", "ratio", "die", "breakdown", "retreats")
 
     outcome: Optional[str]
     eliminated: list[Hex]
     ratio: Optional[tuple[int, int]]
     die: Optional[int]
     breakdown: Optional[RatioBreakdown]
+    retreats: list[RetreatOutcome]
 
     def __init__(self, outcome: Optional[str], eliminated: Iterable[Hex],
                  ratio: Optional[tuple[int, int]], die: Optional[int],
-                 breakdown: Optional[RatioBreakdown] = None) -> None:
+                 breakdown: Optional[RatioBreakdown] = None,
+                 retreats: Iterable[RetreatOutcome] = ()) -> None:
         """Keeps the result of a combat.
 
         Args:
             outcome: The Table I outcome, or `None` if the combat could not be resolved.
-            eliminated: The squares cleared.
+            eliminated: The squares cleared, the fall-backs' own eliminations included.
             ratio: The strength ratio read, attacker in the numerator.
             die: The die as the table read it.
             breakdown: The computation behind the ratio.
+            retreats: What each unit forced to fall back did.
         """
         self.outcome = outcome
         self.eliminated = list(eliminated)
         self.ratio = ratio
         self.die = die
         self.breakdown = breakdown
+        self.retreats = list(retreats)
+
+    @property
+    def moves(self) -> list[tuple[Hex, Hex]]:
+        """Every unit that gave ground, `(origin, destination)`, in the order they moved."""
+        return [move for retreat in self.retreats for move in retreat.moves]
+
+    def square_after(self, hexagon: Hex) -> Hex:
+        """Follows the unit that stood on a square through the fall-backs of this combat.
+
+        The combat register counts units by their square, and a combat that moves them would
+        otherwise mark squares they have left (see `tenebrae/engine/combat_register.py`). A pushed
+        unit may be moved by more than one chain: the moves are therefore followed in order.
+
+        Args:
+            hexagon: The square the unit stood on when the combat was declared.
+
+        Returns:
+            The square it stands on now - the same one if it did not move, and the one it was
+            eliminated on if it was.
+        """
+        square = hexagon
+        for origin, destination in self.moves:
+            if origin == square:
+                square = destination
+        return square
 
     def __repr__(self) -> str:
-        """The outcome and the number of squares cleared."""
-        return f"CombatResult({self.outcome!r}, {len(self.eliminated)} eliminated)"
+        """The outcome, the squares cleared and the units that gave ground."""
+        return (f"CombatResult({self.outcome!r}, {len(self.eliminated)} eliminated, "
+                f"{len(self.moves)} fell back)")
 
 
-def fight(board: Board, target_hexagon: Hex, attacker_hexagons: Sequence[Hex],
-          roll: int) -> CombatResult:
-    """Resolves a combat on the board and **removes** the eliminated pieces.
+def suffers_a_retreat(piece: Optional[Piece], hexagon: Hex, as_defender: bool) -> bool:
+    """Says whether a unit is one the booklet lets a retreat result touch.
+
+    Two exemptions, both the booklet's own: "a unit firing missiles can in no case suffer a
+    retreat or exchange result", and "a unit defending in a castle or a citadel does not suffer DR
+    results".
+
+    Args:
+        piece: The unit, or `None` for an empty square.
+        hexagon: The square it holds.
+        as_defender: True when it is suffering a `DR`, False for an `AR`.
+
+    Returns:
+        True if it must fall back.
+    """
+    if piece is None or fires_missiles(piece):
+        return False
+    return not (as_defender and hexagon.terrain in RETREAT_PROOF_TERRAINS)
+
+
+def record_the_loss(casualties: Optional[Casualties], hexagon: Hex,
+                    piece: Optional[Piece]) -> None:
+    """Enters a unit removed from play in the game's register of casualties.
+
+    "Eliminated units are kept by the player who eliminated them": the taker is the side opposing
+    the one that fell - the only other side in a combat, and the one that forced the retreat when
+    a unit falls for want of one.
+
+    Args:
+        casualties: The register, or `None` when the caller keeps none.
+        hexagon: The square the unit fell on.
+        piece: The piece removed; nothing is recorded for an empty square.
+    """
+    if casualties is None or piece is None:
+        return
+    casualties.record(hexagon, piece, OPPONENTS.get(piece.side))
+
+
+def fight(board: Board, target_hexagon: Hex, attacker_hexagons: Sequence[Hex], roll: int,
+          casualties: Optional[Casualties] = None) -> CombatResult:
+    """Resolves a combat on the board, **removing** the eliminated pieces and falling back the rest.
 
     The attackers are held to be valid - in range, on the right side: it is up to the caller to
     have filtered them. An attacker with no legible strength is ignored in the computation but
     shares the group's fate. `AE` removes the attackers, `DE` the target, `EX` both - except the
     attackers firing missiles, whom the booklet exempts from retreat and exchange; `AR` and `DR`
-    change nothing.
+    make them fall back one square, and a unit with nowhere to fall back to is removed from play in
+    its turn (`tenebrae/engine/retreat.py`).
 
     Args:
         board: The board the combat is played on.
         target_hexagon: The defender's square.
         attacker_hexagons: The attackers' squares.
         roll: The die result, 1 to 6.
+        casualties: The game's register of units removed from play, filled as they fall. Optional:
+            a caller that keeps no count - a test questioning the table - passes none.
 
     Returns:
         The result; its `outcome` is `None` if the target is absent or has no legible strength.
@@ -345,6 +432,47 @@ def fight(board: Board, target_hexagon: Hex, attacker_hexagons: Sequence[Hex],
     if outcome in (DE, EX):
         eliminated.append(target_hexagon)
     for hexagon in eliminated:
+        record_the_loss(casualties, hexagon, board.piece_on(hexagon))
         board.remove(hexagon)
 
-    return CombatResult(outcome, eliminated, breakdown.ratio, breakdown.die, breakdown)
+    retreats = fall_back_from(board, target_hexagon, attacker_hexagons, outcome, casualties)
+    # A unit that could not fall back has left the board too: the caller clears one list of
+    # squares, whichever way they were emptied.
+    eliminated.extend(retreat.eliminated for retreat in retreats
+                      if retreat.eliminated is not None)
+
+    return CombatResult(outcome, eliminated, breakdown.ratio, breakdown.die, breakdown, retreats)
+
+
+def fall_back_from(board: Board, target_hexagon: Hex, attacker_hexagons: Sequence[Hex],
+                   outcome: str, casualties: Optional[Casualties]) -> list[RetreatOutcome]:
+    """Applies whichever of the two retreat results the table gave, if it gave one.
+
+    Args:
+        board: The board, modified in place.
+        target_hexagon: The defender's square.
+        attacker_hexagons: The attackers' squares.
+        outcome: The Table I outcome.
+        casualties: The register to enter a unit that falls for want of a retreat.
+
+    Returns:
+        One outcome per unit that had to give ground; empty for the three eliminations.
+    """
+    if outcome == DR:
+        defender = board.piece_on(target_hexagon)
+        if not suffers_a_retreat(defender, target_hexagon, as_defender=True):
+            return []
+        outcomes = [fall_back(board, target_hexagon)]
+    elif outcome == AR:
+        falling = [hexagon for hexagon in attacker_hexagons
+                   if suffers_a_retreat(board.piece_on(hexagon), hexagon, as_defender=False)]
+        outcomes = fall_back_together(board, falling)
+    else:
+        return []
+
+    for retreat in outcomes:
+        # The piece is already off the board: the outcome carries it, which is what the register
+        # needs to name it.
+        if retreat.eliminated is not None:
+            record_the_loss(casualties, retreat.eliminated, retreat.piece)
+    return outcomes

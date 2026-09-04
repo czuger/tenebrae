@@ -30,18 +30,28 @@ def empty_table(application):
 
 @pytest.fixture
 def scenarios_directory(tmp_path, monkeypatch):
-    """Diverts the scenarios directory to a copy of the real one, and returns it."""
+    """Diverts the scenarios directory to a copy of the real one, every scenario offered.
+
+    The copies start offered whatever their originals say - no. 4 is withdrawn in the repository as
+    it stands - so that the chooser these tests read holds the list they have themselves composed.
+    """
     for path in engine_scenario.SCENARIOS.glob("scenario-*.json"):
-        shutil.copy(path, tmp_path / path.name)
+        copy = tmp_path / path.name
+        shutil.copy(path, copy)
+        write_the_field(copy, True)
     monkeypatch.setattr(engine_scenario, "SCENARIOS", tmp_path)
     return tmp_path
 
 
 def disable(directory, number):
     """Writes `"enabled": false` into a scenario's file, as an administrator would by hand."""
-    path = next(directory.glob(f"scenario-{number:02d}-*.json"))
+    write_the_field(next(directory.glob(f"scenario-{number:02d}-*.json")), False)
+
+
+def write_the_field(path, enabled):
+    """Sets the `enabled` field of a scenario file, leaving the rest of it as it was."""
     values = json.loads(path.read_text(encoding="utf-8"))
-    values["enabled"] = False
+    values["enabled"] = enabled
     path.write_text(json.dumps(values, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 

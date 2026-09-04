@@ -25,6 +25,7 @@ PLAIN = {"q": 1, "r": 26, "s": -27}
 NEIGHBOUR = {"q": 2, "r": 26, "s": -28}
 DWARF = "nains-01-5-infanteries"
 ORC = "orques-01-15-infanteries"
+ARCHER = "yzent-03-8-archers"      # darkness, strength 2: a dwarf eliminates it outright
 
 # Two made-up Discord identifiers, to seat someone at each side.
 DWARF_PLAYER = "100000000000000001"
@@ -135,23 +136,58 @@ class TestPersistedCombat:
         assert saved[Hex(**PLAIN).key] == DWARF
 
     def test_the_phase_register_is_saved_and_resumed(self, client, monkeypatch):
+        """The target falls back: it is the square it **reached** that is saved as engaged, or it
+        could be attacked again this phase from its new square."""
         monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
         client.get("/")
         current_game.BOARD.clear()
         place(PLAIN, DWARF)
-        place(NEIGHBOUR, ORC)   # ratio 1-1, die 1 -> a retreat: nobody is eliminated
+        place(NEIGHBOUR, ORC)   # ratio 1-1, die 1 -> DR: the orc falls back one square
         client.post("/phase/next")
-        assert client.post("/combat",
-                           json={"target": NEIGHBOUR, "attackers": [PLAIN]}).json["resolved"]
+        answer = client.post("/combat",
+                             json={"target": NEIGHBOUR, "attackers": [PLAIN]}).json
+        assert answer["resolved"] is True
+        fallen_back = Hex(**{name: answer["retreats"][0]["to"][name] for name in ("q", "r", "s")})
 
         game = Game.objects.first()
         assert game.engaged_attackers == [Hex(**PLAIN).key]
-        assert game.engaged_targets == [Hex(**NEIGHBOUR).key]
+        assert game.engaged_targets == [fallen_back.key]
 
         current_game.REGISTER.reset()
         client.get("/")
         assert not current_game.REGISTER.can_attack(Hex(**PLAIN).key)
-        assert not current_game.REGISTER.can_be_targeted(Hex(**NEIGHBOUR).key)
+        assert not current_game.REGISTER.can_be_targeted(fallen_back.key)
+
+    def test_the_fallen_are_saved_and_resumed(self, client, monkeypatch):
+        """The booklet counts the eliminated units at the end of the game: they must survive a
+        restart, like the board and the turn."""
+        monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
+        client.get("/")
+        current_game.BOARD.clear()
+        place(PLAIN, DWARF)       # strength 12
+        place(NEIGHBOUR, ARCHER)  # strength 2 -> ratio 6-1, die 1 -> DE
+        client.post("/phase/next")
+        assert client.post("/combat",
+                           json={"target": NEIGHBOUR, "attackers": [PLAIN]}).json["resolved"]
+
+        saved = Game.objects.first().casualties
+        assert len(saved) == 1
+        assert (saved[0].square, saved[0].piece) == (Hex(**NEIGHBOUR).key, ARCHER)
+        assert (saved[0].side, saved[0].taken_by) == ("tenebres", "alliance")
+
+        current_game.CASUALTIES.reset()
+        client.get("/")
+        assert current_game.CASUALTIES.points_taken_by("alliance") == 2
+
+    def test_a_game_saved_before_the_fallen_were_kept_is_still_resumed(self, client):
+        """The field did not exist: an old game reads back with an empty register."""
+        client.get("/")
+        game = Game.objects.first()
+        game.casualties = []
+        game.save()
+
+        client.get("/")
+        assert len(current_game.CASUALTIES) == 0
 
     def test_an_emptied_board_is_still_saved(self, client):
         """Nothing left standing is a game state like any other: the save must not refuse it."""

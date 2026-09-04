@@ -43,7 +43,7 @@ application serves.
 | --- | --- |
 | `app.py` | the factory `create_app`: the configuration, persistence, authentication, then the blueprints |
 | `config.py` | the configuration classes, read from `.env` |
-| `current_game.py` | the current game — `BOARD`, `TURN`, `REGISTER`, `SEATS`, `VERSION` —, its snapshots, saving and restoring it, the AI's turn |
+| `current_game.py` | the current game — `BOARD`, `TURN`, `REGISTER`, `CASUALTIES`, `SEATS`, `VERSION` —, its snapshots, saving and restoring it, the AI's turn |
 | `players.py` | the session's player, the table, the identity client |
 | `persistence.py` | the repositories hooked onto the application, and how the routes reach them |
 | `routes/` | the routes, one blueprint per subject, with the guards (`authorization.py`) and the request readers (`reading.py`) |
@@ -79,7 +79,8 @@ the two calls to Discord on `urllib` from the standard library.
 
 The game is recorded in **MongoDB** at every move played — a move, a combat, a phase change — and
 `GET /` resumes it. Only the game state goes there: the positions, the angle each counter lies at,
-the current phase, what the combat phase has already consumed, and **who holds which side** —
+the current phase, what the combat phase has already consumed, the units removed from play, and
+**who holds which side** —
 knowing who plays the Alliance is part of the game, and a restart must not empty the table. Beside
 it, two other collections: the known **players** (`joueurs`), and each one's **map view** (`vues`,
 see "Finding one's map view again") — the only one that is not part of the game. The map, the piece
@@ -93,7 +94,9 @@ The seats travel in the state dict, with the rest, and not through separate repo
 `_fill()` rewrites the whole game at every move, and seats held on the side would be erased at
 every save. A game recorded before players existed has no `places` field: it stays resumable, the
 table is simply empty. The same holds for the `inclinaisons` field, which came later: the pieces of
-an old save lie down once when it is resumed, and the first move played freezes their angles.
+an old save lie down once when it is resumed, and the first move played freezes their angles; and
+for `pertes`, the units removed from play, which came later still: a game saved before the retreat
+rule existed resumes with nobody fallen.
 
 **Running a local MongoDB**, through Docker:
 
@@ -359,11 +362,24 @@ tests), resolves through `tenebrae.engine.combat.fight` and applies the result:
 
 ```json
 {"resolved": true, "outcome": "DE", "message": "Combat résolu : Défenseur Éliminé",
- "eliminated": [{"q": 1, "r": 26, "s": -27, "terrain": "plaine"}], "roll": 4, "die": 4, "ratio": [3, 1],
+ "eliminated": [{"q": 1, "r": 26, "s": -27, "terrain": "plaine"}], "retreats": [], "roll": 4, "die": 4,
+ "ratio": [3, 1],
  "unavailable": {"attackers": [{"q": 0, "r": 26, "s": -26, "terrain": "plaine"}], "targets": []}}
 ```
 
-Only the outcomes `AE`, `DE` and `EX` remove pieces; the retreats (`AR`, `DR`) change nothing.
+The outcomes `AE`, `DE` and `EX` remove pieces, the retreats `AR` and `DR` move them: `eliminated`
+gives **every** square cleared — the units eliminated for want of anywhere to fall back included —
+and `retreats` the fall-backs themselves, `{"from": …, "to": …, "tilt": …}` per unit that gave
+ground, the retreating one before the friends it pushed. The angle travels with the square, as it
+does for a move: it is the server that draws it and that keeps it.
+
+The tab that asked for the combat lays those two lists out itself — the eliminated squares cleared
+**first**, since a unit falling back may be taking over the square of one that has just left the
+board — while the other tabs get the whole scene again through the stream. `fallThePiecesBack` in
+`static/map.js` takes each counter by the square it holds **before** any of them moves: along a
+chain of pushes each square is handed to the unit behind, and a counter looked up after the first
+step would be the one that has just arrived on it.
+
 `{"resolved": false, "message": …}` when it is not the combat phase, when the target is not an
 opponent, when it has already been attacked, or when no attacker is valid.
 
@@ -377,7 +393,9 @@ by different attackers. The count is kept **on the server side** by the module g
   phase and the Orcs', and at the next turn. `GET /` resumes it from the save, or empties it if it
   lays the scenario out again;
 - a combat **fought** enters all its attackers and its target in it, **whatever its outcome**: a
-  retreat, which the engine leaves without effect, has engaged its units all the same;
+  retreat has engaged its units all the same. The squares entered are those the units hold **after**
+  the combat (`CombatResult.square_after`): a unit that has fought and then fallen back must stay
+  marked, and it is no longer where it stood when the combat was declared;
 - a combat **refused** (no valid attacker) enters nothing.
 
 `unavailable` — carried by `#phase`, `GET`/`POST /phase…` and the response of `POST /combat` — gives
@@ -389,7 +407,10 @@ the **squares** of that register that still carry a piece, so that the page can 
 once, at import) — one line per event: a phase change, a seat taken, a unit out of range, a combat result
 in French, the AI's moves.
 
-A combat writes **two**: the ratio computation, then its outcome.
+A combat writes **two**, plus one per unit that had to give ground: the ratio computation, the
+fall-backs, then the outcome. The outcome is logged last and therefore read first — the column shows
+the most recent line at the top — so the player reads the headline, then the fall-backs it caused,
+then the computation behind it.
 
 ```
 Rapport 2-1 : attaque 12 + 8 = 20 contre défense 8 × 3 = 24 (montagne) — dé 4
@@ -1044,8 +1065,9 @@ nothing to the engine's rules, that the reach follows the placed piece's counter
 in contact reduces it, that a friend does not, and that an accepted move really changes the server's
 board. It also covers the **turn**: `#phase` in the page, `/phase/next` which skips magic and
 alternates the players, `/move` refused outside the movement phase, `/combat/range` by distance, and
-`/combat` which removes the right piece on a `DE` (die fixed by `monkeypatch` of `app.roll_the_die`)
-and touches nothing on a retreat. The rule of **one combat per phase** has its own section there: an
+`/combat` which removes the right piece on a `DE` (die fixed by `monkeypatch` of `app.roll_the_die`),
+falls the defender back on a `DR`, eliminates it when it has nowhere to go, and enters the fallen in
+the game's register of casualties. The rule of **one combat per phase** has its own section there: an
 attacker and a target refused at the second combat, a whole group of attackers marked at once, two
 units of the same counter tracked apart, the `unavailable` lists served to the browser, and the
 reset from one combat phase to the next then to the following turn. Every test there starts from a
@@ -1075,6 +1097,15 @@ contact with an Orc, move to combat, designate target and attacker, "Attaquer", 
 highlights fall away — and **one combat per phase**: the engaged units greyed out exactly where the
 server's register enters them, the click that does not take them up again, and the greying that
 falls at the next phase.
+
+`tests/application/test_retreat_browser.py` follows a **fall-back on screen**, in the tab that
+ordered the combat: the defender that gives ground moves, the friends it pushes move with it, the
+unit with nowhere to go leaves the board, and the counter that falls back lies down at the server's
+angle. The stream is **cut** there (`page.route(…, abort)`) on purpose: a scene laid out again would
+put every counter right whatever the answer carried, and the file would check nothing. Its figures
+are built on the map — a corner of bare plain, wide enough and inside the window — then saved and
+the page loaded again on them, since nothing else would bring the tab a scene composed behind its
+back.
 
 `tests/application/test_persistence.py` is the one that looks into the base — at the documents
 themselves — and plays the server's restart: memory emptied, only the base knows where the game

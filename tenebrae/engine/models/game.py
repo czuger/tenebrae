@@ -14,10 +14,33 @@ The MongoDB field names stay as they were, pinned by `db_field`: renaming a stor
 orphan the games already saved, and the `parties` collection is not renamed either.
 """
 
-from mongoengine import (DateTimeField, Document, FloatField, IntField, ListField, MapField,
-                         StringField)
+from mongoengine import (DateTimeField, Document, EmbeddedDocument, EmbeddedDocumentListField,
+                         FloatField, IntField, ListField, MapField, StringField)
 
 from tenebrae.engine.phase import COMBAT, MOVEMENT
+
+
+class Casualty(EmbeddedDocument):
+    """One unit removed from play, kept for the count at the end of the game.
+
+    "Eliminated units are kept by the player who eliminated them, to establish their total of
+    points at the end of the game": `taken_by` is that player's side, `side` the army the unit
+    fought for. Both facts are kept and neither is derived - see
+    `tenebrae/engine/casualties.py`, whose entries these are.
+
+    Embedded in `Game` rather than a collection of its own: a casualty has no life outside the
+    game that produced it, and the game is rewritten whole at every move.
+    """
+
+    square = StringField(required=True, db_field="case")
+    piece = StringField(required=True, db_field="pion")
+    side = StringField(required=True, db_field="camp")
+    # Empty when nobody claims the unit: the neutral side has no opponent.
+    taken_by = StringField(db_field="prise_par")
+
+    def __repr__(self) -> str:
+        """The piece, its square and the side that took it."""
+        return f"Casualty({self.piece} on {self.square}, taken by {self.taken_by or 'nobody'})"
 
 
 class Game(Document):
@@ -25,8 +48,8 @@ class Game(Document):
 
     `placement` is the engine's format, "q,r,s" -> piece key - that of `Board.to_dict()` and of
     `Scenario.placement`. Cube coordinates use only digits, commas and the minus sign, so they pass
-    as Mongo document keys. Eliminated pieces simply disappear from the placement: the engine keeps
-    no graveyard.
+    as Mongo document keys. An eliminated piece disappears from the placement and reappears in
+    `casualties`, which is the game's graveyard: the booklet counts the fallen at the end.
     """
 
     scenario = IntField(required=True)
@@ -46,6 +69,10 @@ class Game(Document):
     # What the current combat phase has consumed: squares, not pieces.
     engaged_attackers = ListField(StringField(), db_field="attaquants_engages")
     engaged_targets = ListField(StringField(), db_field="cibles_engagees")
+
+    # The units removed from play since the game began, oldest first. Not required: games saved
+    # before the retreat rule existed have none, and must stay resumable.
+    casualties = EmbeddedDocumentListField(Casualty, db_field="pertes")
 
     # Side -> Discord identifier; a free side has no key. An identifier rather than a
     # `ReferenceField`: the repositories exchange state dicts, and the game stays readable on its

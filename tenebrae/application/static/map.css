@@ -8,8 +8,11 @@ body {
    page; the counters themselves are in pieces.css, shared with the scenario page. Only what the
    game adds to them is left here. */
 
-/* The reachable squares: the same piece, faded, under the placed pieces. */
-.ghost {
+/* The reachable squares: the same piece, faded, under the placed pieces. A ghost marks a square a
+   unit could go to and is not a counter lying on one, so it casts nothing - which is why the rule
+   names the piece as well as the ghost: the drawn face's own shadow (pieces.css) is worn by two
+   classes, and a single one would not take it off. */
+.piece.ghost {
   opacity: 0.5;
   box-shadow: none;
   z-index: 0;

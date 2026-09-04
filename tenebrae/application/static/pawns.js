@@ -31,6 +31,19 @@
 // rather than a colour invented for it. The drawing has to read on the square: the file's test
 // holds the two of them apart in brightness.
 //
+// --- One counter's own colours: `static/pawn_colours.json` ---
+//
+// An army's colours say whose the unit is; now and then a single counter is worth telling from the
+// rest of its army - a named character among the rank and file. That is a third file, and it holds
+// exceptions only:
+//
+//     [photograph, square, drawing]
+//
+// A counter named there is painted in those two colours instead of its army's; a counter absent
+// from it - which is nearly all of them - takes its army's, as before. The file is short on
+// purpose: one line is added when one counter deserves one, and there is nothing to fill in
+// otherwise.
+//
 // --- Where the icons come from, and where their colour does ---
 //
 // `static/icons/` is the game-icons.net set, and it carries one variant only: a black drawing on a
@@ -60,6 +73,9 @@ const CORRESPONDENCES_PATH = "/static/pawn_icons.json";
 // The armies' colours, read the same way and from beside it.
 const COLOURS_PATH = "/static/faction_colours.json";
 
+// The counters that are painted in colours of their own rather than their army's.
+const PAWN_COLOURS_PATH = "/static/pawn_colours.json";
+
 // What turns the icons on from the address bar - "?icons=1" - and off again - "?icons=0". It is the
 // scenario page's only way in, having no button, and on the board it overrides what was stored.
 const QUERY_KEY = "icons";
@@ -75,8 +91,11 @@ const ANY_OTHER_ARMY = { square: "#c3b393", drawing: "#2a2320" };
 // other units only tints what it brings.
 let correspondences = null; // pawn_icons.json, as a photograph -> icon map
 let armyColours = null; // faction_colours.json, as a faction -> { square, drawing } map
+let pawnColours = null; // pawn_colours.json, as a photograph -> { square, drawing } map
 const iconSources = new Map(); // "lorc/barbute" -> the SVG, as the file has it
-const tintedIcons = new Map(); // "lorc/barbute|02-reissland" -> the data URL an <img> takes
+// The tinted result is kept under the icon and the two colours it was painted with, not under the
+// army: two counters of one army painted apart must not be handed each other's drawing.
+const tintedIcons = new Map(); // "lorc/barbute|#a8cdf0|#10243d" -> the data URL an <img> takes
 let loading = null; // the reading in flight, so that two clicks in a row make one
 
 /**
@@ -113,6 +132,19 @@ async function readTheArmyColours() {
   return armyColours;
 }
 
+/** The counters painted apart from their army, read once from their file: exceptions only. */
+async function readThePawnColours() {
+  if (pawnColours) return pawnColours;
+  const answer = await fetch(PAWN_COLOURS_PATH);
+  if (!answer.ok) throw new Error(`the pawn colours were not read (${answer.status})`);
+  const rows = await answer.json();
+  pawnColours = new Map(rows.filter(([, square, drawing]) => square && drawing)
+                            .map(([photograph, square, drawing]) => [photograph,
+                                                                     { square, drawing }]));
+  pawnsTrace.info("pawn colours read", { rows: rows.length, apart: pawnColours.size });
+  return pawnColours;
+}
+
 /** The name of the counter's photograph, which is what a row of the file is found by. */
 function photographOf(piece) {
   return (piece.image ?? "").split("/").pop();
@@ -131,6 +163,16 @@ function pawnIconOf(piece) {
 
 function armyColoursOf(piece) {
   return armyColours?.get(piece.faction) ?? ANY_OTHER_ARMY;
+}
+
+/** What the counter is painted in: its own row if it has one, its army's colours otherwise. */
+function pawnColoursOf(piece) {
+  return pawnColours?.get(photographOf(piece)) ?? armyColoursOf(piece);
+}
+
+/** What a tinted icon is kept under: the drawing, and the two colours it was painted with. */
+function tintOf(file, colours) {
+  return `${file}|${colours.square}|${colours.drawing}`;
 }
 
 async function readTheIcon(file) {
@@ -168,14 +210,15 @@ function tintTheIcon(source, colours) {
 }
 
 async function drawThePawnIcons(pieces) {
-  await Promise.all([readTheCorrespondences(), readTheArmyColours()]);
+  await Promise.all([readTheCorrespondences(), readTheArmyColours(), readThePawnColours()]);
 
   const wanted = new Map();
   for (const piece of pieces) {
     const file = pawnIconOf(piece);
     if (!file) continue;
-    const name = `${file}|${piece.faction}`;
-    if (!tintedIcons.has(name)) wanted.set(name, { file, colours: armyColoursOf(piece) });
+    const colours = pawnColoursOf(piece);
+    const name = tintOf(file, colours);
+    if (!tintedIcons.has(name)) wanted.set(name, { file, colours });
   }
   if (wanted.size === 0) return;
 
@@ -215,7 +258,7 @@ async function loadThePawnIcons(pieces) {
 function pawnIconSource(piece) {
   const file = pawnIconOf(piece);
   if (!file) return null;
-  return tintedIcons.get(`${file}|${piece.faction}`) ?? null;
+  return tintedIcons.get(tintOf(file, pawnColoursOf(piece))) ?? null;
 }
 
 /** What a pawn wears: its icon if there is one and the icons are on, its photograph otherwise. */

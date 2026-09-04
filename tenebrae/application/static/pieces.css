@@ -11,10 +11,23 @@
 /* The pawn showing its drawn face instead of its photograph (see static/pawns.js): a flat square of
    the army's colour, where the counter is a scan of cardboard. The hairline gives the clear blue an
    edge on a pale plain; `border-box` keeps the icon the size of the counter it stands in for - the
-   line eats inwards rather than widening the square. */
+   line eats inwards rather than widening the square.
+
+   A photograph carries the shading of the cardboard it was taken from; the drawn square carries
+   none, and reads as printed on the map rather than lying on it. Two things put it back on top:
+   the hairline is graded - lightest along the top edge, darkest along the bottom - which is the
+   counter's own thickness lit from above, and the shadow is doubled, a tight one for where the
+   cardboard touches the map and a soft one for what it casts. Both stay small: a counter is
+   fifteen pixels on a fitted map, and a heavier shadow would read as a hole in the ground.
+
+   An inset shadow would be the usual way to bevel this, and it does nothing here: the pawn is an
+   <img> whose drawing fills its box, and an inset is painted under the content. Hence the border. */
 .piece.icon {
   box-sizing: border-box;
   border: 1px solid rgba(27, 23, 19, 0.55);
+  border-color: rgba(27, 23, 19, 0.35) rgba(27, 23, 19, 0.6)
+                rgba(27, 23, 19, 0.75) rgba(27, 23, 19, 0.45);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 4px 9px rgba(0, 0, 0, 0.4);
 }
 
 /* The piece in hand: the one whose moves are shown on the board, the one being moved or removed on

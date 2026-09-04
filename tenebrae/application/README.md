@@ -51,7 +51,7 @@ application serves.
 | `stream.py` | the broadcaster behind `/stream` |
 | `discord_client.py` | the OAuth2 flow, and the fake client of the tests |
 | `pieces.py`, `grid.py` | the pieces and the grid alignment, as the browser receives them |
-| `static/`, `templates/` | the three pages — the board, the map-fixing page, the scenario page — and what they share: `geometry.js`, `zoom.js`, `pieces.js`, `debug.js`, `pawns.js` (with `pawn_icons.json` and `faction_colours.json`, the two data files it reads) |
+| `static/`, `templates/` | the three pages — the board, the map-fixing page, the scenario page — and what they share: `geometry.js`, `zoom.js`, `pieces.js`, `debug.js`, `pawns.js` (with `pawn_icons.json`, `faction_colours.json` and `pawn_colours.json`, the three data files it reads) |
 | `extensions.py` | the MongoDB extension |
 | `models/`, `repositories/` | what is not the game: the connection and the map view (see "The models") |
 
@@ -578,7 +578,7 @@ list of triples, one row per faction the pages can lay:
 | Reissland, and the populace with it | clear blue | dark |
 | Yzent | deep blue | pale |
 | the Empire | gold | black |
-| the Empire of Lynn | deep blue of its own | green |
+| the Empire of Lynn, and the Juggernaut with it | deep blue of its own | green |
 | the templars | white | red |
 | the chaos | black | bright red |
 | the elves | deep green | white |
@@ -587,7 +587,7 @@ list of triples, one row per faction the pages can lay:
 | the sahuagins | marine green | pale |
 | the undead | white | black |
 | the demons | yellow | red |
-| the flyings | light purple | black |
+| the flyings | violet | black |
 | the conjurations | white | deep purple |
 | every other faction | the tone of the cardboard | dark |
 
@@ -601,6 +601,48 @@ nothing at all, so `tests/application/test_faction_colours.py` holds the two of 
 points of brightness apart — and, as for the icons, that every faction of the box has a row, that
 no row names one it does not carry, and that a coloured army carries both colours and not half a
 pair.
+
+### One counter painted apart — `static/pawn_colours.json`
+
+An army's colours say whose the unit is; now and then a single counter is worth telling from the
+rest of its army — a named character among the rank and file. That is a third file, and it holds
+**exceptions only**:
+
+```json
+["conjurations-04-6-elementaires-de-feu.jpg",  "#f8f7f4",  "#d94f04"],
+["marqueurs-02-brume-mur-de-brume.jpg",        "#cfe4f7",  "#111111"]
+```
+
+| The column | What it holds |
+| --- | --- |
+| `photograph` | the name of the counter's photograph, as in `pawn_icons.json` |
+| `square`, `drawing` | the two colours it is painted in instead of its army's, `"#rrggbb"` |
+
+A counter named there wins over its faction; a counter absent from it — which is nearly all of
+them — takes its army's colours as before. **The file is short on purpose**: one line is added
+when one counter deserves one, and there is nothing to fill in otherwise. What it holds as things
+stand is what an army's colour cannot say — the four elementals apart from one another, fire in
+its own orange, water in blue, earth in brown, air in a light grey; the rats, the wolves and the
+bats in a darker one, and the ruined fortress and the breached wall with them; the wall of flames
+in the elementals' orange and the wall of mist black on a pale sky; and the dwarves' mage told
+from the dwarves. Delete a row and its counter goes back to its army's colours.
+
+The tinted drawings are kept **under the icon and the two colours it was painted with**, not under
+the army: two counters of one army painted apart must not be handed each other's drawing.
+
+`tests/application/test_pawn_colours.py` holds the same things as the armies' file — a photograph
+the box carries, no counter named twice, both colours, the drawing readable on its square — and
+two of its own: that a row does not simply repeat its army's colours, which would except nothing,
+and that the counter it names has an icon to paint at all.
+
+**The drawn pawn is made to lie on the map.** A photograph carries the shading of the cardboard it
+was taken from; the drawn square carries none and would read as printed on the map rather than
+placed on it. Two things in `pieces.css` put it back on top: its hairline is graded — lightest
+along the top edge, darkest along the bottom, which is the counter's own thickness lit from above
+— and its shadow is doubled, a tight one where the cardboard meets the map and a soft one for what
+it casts. Both stay small; a counter is some fifteen pixels on a fitted map, and a heavier shadow
+reads as a hole in the ground. The ghosts are left flat — they mark a square a unit could go to,
+not a counter lying on one — and the piece in hand still gives way to its gold ring.
 
 A pawn is an **`<img>` in both faces, and only its source changes**: the selection, the ghosts, the
 card, the click and the tests all go on reading `img.piece`, and nothing else in `map.js` knows
@@ -643,7 +685,7 @@ documents, and a second glyph is not held to the width of the first — so what 
 same kind and, like it, out of reach of the clipping on the right.
 
 `tests/application/test_pawns_browser.py` holds all of it, taking the counters and the armies it
-works on from the two files rather than writing down what they hold: which counter is drawn and
+works on from the three files rather than writing down what they hold: which counter is drawn and
 which keeps its photograph, every icon named read from the server, every coloured army painted with
 its own row and every blank one left the cardboard, the icons landing on the
 counters' own squares at the counters' own size, the ghosts and the scene laid out again wearing

@@ -49,9 +49,17 @@ CORRESPONDENCES = dict(read("pawn_icons.json"))
 ARMY_COLOURS = {faction: {"square": square, "drawing": drawing}
                 for faction, square, drawing in read("faction_colours.json") if square}
 
+# The counters painted apart from their army, by photograph. The file holds exceptions only, and
+# may hold none at all.
+PAWN_COLOURS = {photograph: {"square": square, "drawing": drawing}
+                for photograph, square, drawing in read("pawn_colours.json") if square}
+
 # Where each photograph lies, as the board names it: the faction's directory, then the file.
 PHOTOGRAPHS = {str(piece["path"]).split("/")[1]: str(piece["path"])
                for piece in PIECE_CATALOGUE}
+
+# Which army each counter belongs to, by photograph.
+FACTIONS = {str(piece["path"]).split("/")[1]: str(piece["faction"]) for piece in PIECE_CATALOGUE}
 
 # The symbol each counter carries, by photograph: two counters may share one and still be drawn
 # apart, the row being found by the photograph.
@@ -88,6 +96,12 @@ BLANK_COUNTERS = counters_drawn_by_nothing(4) + ["11-orques/there-is-no-such-cou
 COLOURED_ARMIES = sorted(ARMY_COLOURS)
 AN_ARMY = COLOURED_ARMIES[0]
 
+# A counter the exceptions file paints apart, and the army it would otherwise be painted with.
+PAINTED_APART = next(iter(PAWN_COLOURS), None)
+
+needs_a_counter_painted_apart = pytest.mark.skipif(
+    PAINTED_APART is None, reason="no counter is painted apart from its army")
+
 # An army the colours file leaves blank, hence the tone of the cardboard - and a second one, to
 # hold that they take the same.
 CARDBOARD_ARMIES = sorted({str(piece["faction"]) for piece in PIECE_CATALOGUE}
@@ -100,32 +114,42 @@ A_DRAWN_SOURCE = "data:image/svg+xml"
 ORC_MOVEMENT = "Phase de mouvement — Orques"
 PHASES_TO_THE_ORCS = 2
 
-# The army the board's set-up has moving, and the side the scenario written below fields.
+# The army the board's set-up has moving.
 ORCS = "11-orques"
-DARKNESS = "tenebres"
+
+# The side that plays no turn: a scenario laid out with those alone has no army at all.
+NEUTRAL = "neutre"
 
 
-def counters_of_the_darkness(drawn):
-    """The Darkness's counters whose row names an icon, or whose row is blank.
+def counters_on_either_side_of_the_correspondences():
+    """One counter the file draws and one it leaves blank, of one side where it can be.
 
-    One of each is what the scenario written below is laid out with. They are taken from the file
-    rather than named: as it fills up, which counter is still blank moves from one army to the
-    next, and the side is what keeps that scenario's armies to one.
+    The scenario written below lays the two of them. They are taken from the file rather than
+    named: as it fills up, the counter still blank moves from one army to the next, and there is
+    no counter one can point at and call undrawn for good. A side of its own is preferred for each,
+    two neutral pieces making a scenario with no army in it.
+
+    Returns:
+        The key of a drawn counter and the key of a blank one, `None` for either the file no
+        longer offers.
     """
-    return [str(piece["key"]) for piece in PIECE_CATALOGUE
-            if piece["side"] == DARKNESS
-            and bool(CORRESPONDENCES[str(piece["path"]).split("/")[1]]) is drawn]
+    drawn, blank = [], []
+    for piece in PIECE_CATALOGUE:
+        listed = drawn if CORRESPONDENCES[str(piece["path"]).split("/")[1]] else blank
+        listed.append((str(piece["key"]), str(piece["side"])))
+    if not drawn or not blank:
+        return None, None
+
+    kept, side = next((counter for counter in blank if counter[1] != NEUTRAL), blank[0])
+    of_that_side = [key for key, other in drawn if other == side]
+    with_a_side = [key for key, other in drawn if other != NEUTRAL]
+    return next(iter(of_that_side + with_a_side + [drawn[0][0]])), kept
 
 
-# Two counters on either side of the correspondences: one the file draws, one it leaves blank and
-# which therefore keeps its photograph. Which counter carries a drawing is a hand's business, so
-# both come from the file - and the blank one can run dry as the file fills up, which the tests
-# that need the pair say rather than fail over.
-A_DRAWN_UNIT = next(iter(counters_of_the_darkness(drawn=True)), None)
-AN_UNDRAWN_UNIT = next(iter(counters_of_the_darkness(drawn=False)), None)
+A_DRAWN_UNIT, AN_UNDRAWN_UNIT = counters_on_either_side_of_the_correspondences()
 
 needs_a_drawn_unit = pytest.mark.skipif(
-    A_DRAWN_UNIT is None, reason="the correspondences draw no counter of the Darkness")
+    A_DRAWN_UNIT is None, reason="the correspondences draw no counter at all")
 # The scenario the edit page is opened on here, written into the diverted directory.
 DRAWN_SCENARIO = 7
 DRAWN_SCENARIO_FILE = f"scenario-{DRAWN_SCENARIO:02d}-deux-faces.json"
@@ -430,6 +454,66 @@ def test_an_army_whose_row_is_blank_takes_the_tone_of_the_cardboard(board):
     assert cardboard[0] not in coloured
 
 
+# --- A counter painted apart from its army ---
+
+def ask_the_pawn_colours(page, photographs):
+    """What the page paints those counters in, the files read first."""
+    return page.evaluate("""async (photographs) => {
+        await loadThePawnIcons([]);
+        return photographs.map(([image, faction]) => pawnColoursOf({ image, faction }));
+    }""", photographs)
+
+
+@needs_a_counter_painted_apart
+def test_a_counter_of_its_own_row_is_painted_by_that_row(board):
+    """The exception is the counter's, not its army's: the row wins over the faction."""
+    faction = FACTIONS[PAINTED_APART]
+    [given] = ask_the_pawn_colours(board, [[PHOTOGRAPHS[PAINTED_APART], faction]])
+
+    assert given == PAWN_COLOURS[PAINTED_APART]
+    assert given != ARMY_COLOURS.get(faction, board.evaluate("() => ANY_OTHER_ARMY"))
+
+
+@needs_a_counter_painted_apart
+def test_the_rest_of_that_army_is_painted_as_before(board):
+    """One counter told apart tells no other: its army is left exactly as it was."""
+    faction = FACTIONS[PAINTED_APART]
+    others = [PHOTOGRAPHS[photograph] for photograph, army in FACTIONS.items()
+              if army == faction and photograph not in PAWN_COLOURS]
+    if not others:
+        pytest.skip("that army has no other counter")
+
+    given = ask_the_pawn_colours(board, [[photograph, faction] for photograph in others])
+    expected = ARMY_COLOURS.get(faction, board.evaluate("() => ANY_OTHER_ARMY"))
+    assert given == [expected] * len(others)
+
+
+@needs_a_counter_painted_apart
+def test_the_icon_of_a_counter_painted_apart_carries_its_own_colours(board):
+    """What an <img> takes is tinted with the row's two colours, and with neither of the set's."""
+    unit = {"image": PHOTOGRAPHS[PAINTED_APART], "faction": FACTIONS[PAINTED_APART]}
+    drawn = board.evaluate("""async (unit) => {
+        await loadThePawnIcons([unit]);
+        return decodeURIComponent(pawnIconSource(unit));
+    }""", unit)
+
+    colours = PAWN_COLOURS[PAINTED_APART]
+    assert f'fill="{colours["square"]}"' in drawn
+    assert f'fill="{colours["drawing"]}"' in drawn
+    assert 'fill="#fff"' not in drawn and 'fill="#000"' not in drawn
+
+
+@needs_a_counter_painted_apart
+def test_the_counter_painted_apart_answers_its_army_before_the_file_is_read(board):
+    """It is a data file like the other two, and the fallback while it is in flight is the army's
+    own colours - never a colour claimed for a counter that has none."""
+    unit = [PHOTOGRAPHS[PAINTED_APART], FACTIONS[PAINTED_APART]]
+    before = board.evaluate("([image, faction]) => pawnColoursOf({ image, faction })", unit)
+
+    assert before == board.evaluate("() => ANY_OTHER_ARMY")
+    assert ask_the_pawn_colours(board, [unit]) == [PAWN_COLOURS[PAINTED_APART]]
+
+
 def test_the_colours_answer_the_cardboard_before_their_file_is_read(board):
     """It is a data file, and the fallback while it is in flight is the tone of the cardboard -
     never a colour claimed for an army that has none."""
@@ -511,6 +595,54 @@ def test_the_ghosts_wear_the_face_in_use(board):
     ghosts = pawn_faces(board, "img.ghost")
     assert ghosts
     assert all(ghost["icon"] and ghost["drawn"] for ghost in ghosts)
+
+
+# --- The drawn pawns lie on the map, they are not printed on it ---
+
+def shadow_of(page, selector):
+    """The box-shadow each of those images computes to."""
+    return page.evaluate("""(selector) => [...document.querySelectorAll(selector)].map(
+        (image) => getComputedStyle(image).boxShadow)""", selector)
+
+
+def test_a_drawn_pawn_casts_a_shadow_of_its_own(board):
+    """A photograph is a scan of cardboard and carries the shading of the thing photographed; the
+    drawn face is a flat square, and what puts it on top of the map rather than in it is the
+    shadow under it - two layers, where the counter touches and what it casts."""
+    photographs = set(shadow_of(board, "img.piece:not(.ghost)"))
+    swap_the_face(board)
+    drawn = shadow_of(board, "img.piece.icon:not(.ghost)")
+
+    assert drawn, "no unit of the set-up took an icon"
+    assert all(shadow not in photographs for shadow in drawn), drawn
+    assert all(shadow.count("rgba") == 2 for shadow in drawn), drawn
+
+
+def test_a_drawn_ghost_casts_nothing(board):
+    """A ghost marks a square a unit could go to, not a counter lying on one. Its rule has to name
+    the piece as well as the ghost to say so: the drawn face's shadow is worn by two classes."""
+    swap_the_face(board)
+    move_to_the_orcs_movement(board)
+    piece, _, _ = a_piece_that_can_move(
+        board, lambda unit: unit.faction == ORCS and has_an_icon(unit.key))
+    show_the_ghosts(board, piece)
+
+    ghosts = shadow_of(board, "img.ghost")
+    assert ghosts
+    assert all(shadow == "none" for shadow in ghosts)
+
+
+def test_the_drawn_pawn_in_hand_is_still_ringed_in_gold(board):
+    """The shadow gives way to what the board has to say about the counter: the piece in hand
+    keeps its glow, drawn face or not."""
+    swap_the_face(board)
+    move_to_the_orcs_movement(board)
+    piece, _, _ = a_piece_that_can_move(
+        board, lambda unit: unit.faction == ORCS and has_an_icon(unit.key))
+    show_the_ghosts(board, piece)
+
+    [selected] = shadow_of(board, "img.piece.selected")
+    assert "246, 231, 193" in selected, selected
 
 
 def test_the_card_keeps_the_photograph_of_the_hovered_unit(board):
@@ -606,12 +738,12 @@ def wait_for_the_drawn_face(page, number):
 def a_scenario_with_a_drawn_unit(scenarios_directory, plain_squares):  # noqa: F811
     """Writes a scenario no. 7 with one unit that has an icon and one that has none.
 
-    Both are of the Darkness, one taken from either side of the correspondences, so that one file
-    exercises both answers of the edit page. The armies are derived from the placement, as the
-    edit page itself derives them.
+    The two are taken from either side of the correspondences, so that one file exercises both
+    answers of the edit page. The armies are derived from the placement, as the edit page itself
+    derives them.
     """
     if A_DRAWN_UNIT is None or AN_UNDRAWN_UNIT is None:
-        pytest.skip("the correspondences leave no counter of the Darkness undrawn")
+        pytest.skip("the correspondences leave no counter undrawn")
     drawn, kept, _ = plain_squares
     values = {
         "numero": DRAWN_SCENARIO, "nom": "Deux faces", "source": "les tests",

@@ -6,8 +6,14 @@
 //
 // Everything the administrator reads stays in French, terrain names included: they are the
 // vocabulary of the data files.
+//
+// What the page does goes into the debug log (debug.js), silent unless it is turned on -
+// "/admin/map_fix?debug=1", or `tenebraeDebug.on()` from the console. Hovering, which fires at
+// every pointer movement, speaks at "trace"; the fixes asked for and recorded at "info".
 
 const TOOLTIP_GAP = 16; // pixels between the pointer and the box
+
+const mapFixTrace = debugScope("map_fix.js");
 
 const frame = document.getElementById("frame");
 const canvas = document.getElementById("canvas");
@@ -32,6 +38,10 @@ const applied = JSON.parse(document.getElementById("applied").value);
 const terrains = JSON.parse(document.getElementById("terrains").value);
 const grid = JSON.parse(document.getElementById("grid").value);
 const { hexagonOfPixel, vertices } = alignment(grid);
+mapFixTrace.info("map read from the page", { hexagons: Object.keys(hexagons).length,
+                                             fixes: Object.keys(fixes).length,
+                                             applied: Object.keys(applied).length,
+                                             terrains: terrains.length });
 
 let aimed = null; // the hexagon under the pointer
 let beingFixed = null; // the one whose dialog is open
@@ -57,6 +67,8 @@ function polygon(hexagon, className) {
 }
 
 function drawTheFixes() {
+  mapFixTrace.trace("drawTheFixes", { fixes: Object.keys(fixes).length,
+                                      aimed: aimed ? key(aimed) : null });
   highlight.replaceChildren();
   for (const id of Object.keys(fixes)) {
     const [q, r, s] = id.split(",").map(Number);
@@ -66,6 +78,7 @@ function drawTheFixes() {
 }
 
 function sizeTheHighlight() {
+  mapFixTrace.trace("sizeTheHighlight", { width: map.naturalWidth, height: map.naturalHeight });
   highlight.setAttribute("width", map.naturalWidth);
   highlight.setAttribute("height", map.naturalHeight);
   highlight.setAttribute("viewBox", `0 0 ${map.naturalWidth} ${map.naturalHeight}`);
@@ -76,6 +89,7 @@ function sizeTheHighlight() {
 function showTheTooltip(id, clientX, clientY) {
   const original = mapTerrain(id);
   const fix = fixes[id];
+  mapFixTrace.trace("showTheTooltip", { id, original, fix: fix ?? null });
   tooltip.textContent = `${id} — ${original}`;
   if (fix) {
     const arrow = document.createElement("span");
@@ -96,6 +110,7 @@ function showTheTooltip(id, clientX, clientY) {
 }
 
 function hideTheTooltip() {
+  mapFixTrace.trace("hideTheTooltip", { was: aimed ? key(aimed) : null });
   tooltip.hidden = true;
   aimed = null;
   drawTheFixes();
@@ -106,11 +121,13 @@ function onHover(event) {
   const hexagon = hexagonOfPixel(x, y);
   const id = key(hexagon);
   if (!mapTerrain(id)) {
+    mapFixTrace.trace("hover outside the map", { id });
     hideTheTooltip();
     return;
   }
 
   if (!aimed || key(aimed) !== id) {
+    mapFixTrace.trace("hexagon aimed at", { from: aimed ? key(aimed) : null, to: id });
     aimed = hexagon;
     drawTheFixes();
   }
@@ -120,12 +137,16 @@ function onHover(event) {
 // --- The fixing dialog ---
 
 function buildTheButtons() {
+  mapFixTrace.info("terrain buttons built", { terrains });
   for (const terrain of terrains) {
     const button = document.createElement("button");
     button.type = "button";
     button.dataset.terrain = terrain;
     button.textContent = terrain;
-    button.addEventListener("click", () => fix(terrain));
+    button.addEventListener("click", () => {
+      mapFixTrace.info("terrain chosen", { terrain, hexagon: beingFixed ? key(beingFixed) : null });
+      fix(terrain);
+    });
     choiceTerrains.appendChild(button);
   }
 }
@@ -133,10 +154,14 @@ function buildTheButtons() {
 function openTheChoice(hexagon) {
   const id = key(hexagon);
   const original = mapTerrain(id);
-  if (!original) return;
+  if (!original) {
+    mapFixTrace.trace("click outside the map: no dialog", { id });
+    return;
+  }
 
   beingFixed = hexagon;
   const current = currentTerrain(id);
+  mapFixTrace.info("the fixing dialog opens", { id, original, current, fixed: id in fixes });
   choiceTitle.textContent = `Hexagone ${id}`;
   choiceState.textContent = fixes[id]
     ? `carte : ${original} — corrigé en ${fixes[id]}`
@@ -151,16 +176,24 @@ function openTheChoice(hexagon) {
 
 async function fix(terrain) {
   const hexagon = beingFixed;
-  if (!hexagon) return;
+  if (!hexagon) {
+    mapFixTrace.warn("a fix was asked for with no hexagon in hand", { terrain });
+    return;
+  }
+  mapFixTrace.enter("fix", { hexagon: key(hexagon), terrain });
 
-  const answer = await fetch("/admin/map_fix", {
+  const answer = await mapFixTrace.fetch("/admin/map_fix", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ q: hexagon.q, r: hexagon.r, s: hexagon.s, terrain }),
   });
   // The server alone decides: as long as it has not answered, nothing moves here.
-  if (!answer.ok) return;
+  if (!answer.ok) {
+    mapFixTrace.warn("the fix was refused, nothing moves", { status: answer.status });
+    return;
+  }
   const { key: id, terrain: retained, fixed } = await answer.json();
+  mapFixTrace.info(fixed ? "fix recorded" : "fix withdrawn", { id, terrain: retained, fixed });
 
   if (fixed) fixes[id] = retained;
   else delete fixes[id];
@@ -179,15 +212,18 @@ function sameFixes(ones, others) {
 
 function count() {
   const number = Object.keys(fixes).length;
+  mapFixTrace.trace("count", { fixes: number, applied: Object.keys(applied).length });
   counter.textContent = number === 0 ? "aucune correction"
     : number === 1 ? "1 correction" : `${number} corrections`;
   // The engine merged the map at start-up: any difference calls for restarting it.
   restart.hidden = sameFixes(fixes, applied);
+  if (!restart.hidden) mapFixTrace.info("the engine no longer has the fixes in force");
 }
 
 // --- Start-up ---
 
 function start() {
+  mapFixTrace.info("start");
   sizeTheHighlight();
   buildTheButtons();
   drawTheFixes();
@@ -199,15 +235,26 @@ function start() {
   board.addEventListener("mouseleave", hideTheTooltip);
   board.addEventListener("click", (event) => {
     const { x, y } = pixelOfPointer(event, map);
-    openTheChoice(hexagonOfPixel(x, y));
+    const hexagon = hexagonOfPixel(x, y);
+    mapFixTrace.info("click on the map", { hexagon: key(hexagon) });
+    openTheChoice(hexagon);
   });
 
-  choiceReset.addEventListener("click", () => fix(mapTerrain(key(beingFixed))));
-  document.getElementById("choice-cancel").addEventListener("click", () => choice.close());
+  choiceReset.addEventListener("click", () => {
+    mapFixTrace.info("\"rétablir\" clicked", { hexagon: beingFixed ? key(beingFixed) : null });
+    fix(mapTerrain(key(beingFixed)));
+  });
+  document.getElementById("choice-cancel").addEventListener("click", () => {
+    mapFixTrace.info("the fixing dialog is cancelled");
+    choice.close();
+  });
+  mapFixTrace.info("the fixing page is ready");
 }
 
 if (map.complete) {
+  mapFixTrace.info("the map image was already loaded");
   start();
 } else {
+  mapFixTrace.info("waiting for the map image");
   map.addEventListener("load", start);
 }

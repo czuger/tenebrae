@@ -7,6 +7,13 @@
 // The pixels obtained are those of map.jpg (6173 x 5102), hence the frame of reference of #board,
 // which carries the image at its natural size and is only scaled afterwards. Nothing here knows
 // the game's rules nor the page's DOM: only numbers and the map image.
+//
+// The debug log (debug.js, silent unless turned on) says here what the alignment was built with,
+// and what a pointer resolves to. `invert`, `centre`, `key` and `vertices` stay mute: they are
+// pure arithmetic, called in loops over hundreds of hexagons, and a line each would bury the log
+// under numbers nobody reads.
+
+const geometryTrace = debugScope("geometry.js");
 
 function invert([[a, b], [c, d]]) {
   const determinant = a * d - b * c;
@@ -16,6 +23,7 @@ function invert([[a, b], [c, d]]) {
 function alignment(grid) {
   const [origin, matrix] = [grid.origin, grid.matrix];
   const inverseMatrix = invert(matrix);
+  geometryTrace.info("alignment built", { origin, matrix, inverseMatrix });
 
   // Half-width and half-height of a hexagon: the matrix carries the grid's step, from which the
   // flat-top tiling factors (1.5 in x, sqrt(3) in y) are removed.
@@ -44,7 +52,9 @@ function alignment(grid) {
     if (driftQ > driftR && driftQ > driftS) rq = -rr - rs;
     else if (driftR > driftS) rr = -rq - rs;
     else rs = -rq - rr;
-    return { q: rq, r: rr, s: rs };
+    const hexagon = { q: rq, r: rr, s: rs };
+    geometryTrace.trace("hexagonOfPixel", { x, y, fractional: { q, r, s }, hexagon });
+    return hexagon;
   }
 
   function vertices(q, r) {
@@ -68,8 +78,11 @@ function pixelOfPointer(event, map) {
   // corner.
   const mapBox = map.getBoundingClientRect();
   const scale = mapBox.width / map.naturalWidth;
-  return {
+  const point = {
     x: (event.clientX - mapBox.x) / scale,
     y: (event.clientY - mapBox.y) / scale,
   };
+  geometryTrace.trace("pixelOfPointer",
+                      { client: { x: event.clientX, y: event.clientY }, scale, point });
+  return point;
 }

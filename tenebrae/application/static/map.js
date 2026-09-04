@@ -11,6 +11,12 @@
 // map-fixing page, and the laying of the counters in pieces.js, shared with the scenario page.
 //
 // Everything the player reads stays in French; only the code is English.
+//
+// The page says what it does in the debug log (debug.js), silent unless it is turned on -
+// "/?debug=1", or `tenebraeDebug.on()` from the console. Everything a game goes through passes
+// there: the clicks, what is asked of the server and what it answers, the selection, the combat
+// being composed, the phase, the stream and the view. What happens by the hundred - a pointer over
+// the map, a scroll - speaks at "trace", the level `tenebraeDebug.level("info")` drops.
 
 // The counter's numeric values, in the order the card gives them to read (see the "Values read
 // off the counters" section of tenebrae/game_box/pions/README.md). "Mouvement" is the movement budget
@@ -27,6 +33,8 @@ const FIELDS = [
 ];
 
 const MISSING = "—"; // what the counter does not carry
+
+const trace = debugScope("map.js");
 
 const board = document.getElementById("board");
 const map = document.getElementById("map");
@@ -65,6 +73,7 @@ const AI_NAME = "IA";
 
 let pieces = JSON.parse(document.getElementById("pieces").value);
 const grid = JSON.parse(document.getElementById("grid").value);
+trace.info("state received from the page", { pieces: pieces.length, grid });
 const { centre: hexagonCentre, hexagonOfPixel } = alignment(grid);
 // The tilt of the placed pieces comes from the server, with the piece: it is part of the game
 // state (see `tenebrae/engine/board.py`). The layer only draws one for the ghosts, which are
@@ -83,11 +92,13 @@ let view = null; // the zoom, mounted once the map has loaded
 // The type is never "magie" - the server skips it. `unavailable` gives the squares of the units
 // that have already had their turn this phase: { attackers: [...], targets: [...] }.
 let phase = JSON.parse(document.getElementById("phase").value);
+trace.info("opening phase", phase);
 
 // Who is watching and who holds which side, as the server gives it: { connected, nickname, avatar,
 // administrator, sides, armies, seats }. `sides` gives the sides **this** browser holds -
 // ordinarily just one. `seats` gives each occupant's nickname, never their identifier.
 let table = JSON.parse(document.getElementById("table").value);
+trace.info("table as the page opens", table);
 
 // The game log, as the server keeps it: a list of { time, text }, from the oldest line to the most
 // recent. It arrives with the pieces and the phase, from the template when the page opens then
@@ -97,11 +108,13 @@ let logEntries = JSON.parse(document.getElementById("initial-log").value);
 // Where the player was on the map at their last adjustment: { scale, x, y, fitted }, or null -
 // anonymous, or nobody has adjusted anything yet. See "Finding one's map view again".
 const storedView = JSON.parse(document.getElementById("view").value);
+trace.info("stored view", storedView);
 
 // The game's version number. It rises at every move played, ours as well as the opponent's. It
 // opens the stream - the server thus knows whether we have catching up to do - and then serves as
 // the identifier of the last message received (see "Following the opponent's game").
 let version = Number(document.getElementById("version").value);
+trace.info("game version at load", { version, logLines: logEntries.length });
 
 // The combat phase's selection: one opposing target, and a set of friendly attackers.
 let target = null;
@@ -128,24 +141,34 @@ function rememberThePiece(image) {
   lastClickedPiece = image;
   markedSquare = key(image.dataset);
   locateButton.disabled = false;
+  trace.info("marker set", { piece: image.piece?.key, square: markedSquare });
 }
 
 function forgetThePiece() {
+  trace.trace("marker cleared", { was: markedSquare });
   lastClickedPiece = null;
   markedSquare = null;
   locateButton.disabled = true;
 }
 
 function locate() {
-  if (!lastClickedPiece) return;
+  trace.enter("locate", { markedSquare, hasPiece: Boolean(lastClickedPiece) });
+  if (!lastClickedPiece) {
+    trace.trace("locate: nothing marked");
+    return;
+  }
   const { x, y } = hexagonCentre(Number(lastClickedPiece.dataset.q),
                                 Number(lastClickedPiece.dataset.r));
+  trace.info("locate: centring on the marked piece",
+             { square: key(lastClickedPiece.dataset), x, y });
   view.centreOn(x, y);
 }
 
 function clickedHexagon(event) {
   const { x, y } = pixelOfPointer(event, map);
-  return hexagonOfPixel(x, y);
+  const hexagon = hexagonOfPixel(x, y);
+  trace.trace("clickedHexagon", { x, y, hexagon: key(hexagon) });
+  return hexagon;
 }
 
 // --- The card of the hovered unit ---
@@ -168,6 +191,8 @@ function showTheCard(image) {
   cardRemarks.textContent = piece.remarks ?? "";
   cardRemarks.hidden = !piece.remarks;
 
+  trace.trace("showTheCard", { piece: piece.key, name: piece.name, square: key(hexagon),
+                               side: piece.side });
   cardValues.replaceChildren();
   for (const [field, label] of FIELDS) {
     const term = document.createElement("dt");
@@ -184,6 +209,7 @@ function showTheCard(image) {
 }
 
 function hideTheCard() {
+  trace.trace("hideTheCard", { was: hovered?.piece?.key ?? null });
   hovered = null;
   card.hidden = true;
 }
@@ -196,11 +222,13 @@ function isAPlacedPiece(element) {
 }
 
 function placeThePieces() {
+  trace.enter("placeThePieces", { pieces: pieces.length });
   for (const piece of pieces) {
     const image = createImage(piece, { q: piece.q, r: piece.r, s: piece.s }, "piece", piece.tilt);
     image.piece = piece; // the piece drawn by the server, for its ghosts and its card
     placedPieces.push(image);
   }
+  trace.exit("placeThePieces", { placed: placedPieces.length });
 }
 
 function pieceOnHexagon(hexagon) {
@@ -214,6 +242,10 @@ function ghostOnHexagon(hexagon) {
 }
 
 function clearTheGhosts() {
+  if (ghosts.length || selection) {
+    trace.trace("clearTheGhosts", { ghosts: ghosts.length,
+                                    selection: selection?.piece?.key ?? null });
+  }
   for (const ghost of ghosts) ghost.remove();
   ghosts = [];
   if (selection) selection.classList.remove("selected");
@@ -221,18 +253,28 @@ function clearTheGhosts() {
 }
 
 async function showTheMoves(image) {
+  trace.enter("showTheMoves", { piece: image.piece.key, square: key(image.dataset) });
   clearTheGhosts();
   selection = image;
   image.classList.add("selected");
 
   const answer = await send(`/moves?q=${image.dataset.q}&r=${image.dataset.r}`
     + `&s=${image.dataset.s}&piece=${encodeURIComponent(image.piece.key)}`);
-  if (!answer) return;
+  if (!answer) {
+    trace.warn("showTheMoves: no answer, the selection stays without ghosts",
+               { piece: image.piece.key });
+    return;
+  }
   const { hexagons } = await answer.json();
   // The selection may have changed while the answer was awaited.
-  if (selection !== image) return;
+  if (selection !== image) {
+    trace.warn("showTheMoves: answer dropped, the selection changed while it was awaited",
+               { asked: image.piece.key, selected: selection?.piece?.key ?? null });
+    return;
+  }
 
   ghosts = hexagons.map((hexagon) => createImage(image.piece, hexagon, "piece ghost"));
+  trace.exit("showTheMoves", { ghosts: ghosts.length, squares: hexagons.map(key) });
 }
 
 async function movePiece(image, hexagon) {
@@ -241,6 +283,8 @@ async function movePiece(image, hexagon) {
   const wasMarked = lastClickedPiece === image;
   const squareLeft = markedSquare;
   if (wasMarked) markedSquare = key(hexagon);
+  trace.enter("movePiece", { piece: image.piece.key, from: key(image.dataset),
+                             to: key(hexagon), wasMarked, squareLeft });
 
   const answer = await send("/move", {
     method: "POST",
@@ -252,11 +296,14 @@ async function movePiece(image, hexagon) {
     }),
   });
   if (!answer) {
+    trace.warn("movePiece: refused before the rules, the marker goes back", { squareLeft });
     if (wasMarked) markedSquare = squareLeft;
     return;
   }
   const { allowed, destination, tilt } = await answer.json();
   if (!allowed) {
+    trace.warn("movePiece: the server refuses the move, the marker goes back",
+               { piece: image.piece.key, to: key(hexagon), squareLeft });
     if (wasMarked) markedSquare = squareLeft;
     return;
   }
@@ -265,12 +312,15 @@ async function movePiece(image, hexagon) {
   // The piece has been picked up: it lies down askew again, differently from last time. It is the
   // server that drew this new angle, and that keeps it - the piece will stay lying that way.
   place(image, destination, tilt);
+  trace.exit("movePiece", { piece: image.piece.key, destination: key(destination), tilt });
   // If the pointer had stayed on this piece, its card must say the square it has just reached.
   if (hovered === image) showTheCard(image);
 }
 
 function onClick(event) {
   const hexagon = clickedHexagon(event);
+  trace.info("click on the board", { square: key(hexagon), phase: phase.type,
+                                     side: phase.side, mine: itIsMyTurn() });
 
   // The marker is taken before any sorting: "localiser" follows the finger, not the rules. A click
   // on an empty square - or on a ghost, where the piece is not yet - leaves the previous marker.
@@ -278,11 +328,14 @@ function onClick(event) {
   if (clicked) rememberThePiece(clicked);
 
   if (phase.type === "combat") {
+    trace.trace("click handed to the combat phase", { square: key(hexagon) });
     onCombatClick(hexagon);
     return;
   }
 
   if (selection && ghostOnHexagon(hexagon)) {
+    trace.info("click on a ghost: the piece moves", { piece: selection.piece.key,
+                                                      to: key(hexagon) });
     movePiece(selection, hexagon);
     return;
   }
@@ -290,6 +343,8 @@ function onClick(event) {
   const piece = pieceOnHexagon(hexagon);
   if (!piece || piece === selection || piece.piece.side !== phase.side) {
     // Outside its movement phase, a unit does not show its squares: only the active side plays.
+    trace.trace("click shows nothing", { empty: !piece, alreadySelected: piece === selection,
+                                         side: piece?.piece?.side ?? null, active: phase.side });
     clearTheGhosts();
     return;
   }
@@ -314,9 +369,16 @@ function updateCombatButtons() {
   const inCombat = phase.type === "combat";
   cancelButton.hidden = !(inCombat && target);
   attackButton.hidden = !(inCombat && target && attackers.size > 0);
+  trace.trace("combat buttons", { inCombat, target: target ? key(target.dataset) : null,
+                                  attackers: attackers.size,
+                                  attackShown: !attackButton.hidden });
 }
 
 function clearTheCombat() {
+  if (target || attackers.size) {
+    trace.info("combat selection cleared", { target: target ? key(target.dataset) : null,
+                                             attackers: attackers.size });
+  }
   if (target) target.classList.remove("target");
   for (const attacker of attackers) attacker.classList.remove("attacker");
   target = null;
@@ -326,32 +388,54 @@ function clearTheCombat() {
 
 async function onCombatClick(hexagon) {
   const piece = pieceOnHexagon(hexagon);
-  if (!piece) return;
+  trace.enter("onCombatClick", { square: key(hexagon), piece: piece?.piece?.key ?? null,
+                                 target: target ? key(target.dataset) : null,
+                                 attackers: attackers.size });
+  if (!piece) {
+    trace.trace("combat click on an empty square");
+    return;
+  }
 
   if (piece === target) {
+    trace.info("the target is clicked again: the selection falls");
     clearTheCombat();
     return;
   }
 
   if (!target) {
-    if (piece.piece.side === phase.side) return; // an opposing target is needed first
+    if (piece.piece.side === phase.side) {
+      trace.trace("combat click ignored: an opposing target is needed first",
+                  { side: piece.piece.side, active: phase.side });
+      return; // an opposing target is needed first
+    }
     const c = piece.dataset;
     const answer = await send(`/combat/target?cq=${c.q}&cr=${c.r}&cs=${c.s}`);
-    if (!answer) return;
+    if (!answer) {
+      trace.warn("target refused before the rules", { square: key(c) });
+      return;
+    }
     const { available } = await answer.json();
     // Already attacked this phase: the refusal has gone to the server's log, and nothing reddens.
-    if (!available || target) return;
+    if (!available || target) {
+      trace.warn("target not taken", { available, targetMeanwhile: Boolean(target) });
+      return;
+    }
     target = piece;
     target.classList.add("target");
+    trace.info("target taken", { square: key(target.dataset), piece: piece.piece.key });
     updateCombatButtons();
     return;
   }
 
-  if (piece.piece.side !== phase.side) return; // another opposing unit: no effect
+  if (piece.piece.side !== phase.side) {
+    trace.trace("another opposing unit clicked: no effect", { square: key(hexagon) });
+    return; // another opposing unit: no effect
+  }
 
   if (attackers.has(piece)) {
     attackers.delete(piece);
     piece.classList.remove("attacker");
+    trace.info("attacker withdrawn", { square: key(piece.dataset), left: attackers.size });
     updateCombatButtons();
     return;
   }
@@ -360,12 +444,20 @@ async function onCombatClick(hexagon) {
   const a = piece.dataset;
   const answer = await send(`/combat/range?cq=${c.q}&cr=${c.r}&cs=${c.s}`
     + `&aq=${a.q}&ar=${a.r}&as=${a.s}`);
-  if (!answer) return;
+  if (!answer) {
+    trace.warn("range refused before the rules", { attacker: key(a), target: key(c) });
+    return;
+  }
   const { in_range: inRange, available } = await answer.json();
-  if (!inRange || !available) return; // the refusal has gone to the server's log
+  if (!inRange || !available) {
+    trace.warn("attacker not taken", { attacker: key(a), inRange, available });
+    return; // the refusal has gone to the server's log
+  }
 
   attackers.add(piece);
   piece.classList.add("attacker");
+  trace.info("attacker taken", { square: key(a), piece: piece.piece.key,
+                                 attackers: attackers.size });
   updateCombatButtons();
 }
 
@@ -377,10 +469,16 @@ function markTheUnavailable(unavailable) {
   for (const image of placedPieces) {
     image.classList.toggle("unavailable", squares.has(key(image.dataset)));
   }
+  trace.info("units already engaged, greyed out", { squares: [...squares] });
 }
 
 async function attack() {
-  if (!target || attackers.size === 0) return;
+  trace.enter("attack", { target: target ? key(target.dataset) : null,
+                          attackers: [...attackers].map((image) => key(image.dataset)) });
+  if (!target || attackers.size === 0) {
+    trace.warn("attack asked with nothing selected");
+    return;
+  }
   const answer = await send("/combat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -389,8 +487,12 @@ async function attack() {
       attackers: [...attackers].map(hexagonOfPiece),
     }),
   });
-  if (!answer) return;
+  if (!answer) {
+    trace.warn("attack refused before the rules");
+    return;
+  }
   const result = await answer.json();
+  trace.info("combat resolved", result);
   if (result.resolved) {
     for (const eliminated of result.eliminated) removeThePiece(eliminated);
   }
@@ -400,7 +502,11 @@ async function attack() {
 
 function removeThePiece(hexagon) {
   const image = pieceOnHexagon(hexagon);
-  if (!image) return;
+  if (!image) {
+    trace.warn("nothing to remove on this square", { square: key(hexagon) });
+    return;
+  }
+  trace.info("piece eliminated", { square: key(hexagon), piece: image.piece?.key });
   const rank = placedPieces.indexOf(image);
   if (rank >= 0) placedPieces.splice(rank, 1);
   attackers.delete(image);
@@ -410,6 +516,8 @@ function removeThePiece(hexagon) {
 }
 
 function refreshThePhase(fresh) {
+  trace.info("phase change", { from: phase?.label, to: fresh?.label, type: fresh?.type,
+                               side: fresh?.side, number: fresh?.number });
   phase = fresh;
   phaseLabel.textContent = phase.label;
   clearTheGhosts();
@@ -427,6 +535,7 @@ function refreshThePhase(fresh) {
 // column shows the last one at the top. It thus sits under the card, where the eye returns, and
 // nothing needs to scroll anything in the player's stead.
 function refreshTheLog(entries) {
+  trace.trace("log rebuilt", { lines: entries.length, last: entries[entries.length - 1] ?? null });
   logEntries = entries;
   logLines.textContent = "";
   for (let i = entries.length - 1; i >= 0; i -= 1) {
@@ -445,8 +554,12 @@ function refreshTheLog(entries) {
 
 
 async function nextPhase() {
+  trace.enter("nextPhase", { from: phase.label });
   const answer = await send("/phase/next", { method: "POST" });
-  if (!answer) return;
+  if (!answer) {
+    trace.warn("the phase was not advanced");
+    return;
+  }
   refreshThePhase(await answer.json());
 }
 
@@ -460,16 +573,21 @@ async function nextPhase() {
 const MESSAGE_DELAY = 4000; // milliseconds
 
 async function send(url, options) {
-  const answer = await fetch(url, options);
+  // `trace.fetch` is `fetch` with the round trip written into the debug log; turned off, it is
+  // `fetch` itself, and it answers and throws exactly the same in both cases.
+  const answer = await trace.fetch(url, options);
   if (answer.status === 401 || answer.status === 403) {
     const { message } = await answer.json().catch(() => ({}));
+    trace.warn("refused by the server", { url, status: answer.status, message });
     report(message ?? "Ce n'est pas à vous de jouer.");
     return null;
   }
+  if (!answer.ok) trace.warn("failure kept silent from the player", { url, status: answer.status });
   return answer.ok ? answer : null;
 }
 
 function report(text) {
+  trace.info("message shown to the player", { text });
   messageArea.textContent = text;
   messageArea.hidden = false;
   clearTimeout(report.timer);
@@ -487,9 +605,12 @@ function itIsMyTurn() {
 function updatePlayerButtons() {
   nextPhaseButton.disabled = !itIsMyTurn();
   attackButton.disabled = !itIsMyTurn();
+  trace.trace("player buttons", { mine: itIsMyTurn(), sides: table.sides, active: phase.side });
 }
 
 function updateAccountButton() {
+  trace.trace("account button", { connected: table.connected, nickname: table.nickname,
+                                  sides: table.sides });
   playerButton.textContent = "";
   if (!table.connected) {
     playerButton.textContent = "Se connecter";
@@ -512,6 +633,7 @@ function updateAccountButton() {
 
 // One line per side: the army, its occupant, and the means to sit there if it is free.
 function buildTheSeats() {
+  trace.info("seats rebuilt", { seats: table.seats, mine: table.sides });
   tableSeats.textContent = "";
   for (const [side, army] of Object.entries(table.armies)) {
     const line = document.createElement("div");
@@ -538,7 +660,10 @@ function buildTheSeats() {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = "Prendre ce camp";
-      button.addEventListener("click", () => takeASeat(side));
+      button.addEventListener("click", () => {
+        trace.info("seat asked for", { side });
+        takeASeat(side);
+      });
       line.appendChild(button);
     }
     tableSeats.appendChild(line);
@@ -549,16 +674,25 @@ function buildTheSeats() {
   const opposing = Object.keys(table.armies).filter((side) => !table.sides.includes(side));
   againstAIButton.hidden = table.sides.length === 0
     || !opposing.every((side) => !table.seats[side] || table.seats[side] === AI_NAME);
+  trace.trace("dialog buttons", { leave: !leaveButton.hidden, againstAI: !againstAIButton.hidden,
+                                  opposing });
 }
 
 // The scenarios a new game may be opened on - those whose file does not disable them. Fetched at
 // every opening of the dialog rather than laid in the page: the list is the server's, as it stands
 // now, and the server checks it again when the game is asked for.
 async function fillTheScenarios(keepTheChoice) {
+  trace.enter("fillTheScenarios", { keepTheChoice });
   scenarioRow.hidden = true;
-  if (againstAIButton.hidden) return; // nothing can be started from here anyway
-  const answer = await fetch("/game/scenarios").catch(() => null);
-  if (!answer || !answer.ok) return;
+  if (againstAIButton.hidden) {
+    trace.trace("no scenario list: nothing can be started from here anyway");
+    return; // nothing can be started from here anyway
+  }
+  const answer = await trace.fetch("/game/scenarios").catch(() => null);
+  if (!answer || !answer.ok) {
+    trace.warn("the scenario list did not arrive", { status: answer?.status ?? null });
+    return;
+  }
   const { scenarios, current } = await answer.json();
   // The dialog is rebuilt at every move played, ours or the opponent's: a scenario picked a
   // moment ago must survive that, or one could never pick anything while the other side plays.
@@ -577,9 +711,12 @@ async function fillTheScenarios(keepTheChoice) {
     scenarioChoice.value = String(scenarios[0].number);
   }
   scenarioRow.hidden = scenarios.length === 0;
+  trace.exit("fillTheScenarios", { offered: scenarios.length, current,
+                                   chosen: scenarioChoice.value });
 }
 
 function openTheTable() {
+  trace.info("the table dialog opens", { alreadyOpen: tableDialog.open, sides: table.sides });
   tableTitle.textContent = table.sides.length
     ? `Vous jouez ${table.sides.map((side) => table.armies[side]).join(", ")}`
     : "Prenez place à un camp pour jouer";
@@ -590,6 +727,8 @@ function openTheTable() {
 }
 
 function updateTheTable(fresh) {
+  trace.info("table updated", { from: { sides: table.sides, seats: table.seats },
+                                to: { sides: fresh.sides, seats: fresh.seats } });
   table = fresh;
   updateAccountButton();
   updatePlayerButtons();
@@ -597,13 +736,18 @@ function updateTheTable(fresh) {
 }
 
 async function takeASeat(side) {
+  trace.enter("takeASeat", { side });
   const answer = await send("/game/seat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ side }),
   });
-  if (!answer) return;
+  if (!answer) {
+    trace.warn("the seat was refused before the rules", { side });
+    return;
+  }
   const result = await answer.json();
+  trace.info("seat answer", { side, seated: result.seated, message: result.message });
   if (!result.seated) report(result.message);
   // Seated, we have nothing left to do in this dialog: it closes on the game. Leaving it open
   // would mask the map, and its modal backdrop would swallow the next click.
@@ -612,8 +756,12 @@ async function takeASeat(side) {
 }
 
 async function leaveTheSeat() {
+  trace.enter("leaveTheSeat", { sides: table.sides });
   const answer = await send("/game/seat/leave", { method: "POST" });
-  if (!answer) return;
+  if (!answer) {
+    trace.warn("the seat was not left");
+    return;
+  }
   updateTheTable(await answer.json());
 }
 
@@ -621,7 +769,8 @@ async function newGameAgainstAI() {
   // No scenario chosen - the list has not arrived, or has nothing to offer - leaves the server on
   // the set-up being played.
   const chosen = scenarioRow.hidden ? null : Number(scenarioChoice.value);
-  const answer = await fetch("/game/new", {
+  trace.enter("newGameAgainstAI", { scenario: chosen, offered: !scenarioRow.hidden });
+  const answer = await trace.fetch("/game/new", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ against_ai: true, scenario: chosen }),
@@ -630,10 +779,13 @@ async function newGameAgainstAI() {
   // player is told rather than left before an unchanged board.
   if (!answer.ok) {
     const { message } = await answer.json().catch(() => ({}));
+    trace.warn("the new game was refused", { status: answer.status, message });
     report(message ?? "Nouvelle partie refusée.");
     return;
   }
   const result = await answer.json();
+  trace.info("new game opened against the AI", { pieces: result.pieces.length,
+                                                 phase: result.phase.label });
   // The answer carries the whole fresh game - and if the AI opened the scenario, its first turn is
   // already played: the pieces arrive as it left them.
   layThePiecesOut(result.pieces);
@@ -643,7 +795,8 @@ async function newGameAgainstAI() {
 }
 
 async function logOut() {
-  await fetch("/logout", { method: "POST" });
+  trace.info("logging out");
+  await trace.fetch("/logout", { method: "POST" });
   location.reload();
 }
 
@@ -687,18 +840,25 @@ function sameView(one, other) {
 // Called at every wheel turn, every zoom button and every scroll: we wait for quiet rather than
 // send a hundred requests for a single gesture.
 function rememberTheView() {
-  if (!view || !table.connected) return; // an anonymous visitor has nowhere to store it
+  if (!view || !table.connected) {
+    trace.trace("view not stored", { mounted: Boolean(view), connected: table.connected });
+    return; // an anonymous visitor has nowhere to store it
+  }
   clearTimeout(viewTimer);
   viewTimer = setTimeout(sendTheView, VIEW_DELAY);
 }
 
 async function sendTheView() {
   const current = currentView();
-  if (sameView(current, lastSentView)) return;
+  if (sameView(current, lastSentView)) {
+    trace.trace("view unchanged, nothing sent", current);
+    return;
+  }
+  trace.info("view stored", { from: lastSentView, to: current });
   lastSentView = current;
   // Without `send`: this is not a move, and a failure has nothing to report to the player - we
   // will simply find the fit again at the next load.
-  await fetch("/view", {
+  await trace.fetch("/view", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(current),
@@ -708,9 +868,11 @@ async function sendTheView() {
 // Restore the stored view, or open the map fitted to the window as it always has been.
 function applyTheView() {
   if (!storedView || storedView.fitted) {
+    trace.info("view: the map opens fitted to the window", { stored: storedView });
     view.fit();
     return;
   }
+  trace.info("view restored", storedView);
   view.set(storedView.scale);
   view.centreOn(storedView.x, storedView.y);
 }
@@ -741,6 +903,8 @@ let pollTimer = null;
 
 // Lay the scene out again, wherever the state comes from - the stream or the fallback poll.
 function resumeTheGame(state) {
+  trace.info("state received", { from: version, to: state.version, pieces: state.pieces.length,
+                                 phase: state.phase.label, logLines: state.log.length });
   version = state.version;
   // We do not undo what the player is doing on their side: a selection or a combat being composed
   // are abandoned, they bore on a position that is now out of date.
@@ -754,11 +918,16 @@ function openTheStream() {
   // The known version travels in the URL: an `EventSource` cannot set a header. On subsequent
   // reconnections it is the browser that sends back by itself the "Last-Event-ID" of the last
   // message received, and the server prefers it - it is more recent than the URL.
+  trace.info("opening the stream", { version });
   stream = new EventSource(`/stream?version=${version}`);
 
-  stream.addEventListener("open", () => { streamFailures = 0; });
+  stream.addEventListener("open", () => {
+    trace.info("stream open", { failuresForgotten: streamFailures });
+    streamFailures = 0;
+  });
 
   stream.addEventListener("message", (event) => {
+    trace.info("stream message", { id: event.lastEventId, bytes: event.data.length });
     streamFailures = 0;
     resumeTheGame(JSON.parse(event.data));
   });
@@ -768,7 +937,12 @@ function openTheStream() {
   // through here at all.
   stream.addEventListener("error", () => {
     streamFailures += 1;
+    trace.warn("stream failure, the browser will retry by itself",
+               { failures: streamFailures, before: FAILURES_BEFORE_FALLBACK,
+                 readyState: stream?.readyState });
     if (streamFailures < FAILURES_BEFORE_FALLBACK) return;
+    trace.error("the stream does not get through: falling back on polling",
+                { failures: streamFailures });
     closeTheStream();
     fallBackOnPolling();
   });
@@ -776,6 +950,7 @@ function openTheStream() {
 
 function closeTheStream() {
   if (!stream) return;
+  trace.info("closing the stream", { readyState: stream.readyState });
   stream.close(); // without which the browser would retry the connection indefinitely
   stream = null;
 }
@@ -785,6 +960,7 @@ function closeTheStream() {
 // moved, the server returns only that number.
 function fallBackOnPolling() {
   if (pollTimer) return;
+  trace.warn("polling started", { period: POLL_PERIOD });
   pollTimer = setInterval(followTheGame, POLL_PERIOD);
 }
 
@@ -792,12 +968,22 @@ async function followTheGame() {
   // A hidden tab is watching nothing: no point keeping the server awake for it. That only holds
   // for polling - an open and silent stream costs nothing, and a hidden tab must stay up to date
   // for the moment one comes back to it.
-  if (document.hidden) return;
-  const answer = await fetch(`/game/state?version=${version}`).catch(() => null);
-  if (!answer || !answer.ok) return; // the server is restarting: we will retry in three seconds
+  if (document.hidden) {
+    trace.trace("hidden tab: the poll is skipped");
+    return;
+  }
+  const answer = await trace.fetch(`/game/state?version=${version}`).catch(() => null);
+  if (!answer || !answer.ok) {
+    trace.warn("poll without an answer, retrying in three seconds",
+               { status: answer?.status ?? null });
+    return; // the server is restarting: we will retry in three seconds
+  }
   const state = await answer.json();
   version = state.version;
-  if (!state.changed) return;
+  if (!state.changed) {
+    trace.trace("poll: nothing has moved", { version });
+    return;
+  }
   resumeTheGame(state);
 }
 
@@ -814,10 +1000,14 @@ window.addEventListener("pagehide", closeTheStream);
 // reopens with the version we know, and the server returns straight away what has been played
 // meanwhile.
 window.addEventListener("pageshow", (event) => {
+  trace.info("pageshow", { persisted: event.persisted, stream: Boolean(stream),
+                           polling: Boolean(pollTimer) });
   if (event.persisted && !stream && !pollTimer) openTheStream();
 });
 
 function layThePiecesOut(fresh) {
+  trace.enter("layThePiecesOut", { from: placedPieces.length, to: fresh.length,
+                                   marker: markedSquare });
   clearTheGhosts();
   clearTheCombat();
   // The "localiser" marker aims at an image that is about to be removed from the board: we keep
@@ -837,25 +1027,49 @@ function layThePiecesOut(fresh) {
   // The unit may have been eliminated meanwhile: there is then nothing left to aim at.
   const found = marker && placedPieces.find((image) => key(image.dataset) === marker);
   if (found) rememberThePiece(found);
+  else if (marker) trace.info("the marked unit is no longer on the board", { marker });
+  trace.exit("layThePiecesOut", { placed: placedPieces.length });
 }
 
 function start() {
+  trace.info("start", { pieces: pieces.length, phase: phase.label, version,
+                        connected: table.connected });
   placeThePieces();
   phaseLabel.textContent = phase.label;
   markTheUnavailable(phase.unavailable);
   refreshTheLog(logEntries);
-  document.getElementById("next-phase").addEventListener("click", nextPhase);
-  attackButton.addEventListener("click", attack);
-  cancelButton.addEventListener("click", clearTheCombat);
-  locateButton.addEventListener("click", locate);
+  document.getElementById("next-phase").addEventListener("click", () => {
+    trace.info("\"phase suivante\" clicked");
+    nextPhase();
+  });
+  attackButton.addEventListener("click", () => {
+    trace.info("\"attaquer\" clicked");
+    attack();
+  });
+  cancelButton.addEventListener("click", () => {
+    trace.info("\"annuler\" clicked");
+    clearTheCombat();
+  });
+  locateButton.addEventListener("click", () => {
+    trace.info("\"localiser\" clicked", { marker: markedSquare });
+    locate();
+  });
   playerButton.addEventListener("click", () => {
+    trace.info("the player button is clicked", { connected: table.connected });
     if (table.connected) openTheTable();
     else location.href = "/login";
   });
-  leaveButton.addEventListener("click", leaveTheSeat);
-  againstAIButton.addEventListener("click", newGameAgainstAI);
+  leaveButton.addEventListener("click", () => {
+    trace.info("\"quitter ma place\" clicked");
+    leaveTheSeat();
+  });
+  againstAIButton.addEventListener("click", () => {
+    trace.info("\"contre l'IA\" clicked");
+    newGameAgainstAI();
+  });
   document.getElementById("table-logout").addEventListener("click", logOut);
   document.getElementById("table-close").addEventListener("click", () => {
+    trace.info("the table dialog is closed");
     tableDialog.close();
   });
   updateAccountButton();
@@ -868,7 +1082,10 @@ function start() {
                 onChange: rememberTheView });
   applyTheView();
   // Scrolling by hand does not go through the zoom: it is watched here.
-  frame.addEventListener("scroll", rememberTheView);
+  frame.addEventListener("scroll", () => {
+    trace.trace("scroll", { left: frame.scrollLeft, top: frame.scrollTop });
+    rememberTheView();
+  });
   board.addEventListener("click", onClick);
   // Delegated on the board, like the click: ghosts are born and die along the way, and one
   // listener per image would have to be redone at every move.
@@ -878,16 +1095,21 @@ function start() {
   board.addEventListener("mouseout", (event) => {
     if (isAPlacedPiece(event.target)) hideTheCard();
   });
+  trace.info("the board is ready");
 }
 
 if (map.complete) {
+  trace.info("the map image was already loaded");
   start();
 } else {
+  trace.info("waiting for the map image");
   map.addEventListener("load", start);
 }
 
 // Resizing the window refits the map, as long as one has not set the scale oneself: that would
 // undo the zoom one has just chosen.
 window.addEventListener("resize", () => {
+  trace.trace("window resized", { fitted: view ? view.followsWindow() : null,
+                                  width: window.innerWidth, height: window.innerHeight });
   if (view && view.followsWindow()) view.fit();
 });

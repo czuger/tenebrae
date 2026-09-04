@@ -10,10 +10,18 @@
 
 const MAXIMUM_ROTATION = 5; // degrees, forwards or backwards
 
+// Laying and moving a counter happen by the dozen at every scene laid out again: both speak at
+// "trace", the level one drops when only the moves played matter (debug.js).
+const piecesTrace = debugScope("pieces.js");
+
 function pieceLayer({ board, centre, pieceSize }) {
+  piecesTrace.info("piece layer mounted", { board: board?.id, pieceSize });
+
   function place(image, hexagon, tilt) {
     const point = centre(hexagon.q, hexagon.r);
     const angle = tilt ?? (Math.random() * 2 - 1) * MAXIMUM_ROTATION;
+    piecesTrace.trace("place", { piece: image.piece?.key ?? image.alt, hexagon, point, angle,
+                                 tiltFromTheServer: tilt ?? null });
     image.dataset.q = hexagon.q;
     image.dataset.r = hexagon.r;
     image.dataset.s = hexagon.s;
@@ -32,6 +40,7 @@ function pieceLayer({ board, centre, pieceSize }) {
     image.style.height = `${pieceSize}px`;
     place(image, hexagon, tilt);
     board.appendChild(image);
+    piecesTrace.trace("createImage", { piece: piece.key, name: piece.name, hexagon, className });
     return image;
   }
 

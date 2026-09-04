@@ -80,6 +80,9 @@
     </form>
   </dialog>
 
+  <!-- First, before every other script: the others take a logger of their own from it as they
+       load. Silent unless it is turned on - "?debug=1", or `tenebraeDebug.on()`. -->
+  <script src="{{ url_for('static', filename='debug.js') }}"></script>
   <script src="{{ url_for('static', filename='geometry.js') }}"></script>
   <script src="{{ url_for('static', filename='zoom.js') }}"></script>
   <script src="{{ url_for('static', filename='pieces.js') }}"></script>

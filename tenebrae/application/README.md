@@ -51,7 +51,7 @@ application serves.
 | `stream.py` | the broadcaster behind `/stream` |
 | `discord_client.py` | the OAuth2 flow, and the fake client of the tests |
 | `pieces.py`, `grid.py` | the pieces and the grid alignment, as the browser receives them |
-| `static/`, `templates/` | the three pages — the board, the map-fixing page, the scenario page — and what they share: `geometry.js`, `zoom.js`, `pieces.js` |
+| `static/`, `templates/` | the three pages — the board, the map-fixing page, the scenario page — and what they share: `geometry.js`, `zoom.js`, `pieces.js`, `debug.js` |
 | `extensions.py` | the MongoDB extension |
 | `models/`, `repositories/` | what is not the game: the connection and the map view (see "The models") |
 
@@ -881,6 +881,46 @@ withdraws it from the **new** games only: a game under way on it is resumed as i
 - A square takes only one piece. What the board keeps from one reload to the next depends on
   persistence (see above).
 
+## The debug log — `static/debug.js`
+
+The board is played in a browser, and what goes wrong there leaves no trace: a piece that does not
+move, a card that stays open, a stream that no longer delivers. `static/debug.js` gives the other
+scripts a console log one can follow a whole game with, and **nobody sees it unless they ask for
+it**: turned off, not a line is written and not a byte more is read from the network.
+
+The three templates load it **first**, before every other script, and it hangs everything off
+`window.tenebraeDebug`. Each file takes a logger of its own at load — `const trace =
+debugScope("map.js")` — and speaks through it.
+
+| Turning it on | |
+| --- | --- |
+| `/?debug=1` | in the address bar; the choice is remembered in `localStorage` for the next loads |
+| `/?debug=0` | turns it off again, and forgets it |
+| `tenebraeDebug.on()`, `.off()` | from the console, without reloading |
+| `window.TENEBRAE_DEBUG = true` | set before the script, from a page that wants it on |
+| `tenebraeDebug.level("info")` | the minimum level shown; "trace", "info", "warn", "error" |
+
+A line reads `14:02:31.145 map.js · click on the board`, and what goes with it — a square, a
+payload, a status — goes as a **second argument**, which the console lets one open and walk
+through rather than as a string one has to read.
+
+"trace" carries what happens by the hundred — the pointer over the map, a scroll, a wheel turn, a
+hexagon converted into coordinates —, "info" what a game is made of — the clicks, the requests, the
+selection, the phase, the stream —, "warn" everything refused, and "error" what breaks. Following a
+game without the noise of the pointer is `tenebraeDebug.level("info")`.
+
+The round trips with the server go through `trace.fetch(url, options)`, which writes the request
+with its payload, then the status, the time it took and the answer's body. It reads a **clone** of
+the answer, so the caller still reads the original as it always did, and it does not await that
+reading: the answer comes back at the moment it would have come back without the log. Turned off,
+`trace.fetch` **is** `fetch` — no clone, no line — and in both cases it returns what `fetch`
+returns and throws what `fetch` throws, the caller's `catch` deciding as before.
+
+Nothing else in the application knows this file exists: no route serves it anything, no
+configuration turns it on, and the server is never told. It is the browser's own log, and it is
+read in the browser — the game's log, the one that goes to `logs/battle_log.log` and to the page's
+column, is another thing entirely (see "The log column").
+
 ## Tests
 
 From the **repository root**, so as to cover the engine too:
@@ -908,6 +948,13 @@ stands.
 
 **Nothing is checked by hand**: no server launched to go and look, no `curl`. What we want to
 exercise is written as a test, and what shows in a page is exercised in Chromium through Playwright.
+
+`tests/application/test_debug_browser.py` holds the browser's console and looks at what lands in
+it: nothing at all on an ordinary load, the pages' own lines once `?debug=1` has been asked for,
+the choice remembered from one load to the next, the levels, the round trips written down at both
+ends — with the answer still readable by the caller, the log having read a clone of it, and a
+`fetch` that fails still throwing — and, on the board, a move played the same with the log on as
+without it.
 
 `tests/application/test_broadcaster.py`, `tests/application/test_stream.py` and
 `tests/application/test_stream_browser.py` cover the **SSE stream**, in three layers. The first

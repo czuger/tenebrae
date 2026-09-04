@@ -14,8 +14,15 @@
 // the "Retirer" button removes. Escape empties the hand.
 //
 // Everything the administrator reads stays in French; only the code is English.
+//
+// What the page does goes into the debug log (debug.js), silent unless it is turned on -
+// "/admin/scenarios?debug=1", or `tenebraeDebug.on()` from the console. What is in hand, what is
+// laid, moved or removed, and the saving with the server's answer are at "info"; hovering, which
+// fires at every pointer movement, at "trace".
 
 const TOOLTIP_GAP = 16; // pixels between the pointer and the box
+
+const scenariosTrace = debugScope("scenarios.js");
 const MESSAGE_DELAY = 4000; // milliseconds
 
 // The sides, as the palette headings say them.
@@ -52,6 +59,10 @@ const scenario = JSON.parse(document.getElementById("scenario").value || "null")
 const piecesByKey = new Map(catalogue.map((piece) => [piece.key, piece]));
 const { centre, hexagonOfPixel, vertices } = alignment(grid);
 const { place, createImage } = pieceLayer({ board, centre, pieceSize: grid.piece_size });
+scenariosTrace.info("page loaded", { catalogue: catalogue.length,
+                                     hexagons: Object.keys(hexagons).length,
+                                     forbidden: forbidden.size, scenarios: scenarios.length,
+                                     editing: scenario ? scenario.number : null });
 
 const placed = []; // the images laid on the map
 let chosen = null; // the palette piece in hand, with its button: { piece, button }
@@ -62,6 +73,7 @@ let view = null; // the zoom, mounted once the map has loaded
 // --- The palette ---
 
 function buildThePalette() {
+  scenariosTrace.enter("buildThePalette", { pieces: catalogue.length });
   let faction = null;
   let list = null;
   for (const piece of catalogue) {
@@ -71,6 +83,8 @@ function buildThePalette() {
     }
     list.appendChild(paletteButton(piece));
   }
+  scenariosTrace.exit("buildThePalette",
+                      { factions: paletteFactions.querySelectorAll("section").length });
 }
 
 // A heading per faction - its name without its number, and its side - then its pieces.
@@ -100,7 +114,10 @@ function paletteButton(piece) {
   // The faction is in the heading: the button keeps the description alone.
   label.textContent = piece.name.split(" · ").pop();
   button.append(image, label);
-  button.addEventListener("click", () => take(piece, button));
+  button.addEventListener("click", () => {
+    scenariosTrace.info("palette piece clicked", { piece: piece.key, name: piece.name });
+    take(piece, button);
+  });
   return button;
 }
 
@@ -118,6 +135,7 @@ function buildTheChooser() {
   }
   chooser.value = scenario ? String(scenario.number) : "";
   chooser.addEventListener("change", () => {
+    scenariosTrace.info("another scenario chosen, leaving the page", { number: chooser.value });
     window.location.href = chooser.value ? `/admin/scenarios/${chooser.value}/edit`
       : "/admin/scenarios";
   });
@@ -131,7 +149,12 @@ function hexagonOfKey(id) {
 }
 
 function layTheScenario() {
-  if (!scenario) return;
+  if (!scenario) {
+    scenariosTrace.info("a new scenario: nothing to lay out");
+    return;
+  }
+  scenariosTrace.enter("layTheScenario", { number: scenario.number, name: scenario.name,
+                                           squares: Object.keys(scenario.placement).length });
   const unknown = [];
   for (const [id, pieceKey] of Object.entries(scenario.placement)) {
     const piece = piecesByKey.get(pieceKey);
@@ -139,9 +162,13 @@ function layTheScenario() {
     else unknown.push(`${pieceKey} (${id})`);
   }
   // A piece the palette does not offer cannot be laid, and a save would drop it: say so.
-  if (unknown.length) report(`Pions absents de la palette, non affichés : ${unknown.join(", ")}.`);
+  if (unknown.length) {
+    scenariosTrace.warn("pieces the palette does not offer, not laid out", { unknown });
+    report(`Pions absents de la palette, non affichés : ${unknown.join(", ")}.`);
+  }
   saveName.value = scenario.name;
   saveTurns.value = scenario.max_turns ?? "";
+  scenariosTrace.exit("layTheScenario", { laid: placed.length, unknown: unknown.length });
 }
 
 // --- What is in hand ---
@@ -149,7 +176,12 @@ function layTheScenario() {
 function take(piece, button) {
   const again = chosen && chosen.piece === piece;
   emptyTheHand();
-  if (again) return; // a second click on the same piece puts it back
+  if (again) {
+    scenariosTrace.info("the same palette piece again: the hand stays empty",
+                        { piece: piece.key });
+    return; // a second click on the same piece puts it back
+  }
+  scenariosTrace.info("palette piece in hand", { piece: piece.key, name: piece.name });
   chosen = { piece, button };
   button.classList.add("selected");
   showInHand(`en main : ${piece.name}`);
@@ -157,6 +189,8 @@ function take(piece, button) {
 
 function select(image) {
   emptyTheHand();
+  scenariosTrace.info("placed piece in hand", { piece: image.piece.key,
+                                                square: key(image.dataset) });
   selected = image;
   image.classList.add("selected");
   removeButton.hidden = false;
@@ -164,6 +198,10 @@ function select(image) {
 }
 
 function emptyTheHand() {
+  if (chosen || selected) {
+    scenariosTrace.trace("the hand is emptied", { palette: chosen?.piece?.key ?? null,
+                                                  placed: selected?.piece?.key ?? null });
+  }
   if (chosen) chosen.button.classList.remove("selected");
   chosen = null;
   if (selected) selected.classList.remove("selected");
@@ -185,6 +223,7 @@ function pieceOn(hexagon) {
 }
 
 function layAPiece(piece, hexagon) {
+  scenariosTrace.info("piece laid", { piece: piece.key, square: key(hexagon) });
   const image = createImage(piece, hexagon, "piece");
   image.piece = piece;
   image.dataset.key = piece.key;
@@ -194,6 +233,7 @@ function layAPiece(piece, hexagon) {
 }
 
 function removeThePiece(image) {
+  scenariosTrace.info("piece removed", { piece: image.piece.key, square: key(image.dataset) });
   const rank = placed.indexOf(image);
   if (rank >= 0) placed.splice(rank, 1);
   image.remove();
@@ -205,13 +245,20 @@ function count() {
   const number = placed.length;
   counter.textContent = number === 0 ? "aucun pion" : number === 1 ? "1 pion" : `${number} pions`;
   saveButton.disabled = number === 0;
+  scenariosTrace.trace("count", { pieces: number, saveEnabled: !saveButton.disabled });
 }
 
 function onClick(event) {
   const { x, y } = pixelOfPointer(event, map);
   const hexagon = hexagonOfPixel(x, y);
   const id = key(hexagon);
-  if (!(id in hexagons)) return;
+  scenariosTrace.info("click on the map", { square: id, terrain: hexagons[id] ?? null,
+                                            inHand: chosen?.piece?.key ?? null,
+                                            selected: selected?.piece?.key ?? null });
+  if (!(id in hexagons)) {
+    scenariosTrace.trace("click outside the map", { square: id });
+    return;
+  }
 
   // A placed piece comes before whatever is in hand: clicking it takes it, clicking it again
   // puts it back.
@@ -222,20 +269,26 @@ function onClick(event) {
     return;
   }
   if (forbidden.has(id)) {
+    scenariosTrace.warn("square refused to any unit", { square: id, terrain: hexagons[id] });
     report(`Un pion ne peut pas occuper cette case (${hexagons[id]}).`);
     return;
   }
   if (selected) {
     // Picked up, the piece lies down askew again: the layer draws it a new angle.
+    scenariosTrace.info("placed piece moved", { piece: selected.piece.key,
+                                                from: key(selected.dataset), to: id });
     place(selected, hexagon);
     showInHand(`${selected.piece.name} — ${id}`);
     return;
   }
   if (chosen) layAPiece(chosen.piece, hexagon);
+  else scenariosTrace.trace("nothing in hand: the click lays nothing", { square: id });
 }
 
 function onKey(event) {
   if (saveDialog.open) return; // the keys belong to the form
+  scenariosTrace.trace("key pressed", { key: event.key,
+                                        selected: selected?.piece?.key ?? null });
   if (event.key === "Escape") emptyTheHand();
   if ((event.key === "Delete" || event.key === "Backspace") && selected) {
     removeThePiece(selected);
@@ -253,11 +306,15 @@ function polygon(hexagon, className) {
 }
 
 function drawTheHighlight() {
+  scenariosTrace.trace("drawTheHighlight", { aimed: aimed ? key(aimed) : null,
+                                             refused: aimed ? forbidden.has(key(aimed)) : null });
   highlight.replaceChildren();
   if (aimed) highlight.appendChild(polygon(aimed, forbidden.has(key(aimed)) ? "refused" : "aimed"));
 }
 
 function sizeTheHighlight() {
+  scenariosTrace.trace("sizeTheHighlight", { width: map.naturalWidth,
+                                             height: map.naturalHeight });
   highlight.setAttribute("width", map.naturalWidth);
   highlight.setAttribute("height", map.naturalHeight);
   highlight.setAttribute("viewBox", `0 0 ${map.naturalWidth} ${map.naturalHeight}`);
@@ -266,6 +323,8 @@ function sizeTheHighlight() {
 function showTheTooltip(hexagon, clientX, clientY) {
   const id = key(hexagon);
   const occupant = pieceOn(hexagon);
+  scenariosTrace.trace("showTheTooltip", { square: id, terrain: hexagons[id],
+                                           occupant: occupant?.piece?.key ?? null });
   tooltip.textContent = occupant ? `${id} — ${hexagons[id]} — ${occupant.piece.name}`
     : `${id} — ${hexagons[id]}`;
   tooltip.hidden = false;
@@ -281,6 +340,7 @@ function showTheTooltip(hexagon, clientX, clientY) {
 }
 
 function hideTheTooltip() {
+  scenariosTrace.trace("hideTheTooltip", { was: aimed ? key(aimed) : null });
   tooltip.hidden = true;
   aimed = null;
   drawTheHighlight();
@@ -290,10 +350,13 @@ function onHover(event) {
   const { x, y } = pixelOfPointer(event, map);
   const hexagon = hexagonOfPixel(x, y);
   if (!(key(hexagon) in hexagons)) {
+    scenariosTrace.trace("hover outside the map", { square: key(hexagon) });
     hideTheTooltip();
     return;
   }
   if (!aimed || key(aimed) !== key(hexagon)) {
+    scenariosTrace.trace("hexagon aimed at", { from: aimed ? key(aimed) : null,
+                                               to: key(hexagon) });
     aimed = hexagon;
     drawTheHighlight();
   }
@@ -303,6 +366,7 @@ function onHover(event) {
 // --- Saying what was refused ---
 
 function report(text) {
+  scenariosTrace.info("message shown to the administrator", { text });
   messageArea.textContent = text;
   messageArea.hidden = false;
   clearTimeout(report.timer);
@@ -318,6 +382,9 @@ function placement() {
 }
 
 function openTheSaveDialog() {
+  scenariosTrace.info("the save dialog opens", { pieces: placed.length,
+                                                 name: saveName.value,
+                                                 turns: saveTurns.value });
   saveError.hidden = true;
   saveDialog.showModal();
   saveName.focus();
@@ -326,7 +393,9 @@ function openTheSaveDialog() {
 async function save(event) {
   event.preventDefault();
   const turns = saveTurns.value.trim();
-  const answer = await fetch(saveForm.dataset.url, {
+  scenariosTrace.enter("save", { url: saveForm.dataset.url, name: saveName.value.trim(),
+                                 turns, pieces: placed.length });
+  const answer = await scenariosTrace.fetch(saveForm.dataset.url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -338,11 +407,15 @@ async function save(event) {
   const result = answer ? await answer.json().catch(() => ({})) : {};
   // The server alone decides: its refusal is read in the dialog, which stays open.
   if (!answer || !result.saved) {
+    scenariosTrace.warn("the scenario was not saved", { reached: Boolean(answer),
+                                                        status: answer?.status ?? null,
+                                                        message: result.message ?? null });
     saveError.textContent = result.message ?? "Le scénario n'a pas pu être enregistré.";
     saveError.hidden = false;
     return;
   }
   saveDialog.close();
+  scenariosTrace.exit("save", { number: result.number, file: result.file, units: result.units });
   statusArea.textContent = `Scénario n° ${result.number} ${scenario ? "modifié" : "enregistré"} : `
     + `${result.file} (${result.units} ${result.units === 1 ? "pion" : "pions"})`;
   statusArea.hidden = false;
@@ -353,6 +426,7 @@ async function save(event) {
 // --- Start-up ---
 
 function start() {
+  scenariosTrace.info("start");
   sizeTheHighlight();
   buildThePalette();
   buildTheChooser();
@@ -366,19 +440,29 @@ function start() {
   board.addEventListener("mousemove", onHover);
   board.addEventListener("mouseleave", hideTheTooltip);
   document.addEventListener("keydown", onKey);
-  removeButton.addEventListener("click", () => { if (selected) removeThePiece(selected); });
+  removeButton.addEventListener("click", () => {
+    scenariosTrace.info("\"retirer\" clicked", { selected: selected?.piece?.key ?? null });
+    if (selected) removeThePiece(selected);
+  });
   saveButton.addEventListener("click", openTheSaveDialog);
   saveForm.addEventListener("submit", save);
-  document.getElementById("save-cancel").addEventListener("click", () => saveDialog.close());
+  document.getElementById("save-cancel").addEventListener("click", () => {
+    scenariosTrace.info("the save dialog is cancelled");
+    saveDialog.close();
+  });
+  scenariosTrace.info("the scenario page is ready");
 }
 
 if (map.complete) {
+  scenariosTrace.info("the map image was already loaded");
   start();
 } else {
+  scenariosTrace.info("waiting for the map image");
   map.addEventListener("load", start);
 }
 
 // Resizing the window refits the map, as long as one has not set the scale oneself.
 window.addEventListener("resize", () => {
+  scenariosTrace.trace("window resized", { fitted: view ? view.followsWindow() : null });
   if (view && view.followsWindow()) view.fit();
 });

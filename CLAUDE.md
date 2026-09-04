@@ -84,7 +84,9 @@ and `db_field` names stay as they are unless there is an explicit reason to chan
 Key facts about the application, detailed in its README: the routes are one blueprint per subject
 under `routes/`, registered by `create_app`, and the game state — one game per process — lives in
 the module globals of `current_game.py`; the game is played by two, one per side, through Discord
-OAuth2 with no extra dependency; the second seat can go to the AI (`POST /game/new` with
+OAuth2 with no extra dependency; every page loads `static/debug.js` first, a console log the other
+scripts speak through and that stays silent unless it is turned on (`?debug=1`,
+`tenebraeDebug.on()`); the second seat can go to the AI (`POST /game/new` with
 `{"against_ai": true}`), which then plays its whole turn inside that request; each browser follows
 the other's moves through SSE (`GET /stream`, `routes/stream.py` over the broadcaster of
 `stream.py`), `mark_a_move` being the only point of publication; the log (`logs/`) goes to
@@ -149,6 +151,13 @@ The map extraction script runs from `tenebrae/game_box/` (`cd tenebrae/game_box 
 extract_map.py`), takes about ten minutes and 2 GB. Dependencies are in `pyproject.toml`
 (PEP 735 dependency groups, `pip install --group dev`), installed in the pyenv virtualenv
 `tenebrae` selected by the unversioned `.python-version`.
+
+## Shell / repo commands
+
+- For every shell command (`bash`, `grep`, `rg`, `sed`, `python3 - <<'PY'`, etc.), always:
+  - print the full command line exactly as it will be executed, on its own line, before the output;
+  - keep the printed command identical to what the tool runs (no omissions or simplifications);
+  - if the command is constructed in steps, show the final, expanded command.
 
 ## The map data
 

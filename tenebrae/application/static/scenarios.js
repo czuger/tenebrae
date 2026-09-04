@@ -58,7 +58,23 @@ const scenarios = JSON.parse(document.getElementById("scenarios").value);
 const scenario = JSON.parse(document.getElementById("scenario").value || "null");
 const piecesByKey = new Map(catalogue.map((piece) => [piece.key, piece]));
 const { centre, hexagonOfPixel, vertices } = alignment(grid);
-const { place, createImage } = pieceLayer({ board, centre, pieceSize: grid.piece_size });
+
+// --- The face the counters show ---
+//
+// The page composes on the same map the game is played on, and a counter there is the same small
+// grey square. "?icons=1" in the address lays the units that have one as drawn icons instead - the
+// board's second face (static/pawns.js), on a page whose toolbar carries no button for it: the
+// composing is what its bar is for, and the face is chosen when the page is opened.
+//
+// The palette wears it too: one picks there what one lays on the map, and a list showing the
+// photographs of counters the map draws would have to be read twice. Its labels do not change -
+// each entry keeps the counter's own name beside the drawing.
+const pawnsAsIcons = pawnStyleAskedInTheAddress() === true;
+
+const { place, createImage } = pieceLayer({
+  board, centre, pieceSize: grid.piece_size,
+  dress: (image, piece) => dressThePawn(image, piece, pawnsAsIcons),
+});
 scenariosTrace.info("page loaded", { catalogue: catalogue.length,
                                      hexagons: Object.keys(hexagons).length,
                                      forbidden: forbidden.size, scenarios: scenarios.length,
@@ -107,7 +123,11 @@ function paletteButton(piece) {
   button.dataset.key = piece.key;
   button.title = piece.name;
   const image = document.createElement("img");
-  image.src = `/pieces/${piece.image}`;
+  // The palette wears the face the map wears: one recognises on the list what one is about to lay
+  // down. Dressed here for the face already known, and again by `putTheIconsOn` when the set has
+  // been read - the palette is built before the first icon has arrived.
+  image.piece = piece;
+  dressThePawn(image, piece, pawnsAsIcons);
   image.alt = "";
   image.loading = "lazy";
   const label = document.createElement("span");
@@ -136,8 +156,10 @@ function buildTheChooser() {
   chooser.value = scenario ? String(scenario.number) : "";
   chooser.addEventListener("change", () => {
     scenariosTrace.info("another scenario chosen, leaving the page", { number: chooser.value });
-    window.location.href = chooser.value ? `/admin/scenarios/${chooser.value}/edit`
-      : "/admin/scenarios";
+    const page = chooser.value ? `/admin/scenarios/${chooser.value}/edit` : "/admin/scenarios";
+    // The face is asked for in the address, and the chooser writes a new one: it carries it over,
+    // so that going from one scenario to the next does not put the photographs back unasked.
+    window.location.href = pawnsAsIcons ? `${page}?icons=1` : page;
   });
 }
 
@@ -229,6 +251,22 @@ function layAPiece(piece, hexagon) {
   image.title = piece.name;
   placed.push(image);
   count();
+}
+
+// The whole box is tinted, not only what is laid: the palette shows every piece of it, and a piece
+// taken from there is dressed the moment it is placed - waiting on the server then would show its
+// photograph first. The map and the palette are both dressed again here, the set having arrived
+// after they were built.
+async function putTheIconsOn() {
+  if (!pawnsAsIcons) return;
+  scenariosTrace.info("the address asks for the icons", { placed: placed.length });
+  if (!await loadThePawnIcons(catalogue)) return;
+  for (const image of placed) dressThePawn(image, image.piece, true);
+  for (const image of paletteFactions.querySelectorAll("img")) {
+    dressThePawn(image, image.piece, true);
+  }
+  scenariosTrace.info("the counters wear their drawn face",
+                      { placed: placed.length, palette: catalogue.length });
 }
 
 function removeThePiece(image) {
@@ -431,6 +469,7 @@ function start() {
   buildTheChooser();
   layTheScenario();
   count();
+  putTheIconsOn();
   // The wheel, the "+", "-" and "ajuster" buttons: the mechanics are in zoom.js.
   view = zoom({ frame, canvas, board, map, display: document.getElementById("scale") });
   view.fit();

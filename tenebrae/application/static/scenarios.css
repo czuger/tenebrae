@@ -114,6 +114,14 @@ body {
   border-radius: 2px;
 }
 
+/* The drawn face in the palette (see static/pawns.js): a flat square of the army's colour, where
+   the photograph is a scan of cardboard. Drawn like the ones on the map — the hairline eating
+   inwards, so that the thumbnail keeps the 40 px the photographs take and no row moves. */
+.palette-piece img.icon {
+  box-sizing: border-box;
+  border: 1px solid rgba(27, 23, 19, 0.55);
+}
+
 /* ── The top-left panel ───────────────────────────────────────────────────────────────────────
    The bar, and beneath it the messages: the pattern of the board's panel (map.css). The panel
    carries the fixed placement zoom.css gave to #toolbar, which returns to the flow. */

@@ -51,7 +51,7 @@ application serves.
 | `stream.py` | the broadcaster behind `/stream` |
 | `discord_client.py` | the OAuth2 flow, and the fake client of the tests |
 | `pieces.py`, `grid.py` | the pieces and the grid alignment, as the browser receives them |
-| `static/`, `templates/` | the three pages — the board, the map-fixing page, the scenario page — and what they share: `geometry.js`, `zoom.js`, `pieces.js`, `debug.js`; `pawns.js` is the board's alone |
+| `static/`, `templates/` | the three pages — the board, the map-fixing page, the scenario page — and what they share: `geometry.js`, `zoom.js`, `pieces.js`, `debug.js`, `pawns.js` (with `pawn_icons.json`, the correspondences it reads) |
 | `extensions.py` | the MongoDB extension |
 | `models/`, `repositories/` | what is not the game: the connection and the map view (see "The models") |
 
@@ -516,21 +516,39 @@ small grey square, and which of two grey squares carries the cavalry is a matter
 **second button of the bar** puts a drawn icon on the units that have one, and puts the photographs
 back.
 
-Five kinds of unit are drawn, which are the five the battle of Reissland fields. They are named in
-the counters' own vocabulary — the `symbole` read off the counter and, where the symbol alone does
-not tell two of them apart, the values printed on it:
+### Which counter is drawn as what — `static/pawn_icons.json`
 
-| The unit | Its icon |
+The correspondences are **a data file**, not a table in a script: giving a counter a drawing is
+editing that file, and nothing else. It is a list of pairs, **one row per counter**:
+
+```json
+["reissland-01-15-infanteries.jpg",  "lorc/barbute"],
+["reissland-02-8-cavaleries.jpg",    "delapouite/cavalry"],
+["elfes-01-5-infanteries.jpg",       ""]
+```
+
+| The column | What it holds |
 | --- | --- |
-| infantry 4/4 | `lorc/barbute` |
-| infantry 6/4 | `lorc/visored-helm` |
-| cavalry | `delapouite/cavalry` |
-| archers | `lorc/bowman` |
-| catapult | `heavenly-dog/catapult` |
+| `photograph` | the name of the counter's photograph in `game_box/pions/`, extension included |
+| `icon` | the file under `static/icons/…/1x1/`, without its extension, or `""` for none |
 
-**What has no icon keeps its photograph** — a phalanx, a ram, a leader, the populace, an infantry
-of other values — and the board then shows both faces at once. That is the honest answer: an icon
-invented for a unit the table does not name would say something the box does not.
+The photograph is the one name that tells two counters apart whatever they carry — two infantries
+of the same symbol wear two different helmets because they are two different counters, and nothing
+has to be said about their values. The rows follow the box, faction by faction and rank by rank, as
+`pions/` numbers them.
+
+**Every counter the pages can lay has a row** — the 121 of the display catalogue, the overview
+sheets apart — and one with no drawing carries an empty icon: adding a correspondence is filling a
+blank in, never working out where a new row should go.
+
+**What has no icon keeps its photograph** — a phalanx, a ram, a leader, the populace — and the
+board then shows both faces at once. That is the honest answer: an icon invented for a counter the
+file leaves blank would say something the box does not.
+
+`tests/application/test_pawn_icons.py` reads that file without a browser and holds what a hand
+editing it can get wrong: a photograph the box does not carry, a counter of the box with no row,
+the same photograph named twice, rows out of the box's order, and above all an icon named where no
+file lies — the one mistake a browser would swallow in silence.
 
 **The colour is the army's**, and it is put on here. `static/icons/` is the game-icons.net set, and
 it carries one variant only: a black drawing on a white square, which is what `000000/ffffff` says
@@ -550,10 +568,29 @@ the box does not give it; adding an army is one line of `ARMY_COLOURS` in `stati
 
 A pawn is an **`<img>` in both faces, and only its source changes**: the selection, the ghosts, the
 card, the click and the tests all go on reading `img.piece`, and nothing else in `map.js` knows
-which face is showing. Nor is the face applied piece by piece from there: it is handed to the layer
-as `dress`, so that a counter born after the choice — the scene laid out again after a move or a
-phase, a ghost under a selection — arrives already wearing it. The scenario page passes nothing and
-therefore keeps the photographs, the counter being the thing one places there.
+which face is showing. Nor is the face applied piece by piece from there: `dressThePawn` is handed
+to the layer as `dress`, so that a counter born after the choice — the scene laid out again after a
+move or a phase, a ghost under a selection — arrives already wearing it.
+
+### The scenario page wears it too — `?icons=1`
+
+`/admin/scenarios` and `/admin/scenarios/<number>/edit` compose on the same map, where a counter is
+the same small grey square. **`?icons=1` in the address** lays the units that have one as drawn
+icons: `/admin/scenarios/6/edit?icons=1` opens the battle of Reissland with its two armies drawn.
+The page has no button for it — its bar is for composing, and the face is chosen when the page is
+opened — and the chooser carries the parameter over, so that going from one scenario to the next
+does not put the photographs back unasked.
+
+There, **the whole box is tinted at start-up** rather than only what is laid: a piece taken from
+the palette is dressed the moment it lands, and waiting on the server then would show its
+photograph first.
+
+**The palette keeps its photographs** whichever face the map wears. It is the catalogue of the box,
+each entry labelled with the counter's own name, and it is by the counter that one picks there.
+
+The board understands the same parameter — `?icons=1`, `?icons=0` — and, like the debug log with
+`?debug=1`, **keeps what it was asked**: one opens the board on a face, and it is still that face
+on the next load. Said nothing, the address leaves the stored choice alone.
 
 **The card keeps the photograph**, whichever face the board wears: the icon is a reading aid on the
 map, and the card is where the counter itself is read.
@@ -572,7 +609,9 @@ same kind and, like it, out of reach of the clipping on the right.
 `tests/application/test_pawns_browser.py` holds all of it: which unit is drawn and which keeps its
 counter, the five files read from the server, the two blues told apart, the icons landing on the
 counters' own squares at the counters' own size, the ghosts and the scene laid out again wearing
-the face in use, and the choice surviving the reload.
+the face in use, the choice surviving the reload, the address deciding and being kept, and the
+scenario page — the edit page laying its units drawn, a piece taken from the palette landing drawn,
+the palette itself unchanged, and the chooser carrying the face over.
 
 ## The map is always the one that takes the click
 
@@ -766,6 +805,9 @@ nothing until saving:
   empties the hand.
 - **Hovering** highlights the hexagon and states `q,r,s — terrain`, and the occupant if any; a
   forbidden square is ringed in red and refuses the piece with a message.
+- **`?icons=1`** lays the units that have one as drawn icons rather than as their photographs — the
+  board's second face, on a page that has no button for it (see "The face the pawns show"). The
+  palette keeps its photographs, and the chooser carries the parameter over.
 - **The counters are laid by the board's own code**: `static/pieces.js` and `pieces.css`, shared by
   both pages, centre the image on the hexagon and tilt it (see "The server's board"). Here the tilt
   is drawn by the page: the pieces are not yet in a game, and the file carries none.

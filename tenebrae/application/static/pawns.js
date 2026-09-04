@@ -3,8 +3,21 @@
 // The board lays the counters themselves - the 1986 cardboard, photographed one by one (pieces.js).
 // Fitted to the window the map is a thousand pixels wide and a counter some fifteen: what one reads
 // there is a small grey square, and which of two grey squares carries the cavalry is a matter of
-// memory. This file gives the same units a second face - one icon per kind of unit, in the colour
-// of the army that fields it - and map.js the means to swap from one face to the other.
+// memory. This file gives the same units a second face - one icon per counter, in the colour of
+// the army that fields it - and the two pages that lay counters the means to swap from one face
+// to the other: the board through the button in its bar, the scenario page through `?icons=1`.
+//
+// --- Which counter is drawn as what: `static/pawn_icons.json` ---
+//
+// The correspondences are not in this file, they are in one of their own, so that adding a drawing
+// is editing a data file and nothing else. It is a list of pairs, one row per counter:
+//
+//     [photograph, icon]
+//
+// `photograph` is the name of the counter's photograph, `"reissland-01-15-infanteries.jpg"`, the
+// one name that tells two counters apart whatever they carry. The rows follow the box, faction by
+// faction, and every counter the pages can lay has one; a counter with no drawing carries an
+// **empty icon**, so adding a correspondence is filling a blank in and nothing else.
 //
 // --- Where the icons come from, and where their colour does ---
 //
@@ -16,32 +29,26 @@
 //
 // That the pawn stays an <img> is the whole point of doing it this way. The selection, the ghosts,
 // the hovering, the click and the tests all read `img.piece`; only the source changes, and nothing
-// else in the board has to learn that the face has.
+// else in the two pages has to learn that the face has.
 //
 // --- What has no icon keeps its photograph ---
 //
-// Five kinds of unit are drawn, which are the five the battle of Reissland fields. A phalanx, a
-// ram, a leader, the populace have none: their counter stays as it is, and the board then shows
-// both faces at once. That is the honest answer - an icon invented for a unit the table does not
-// name would say something the box does not.
+// A unit whose row is blank keeps its counter, and the board then shows both faces at once. That is
+// the honest answer - an icon invented for a unit the table does not name would say something the
+// box does not.
 
 const pawnsTrace = debugScope("pawns.js");
 
 // Where the set lies: the drawing's colour, the square's, the ratio, then the artist and the name.
 const ICON_ROOT = "/static/icons/000000/ffffff/1x1";
 
-// The icons, in the counters' own vocabulary: `symbole` as `pions.json` writes it and, where the
-// symbol alone does not tell two counters apart, the values read off them. The infantries of the
-// Reissland battle are two - 4/4 and 6/4 - and they wear two different helmets; every other kind
-// is named by its symbol alone. The first entry that fits wins, so the ones carrying values come
-// before the ones that do not.
-const PAWN_ICONS = [
-  { symbol: "infanterie", strength: 4, movement: 4, icon: "lorc/barbute" },
-  { symbol: "infanterie", strength: 6, movement: 4, icon: "lorc/visored-helm" },
-  { symbol: "cavalerie", icon: "delapouite/cavalry" },
-  { symbol: "archer", icon: "lorc/bowman" },
-  { symbol: "catapulte", icon: "heavenly-dog/catapult" },
-];
+// The correspondences, read once from their file (see the head of this file for their shape).
+const CORRESPONDENCES_PATH = "/static/pawn_icons.json";
+
+// What turns the icons on from the address bar - "?icons=1" - and off again - "?icons=0". It is the
+// scenario page's only way in, having no button, and on the board it overrides what was stored.
+const QUERY_KEY = "icons";
+const REFUSALS = ["0", "no", "off", "false"];
 
 // The two armies of the Reissland battle, told apart by their blue: Reissland's is clear, Yzent's
 // is deep. The key is the faction as `pions.json` numbers it, and the drawing takes the colour
@@ -56,18 +63,50 @@ const ARMY_COLOURS = {
 // cardboard they are printed on, so that an icon never claims a colour the box does not give it.
 const ANY_OTHER_ARMY = { square: "#c3b393", drawing: "#2a2320" };
 
-// Read once and kept: the file as it lies on disk, then the tinted result per army. A pawn style
-// swapped back and forth therefore reads nothing again, and a scenario opened on other units only
-// tints what it brings.
+// Read once and kept: the correspondences, the files as they lie on disk, then the tinted result
+// per army. A face swapped back and forth therefore reads nothing again, and a scenario opened on
+// other units only tints what it brings.
+let correspondences = null; // pawn_icons.json, as a photograph -> icon map
 const iconSources = new Map(); // "lorc/barbute" -> the SVG, as the file has it
 const tintedIcons = new Map(); // "lorc/barbute|02-reissland" -> the data URL an <img> takes
 let loading = null; // the reading in flight, so that two clicks in a row make one
 
+/**
+ * Whether the address asks for a face: true for the icons, false for the counters, null for
+ * neither - the parameter is absent and decides nothing.
+ */
+function pawnStyleAskedInTheAddress() {
+  const asked = new URLSearchParams(window.location.search).get(QUERY_KEY);
+  if (asked === null) return null;
+  return !REFUSALS.includes(asked.toLowerCase());
+}
+
+async function readTheCorrespondences() {
+  if (correspondences) return correspondences;
+  const answer = await fetch(CORRESPONDENCES_PATH);
+  if (!answer.ok) throw new Error(`the correspondences were not read (${answer.status})`);
+  correspondences = new Map(await answer.json());
+  pawnsTrace.info("pawn correspondences read", {
+    rows: correspondences.size,
+    drawn: [...correspondences.values()].filter(Boolean).length,
+  });
+  return correspondences;
+}
+
+/** The name of the counter's photograph, which is what a row of the file is found by. */
+function photographOf(piece) {
+  return (piece.image ?? "").split("/").pop();
+}
+
+/**
+ * The icon that counter is drawn as, or null - its row is blank, or the file is not read yet.
+ */
 function pawnIconOf(piece) {
-  const found = PAWN_ICONS.find((entry) => entry.symbol === piece.symbol
-    && (entry.strength === undefined || entry.strength === piece.strength)
-    && (entry.movement === undefined || entry.movement === piece.movement));
-  return found ? found.icon : null;
+  const icon = correspondences?.get(photographOf(piece));
+  // The file is written by hand, and a hand copying a path off the set brings its extension with
+  // it: "lorc/barbute.svg" names the same icon as "lorc/barbute", and is not a row that draws
+  // nothing.
+  return icon ? icon.replace(/\.svg$/i, "") : null;
 }
 
 function armyColoursOf(piece) {
@@ -96,7 +135,7 @@ function tintTheIcon(source, colours) {
     painted.setAttribute("fill", colours.drawing);
   }
   // The set's files carry a `viewBox` and no size. An <img> is then left without an intrinsic one,
-  // which the board does not care about - it sets the counter's size itself - but which leaves
+  // which the pages do not care about - they set the counter's size themselves - but which leaves
   // `naturalWidth` at nothing, the very thing by which one knows an image has arrived. The box's
   // own dimensions are therefore written on it.
   const [, , width, height] = (drawing.getAttribute("viewBox") ?? "").split(/[\s,]+/);
@@ -109,6 +148,8 @@ function tintTheIcon(source, colours) {
 }
 
 async function drawThePawnIcons(pieces) {
+  await readTheCorrespondences();
+
   const wanted = new Map();
   for (const piece of pieces) {
     const file = pawnIconOf(piece);
@@ -127,13 +168,13 @@ async function drawThePawnIcons(pieces) {
 }
 
 /**
- * Reads and tints what the pieces in play need, once.
+ * Reads the correspondences, then what the pieces in play need of the set, once.
  *
- * Called again it costs nothing as long as the same units are on the board: what has been read
- * stays read and what has been tinted stays tinted. It is called again after a scenario is laid
- * out, which may bring units - or an army - that had no icon drawn yet.
+ * Called again it costs nothing as long as the same units are on the board: the file stays read,
+ * what has been read stays read and what has been tinted stays tinted. It is called again after a
+ * scenario is laid out, which may bring units - or an army - whose icon has not been drawn yet.
  *
- * Returns whether the icons can be shown: a set that cannot be read leaves the counters alone
+ * Returns whether the icons can be shown: a file that cannot be read leaves the counters alone
  * rather than empty the board.
  */
 async function loadThePawnIcons(pieces) {
@@ -155,4 +196,11 @@ function pawnIconSource(piece) {
   const file = pawnIconOf(piece);
   if (!file) return null;
   return tintedIcons.get(`${file}|${piece.faction}`) ?? null;
+}
+
+/** What a pawn wears: its icon if there is one and the icons are on, its photograph otherwise. */
+function dressThePawn(image, piece, icons) {
+  const icon = icons ? pawnIconSource(piece) : null;
+  image.src = icon ?? `/pieces/${piece.image}`;
+  image.classList.toggle("icon", Boolean(icon));
 }

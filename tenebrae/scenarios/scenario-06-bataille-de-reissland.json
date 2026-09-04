@@ -3,6 +3,7 @@
   "nom": "Bataille de Reissland",
   "source": "composé sur /admin/scenarios le 2026-09-03",
   "nombre_de_tours": 32,
+  "enabled": true,
   "armees": [
     {
       "joueur": 1,

@@ -51,7 +51,7 @@ application serves.
 | `stream.py` | the broadcaster behind `/stream` |
 | `discord_client.py` | the OAuth2 flow, and the fake client of the tests |
 | `pieces.py`, `grid.py` | the pieces and the grid alignment, as the browser receives them |
-| `static/`, `templates/` | the three pages — the board, the map-fixing page, the scenario page — and what they share: `geometry.js`, `zoom.js`, `pieces.js`, `debug.js`, `pawns.js` (with `pawn_icons.json`, the correspondences it reads) |
+| `static/`, `templates/` | the three pages — the board, the map-fixing page, the scenario page — and what they share: `geometry.js`, `zoom.js`, `pieces.js`, `debug.js`, `pawns.js` (with `pawn_icons.json` and `faction_colours.json`, the two data files it reads) |
 | `extensions.py` | the MongoDB extension |
 | `models/`, `repositories/` | what is not the game: the connection and the map view (see "The models") |
 
@@ -556,15 +556,51 @@ in the path. So the file is read once and its two fills — the square, the draw
 for the army's two colours; what comes out is a `data:` URL an `<img>` takes as it takes any other
 source. No second set of coloured files is written to disk.
 
+### Which army is drawn in what — `static/faction_colours.json`
+
+The colours are **a data file** as the correspondences are, and read where they are read. It is a
+list of triples, one row per faction the pages can lay:
+
+```json
+["02-reissland",     "#a8cdf0", "#10243d"],
+["15-demons",        "#f5c518", "#8b1111"],
+["10-nains",         "",        ""]
+```
+
+| The column | What it holds |
+| --- | --- |
+| `faction` | the directory `pions/` numbers the army by |
+| `square` | what the counter is filled with, `"#rrggbb"` |
+| `drawing` | the ink the icon is drawn in, `"#rrggbb"` |
+
 | The army | Its square | Its drawing |
 | --- | --- | --- |
-| Reissland | clear blue | dark |
+| Reissland, and the populace with it | clear blue | dark |
 | Yzent | deep blue | pale |
+| the Empire | gold | black |
+| the Empire of Lynn | deep blue of its own | green |
+| the templars | white | red |
+| the chaos | black | bright red |
+| the elves | deep green | white |
+| the dwarves | black | light brown |
+| the orcs, and the non-humans with them | green, a shade clearer than the elves' | brown |
+| the sahuagins | marine green | pale |
+| the undead | white | black |
+| the demons | yellow | red |
+| the flyings | light purple | black |
+| the conjurations | white | deep purple |
 | every other faction | the tone of the cardboard | dark |
 
-The two blues were given for the two armies of that battle. **Every other faction takes the
-cardboard's own tone** rather than a blue invented for it, so that an icon never claims a colour
-the box does not give it; adding an army is one line of `ARMY_COLOURS` in `static/pawns.js`.
+**Two empty strings leave an army the tone of the cardboard** it is printed on, rather than a
+colour invented for it, so that an icon never claims a colour the box does not give it. That tone
+is the one colour that is not a statement about an army, which is why it stays in `static/pawns.js`
+as `ANY_OTHER_ARMY` and not in the file.
+
+**The drawing has to read on the square.** At a counter's fifteen pixels an army of one tone shows
+nothing at all, so `tests/application/test_faction_colours.py` holds the two of them a hundred
+points of brightness apart — and, as for the icons, that every faction of the box has a row, that
+no row names one it does not carry, and that a coloured army carries both colours and not half a
+pair.
 
 A pawn is an **`<img>` in both faces, and only its source changes**: the selection, the ghosts, the
 card, the click and the tests all go on reading `img.piece`, and nothing else in `map.js` knows
@@ -606,8 +642,10 @@ documents, and a second glyph is not held to the width of the first — so what 
 `aria-pressed` and in its tooltip. It sits beside the button that moves the panel, being of the
 same kind and, like it, out of reach of the clipping on the right.
 
-`tests/application/test_pawns_browser.py` holds all of it: which unit is drawn and which keeps its
-counter, the five files read from the server, the two blues told apart, the icons landing on the
+`tests/application/test_pawns_browser.py` holds all of it, taking the counters and the armies it
+works on from the two files rather than writing down what they hold: which counter is drawn and
+which keeps its photograph, every icon named read from the server, every coloured army painted with
+its own row and every blank one left the cardboard, the icons landing on the
 counters' own squares at the counters' own size, the ghosts and the scene laid out again wearing
 the face in use, the choice surviving the reload, the address deciding and being kept, and the
 scenario page — the edit page laying its units drawn, a piece taken from the palette landing drawn,

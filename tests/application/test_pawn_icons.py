@@ -90,14 +90,13 @@ def test_the_icons_are_the_black_on_white_variant(rows):
         assert 'fill="#fff"' in drawing and 'fill="#000"' in drawing, icon
 
 
-def test_a_unit_of_the_reissland_battle_is_drawn(rows):
-    """The counters that battle fields are the reason the file exists: none is blank."""
-    drawn = dict(rows)
-    assert drawn["reissland-01-15-infanteries.jpg"] == "lorc/barbute"
-    assert drawn["reissland-02-8-cavaleries.jpg"] == "delapouite/cavalry"
-    assert drawn["reissland-03-3-archers.jpg"] == "lorc/bowman"
-    assert drawn["yzent-02-6-infanteries-de-puissance-6.jpg"] == "lorc/visored-helm"
-    assert drawn["yzent-04-3-catapultes.jpg"] == "heavenly-dog/catapult"
+def test_some_counters_are_drawn_and_some_are_not(rows):
+    """Which counter takes which drawing is the hand's business and not a test's; that the file
+    holds both answers is not. A file drawing nothing would leave the second face empty, and one
+    drawing everything would hide the mixture the board is meant to show."""
+    icons = {icon for _, icon in rows}
+    assert icons - {""}, "no counter is drawn: the second face would be the first"
+    assert "" in icons, "every counter is drawn: nothing keeps its photograph"
 
 
 def test_the_file_is_where_the_browser_fetches_it(rows):

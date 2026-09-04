@@ -19,6 +19,18 @@
 // faction, and every counter the pages can lay has one; a counter with no drawing carries an
 // **empty icon**, so adding a correspondence is filling a blank in and nothing else.
 //
+// --- Which army is drawn in what: `static/faction_colours.json` ---
+//
+// The colours are a data file too, one row per faction of the box:
+//
+//     [faction, square, drawing]
+//
+// `faction` is the directory `pions/` numbers the army by. `square` is what the counter is filled
+// with and `drawing` the ink the icon is drawn in, both `"#rrggbb"`; two empty strings leave the
+// army the tone of the cardboard it is printed on, which is what an army nobody has coloured takes
+// rather than a colour invented for it. The drawing has to read on the square: the file's test
+// holds the two of them apart in brightness.
+//
 // --- Where the icons come from, and where their colour does ---
 //
 // `static/icons/` is the game-icons.net set, and it carries one variant only: a black drawing on a
@@ -45,28 +57,24 @@ const ICON_ROOT = "/static/icons/000000/ffffff/1x1";
 // The correspondences, read once from their file (see the head of this file for their shape).
 const CORRESPONDENCES_PATH = "/static/pawn_icons.json";
 
+// The armies' colours, read the same way and from beside it.
+const COLOURS_PATH = "/static/faction_colours.json";
+
 // What turns the icons on from the address bar - "?icons=1" - and off again - "?icons=0". It is the
 // scenario page's only way in, having no button, and on the board it overrides what was stored.
 const QUERY_KEY = "icons";
 const REFUSALS = ["0", "no", "off", "false"];
 
-// The two armies of the Reissland battle, told apart by their blue: Reissland's is clear, Yzent's
-// is deep. The key is the faction as `pions.json` numbers it, and the drawing takes the colour
-// that reads on the square - dark on the clear blue, pale on the deep one.
-const ARMY_COLOURS = {
-  "02-reissland": { square: "#a8cdf0", drawing: "#10243d" },
-  "01-yzent": { square: "#16306b", drawing: "#dce8f7" },
-};
-
-// Every other faction. The two blues were given for the two armies above, and a blue invented for
-// the dwarves would tell the player they have one: what the others take is the tone of the
-// cardboard they are printed on, so that an icon never claims a colour the box does not give it.
+// What an army whose row is blank - or absent - takes: the tone of the cardboard it is printed on,
+// so that an icon never claims a colour the box does not give it. It is the one colour that is not
+// a statement about an army, which is why it stays here and not in the file.
 const ANY_OTHER_ARMY = { square: "#c3b393", drawing: "#2a2320" };
 
 // Read once and kept: the correspondences, the files as they lie on disk, then the tinted result
 // per army. A face swapped back and forth therefore reads nothing again, and a scenario opened on
 // other units only tints what it brings.
 let correspondences = null; // pawn_icons.json, as a photograph -> icon map
+let armyColours = null; // faction_colours.json, as a faction -> { square, drawing } map
 const iconSources = new Map(); // "lorc/barbute" -> the SVG, as the file has it
 const tintedIcons = new Map(); // "lorc/barbute|02-reissland" -> the data URL an <img> takes
 let loading = null; // the reading in flight, so that two clicks in a row make one
@@ -93,6 +101,18 @@ async function readTheCorrespondences() {
   return correspondences;
 }
 
+/** The armies' colours, read once from their file: a blank row is an army left to the cardboard. */
+async function readTheArmyColours() {
+  if (armyColours) return armyColours;
+  const answer = await fetch(COLOURS_PATH);
+  if (!answer.ok) throw new Error(`the army colours were not read (${answer.status})`);
+  const rows = await answer.json();
+  armyColours = new Map(rows.filter(([, square, drawing]) => square && drawing)
+                            .map(([faction, square, drawing]) => [faction, { square, drawing }]));
+  pawnsTrace.info("army colours read", { rows: rows.length, coloured: armyColours.size });
+  return armyColours;
+}
+
 /** The name of the counter's photograph, which is what a row of the file is found by. */
 function photographOf(piece) {
   return (piece.image ?? "").split("/").pop();
@@ -110,7 +130,7 @@ function pawnIconOf(piece) {
 }
 
 function armyColoursOf(piece) {
-  return ARMY_COLOURS[piece.faction] ?? ANY_OTHER_ARMY;
+  return armyColours?.get(piece.faction) ?? ANY_OTHER_ARMY;
 }
 
 async function readTheIcon(file) {
@@ -148,7 +168,7 @@ function tintTheIcon(source, colours) {
 }
 
 async function drawThePawnIcons(pieces) {
-  await readTheCorrespondences();
+  await Promise.all([readTheCorrespondences(), readTheArmyColours()]);
 
   const wanted = new Map();
   for (const piece of pieces) {

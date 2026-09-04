@@ -1,0 +1,21 @@
+[
+  ["01-yzent",              "#16306b",  "#dce8f7"],
+  ["02-reissland",          "#a8cdf0",  "#10243d"],
+  ["03-empire",             "#d4af37",  "#111111"],
+  ["04-templiers",          "#f7f4f1",  "#c1121f"],
+  ["05-population",         "#a8cdf0",  "#10243d"],
+  ["06-empire-de-lynn",     "#0d1b4b",  "#57d98a"],
+  ["07-chaos",              "#0a0a0a",  "#ff4d4d"],
+  ["08-non-humains",        "#1e5b2b",  "#d3b078"],
+  ["09-elfes",              "#14532d",  "#f4f7f1"],
+  ["10-nains",              "#121212",  "#e3bc8a"],
+  ["11-orques",             "#1e5b2b",  "#d3b078"],
+  ["12-sahuaguins",         "#0e5c52",  "#d6f2ea"],
+  ["13-dragons",            "",         ""],
+  ["14-morts-vivants",      "#f2f2ef",  "#111111"],
+  ["15-demons",             "#f5c518",  "#8b1111"],
+  ["16-volants",            "#b57edc",  "#111111"],
+  ["17-conjurations",       "#f6f2f8",  "#6b21a8"],
+  ["18-machines-de-siege",  "",         ""],
+  ["20-marqueurs",          "",         ""]
+]

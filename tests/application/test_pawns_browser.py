@@ -4,11 +4,15 @@ The board opens on the counters. The second button of the bar puts an icon on th
 one - one drawing per kind of unit, tinted with the colour of its army - and puts the photographs
 back; the choice is this browser's, and it survives the reload.
 
-The set-up the server opens on is the war of the dwarves, where two counters out of eight have a
-drawn face: the orc cavalry and the orc archers. That mixture is the point of several of these
-tests - what has no icon must keep its counter rather than disappear. The counters the battle of
-Reissland fields are named here by their photographs, and the page's own table is asked about them
-directly.
+The set-up the server opens on is the war of the dwarves, where the orc cavalry and the orc archers
+have a drawn face and the rest keep their counters. That mixture is the point of several of these
+tests - what has no icon must keep its counter rather than disappear.
+
+Which counter is drawn as what, and which army in what colours, are two data files edited by hand
+row by row (`static/pawn_icons.json`, `static/faction_colours.json`). Nothing here writes down what
+they hold: the counters and the armies these tests work on are taken from the files themselves, so
+that giving one more unit a drawing breaks nothing. What is held is the mechanism - that the page
+answers what the files say, and that a blank row leaves the counter and the cardboard alone.
 
 These tests require Chromium (`make browser`).
 """
@@ -21,6 +25,9 @@ from tenebrae.application import current_game
 from tenebrae.application.config import ROOT
 from tenebrae.application.pieces import PIECE_CATALOGUE
 from tenebrae.engine.piece import CATALOGUE
+from tenebrae.engine.scenario import armies_of
+
+from tests.application.test_faction_colours import READABLE, brightness
 
 from tests.application.test_board_browser import (a_piece_that_can_move, piece_geometry,
                                                   show_the_ghosts)
@@ -28,33 +35,63 @@ from tests.application.test_scenarios import (plain_squares,  # noqa: F401
                                               scenarios_directory)
 from tests.application.test_scenarios_browser import lay, open_the_page, wait_for_pieces
 
-# The correspondences as the browser reads them, by photograph: these tests ask the file the same
-# question the page asks it.
-CORRESPONDENCES = dict(json.loads(
-    (ROOT / "tenebrae" / "application" / "static" / "pawn_icons.json").read_text(encoding="utf-8")))
+STATIC = ROOT / "tenebrae" / "application" / "static"
 
-# The five counters the battle of Reissland fields and the icons they take, each named as the board
-# names it - the faction's directory, then the photograph. Anything else keeps its photograph.
-DRAWN_COUNTERS = [
-    ("02-reissland/reissland-01-15-infanteries.jpg", "lorc/barbute"),
-    ("01-yzent/yzent-02-6-infanteries-de-puissance-6.jpg", "lorc/visored-helm"),
-    ("02-reissland/reissland-02-8-cavaleries.jpg", "delapouite/cavalry"),
-    ("02-reissland/reissland-03-3-archers.jpg", "lorc/bowman"),
-    ("01-yzent/yzent-04-3-catapultes.jpg", "heavenly-dog/catapult"),
-]
 
-# Counters no row draws: a ram, a phalanx, the populace, an infantry of the elves - and a name the
-# box does not carry, which is the same nothing.
-BLANK_COUNTERS = [
-    "01-yzent/yzent-05-1-belier.jpg",
-    "01-yzent/yzent-06-5-phalanges-de-puissance-5-renforts.jpg",
-    "05-population/population-01-20-populaces.jpg",
-    "09-elfes/elfes-01-5-infanteries.jpg",
-    "11-orques/there-is-no-such-counter.jpg",
-]
+def read(name):
+    """One of the two data files the page reads, as it reads it."""
+    return json.loads((STATIC / name).read_text(encoding="utf-8"))
 
-REISSLAND = "02-reissland"
-YZENT = "01-yzent"
+
+# The correspondences by photograph, and the colours by faction: these tests ask the files the same
+# question the page asks them.
+CORRESPONDENCES = dict(read("pawn_icons.json"))
+ARMY_COLOURS = {faction: {"square": square, "drawing": drawing}
+                for faction, square, drawing in read("faction_colours.json") if square}
+
+# Where each photograph lies, as the board names it: the faction's directory, then the file.
+PHOTOGRAPHS = {str(piece["path"]).split("/")[1]: str(piece["path"])
+               for piece in PIECE_CATALOGUE}
+
+# The symbol each counter carries, by photograph: two counters may share one and still be drawn
+# apart, the row being found by the photograph.
+SYMBOLS = {str(piece["path"]).split("/")[1]: piece["symbol"] for piece in PIECE_CATALOGUE}
+
+
+def a_counter_per_icon():
+    """One counter for each drawing the file gives, in the file's own order.
+
+    What a test needs is a counter that has a drawing, never a particular drawing on a particular
+    counter: the file is edited by hand, row by row, and it is not these tests' business to say
+    what a hand should have put there.
+    """
+    chosen = {}
+    for photograph, icon in CORRESPONDENCES.items():
+        if icon:
+            chosen.setdefault(icon, PHOTOGRAPHS[photograph])
+    return [(path, icon) for icon, path in chosen.items()]
+
+
+def counters_drawn_by_nothing(how_many):
+    """That many counters whose row is blank, in the file's own order."""
+    blank = [PHOTOGRAPHS[photograph] for photograph, icon in CORRESPONDENCES.items() if not icon]
+    return blank[:how_many]
+
+
+# One counter per drawing, and counters no row draws - the last of them a name the box does not
+# carry at all, which is the same nothing.
+DRAWN_COUNTERS = a_counter_per_icon()
+BLANK_COUNTERS = counters_drawn_by_nothing(4) + ["11-orques/there-is-no-such-counter.jpg"]
+
+# Two armies the colours file gives colours to, and one it leaves the cardboard: the tint is
+# exercised on what the file holds, whatever it holds.
+COLOURED_ARMIES = sorted(ARMY_COLOURS)
+AN_ARMY = COLOURED_ARMIES[0]
+
+# An army the colours file leaves blank, hence the tone of the cardboard - and a second one, to
+# hold that they take the same.
+CARDBOARD_ARMIES = sorted({str(piece["faction"]) for piece in PIECE_CATALOGUE}
+                          - set(ARMY_COLOURS))
 
 A_DRAWN_SOURCE = "data:image/svg+xml"
 
@@ -63,11 +100,32 @@ A_DRAWN_SOURCE = "data:image/svg+xml"
 ORC_MOVEMENT = "Phase de mouvement — Orques"
 PHASES_TO_THE_ORCS = 2
 
-# Two units of one faction, on either side of the correspondences: the cavalry's row names an
-# icon, the infantry's row is blank, so it keeps its counter.
-ORC_CAVALRY = "orques-02-5-cavaleries"
-ORC_INFANTRY = "orques-01-15-infanteries"
+# The army the board's set-up has moving, and the side the scenario written below fields.
+ORCS = "11-orques"
+DARKNESS = "tenebres"
 
+
+def counters_of_the_darkness(drawn):
+    """The Darkness's counters whose row names an icon, or whose row is blank.
+
+    One of each is what the scenario written below is laid out with. They are taken from the file
+    rather than named: as it fills up, which counter is still blank moves from one army to the
+    next, and the side is what keeps that scenario's armies to one.
+    """
+    return [str(piece["key"]) for piece in PIECE_CATALOGUE
+            if piece["side"] == DARKNESS
+            and bool(CORRESPONDENCES[str(piece["path"]).split("/")[1]]) is drawn]
+
+
+# Two counters on either side of the correspondences: one the file draws, one it leaves blank and
+# which therefore keeps its photograph. Which counter carries a drawing is a hand's business, so
+# both come from the file - and the blank one can run dry as the file fills up, which the tests
+# that need the pair say rather than fail over.
+A_DRAWN_UNIT = next(iter(counters_of_the_darkness(drawn=True)), None)
+AN_UNDRAWN_UNIT = next(iter(counters_of_the_darkness(drawn=False)), None)
+
+needs_a_drawn_unit = pytest.mark.skipif(
+    A_DRAWN_UNIT is None, reason="the correspondences draw no counter of the Darkness")
 # The scenario the edit page is opened on here, written into the diverted directory.
 DRAWN_SCENARIO = 7
 DRAWN_SCENARIO_FILE = f"scenario-{DRAWN_SCENARIO:02d}-deux-faces.json"
@@ -166,17 +224,6 @@ def move_to_the_orcs_movement(page):
     raise AssertionError(f"the orcs never came to move: {shown}")
 
 
-def rgb(colour):
-    """The three channels of a "#rrggbb" colour."""
-    return tuple(int(colour[index:index + 2], 16) for index in (1, 3, 5))
-
-
-def brightness(colour):
-    """How light the colour reads, on the usual weighting of the three channels."""
-    red, green, blue = rgb(colour)
-    return 0.299 * red + 0.587 * green + 0.114 * blue
-
-
 # --- The button ---
 
 def test_the_bar_carries_the_button_and_it_fits(board):
@@ -241,8 +288,9 @@ def test_a_unit_with_no_icon_keeps_its_photograph(board):
     """The board shows both faces at once rather than empty the squares it cannot draw."""
     swap_the_face(board)
     kept = [pawn for pawn in pawn_faces(board) if not pawn["icon"]]
+    if not kept:
+        pytest.skip("the correspondences now draw every counter of the set-up")
 
-    assert kept, "every unit of the set-up took an icon: the mixture is no longer exercised"
     assert all(pawn["photograph"] for pawn in kept)
     assert not any(has_an_icon(pawn["key"]) for pawn in kept)
 
@@ -289,31 +337,52 @@ def test_each_counter_takes_the_icon_it_was_given(board):
     assert ask_the_table(board, photographs) == [icon for _, icon in DRAWN_COUNTERS]
 
 
-def test_the_two_infantries_are_told_apart_by_their_photographs(board):
-    """Both carry the symbol "infanterie", and they wear two different helmets: what separates
-    them is the counter each was printed on."""
-    helmets = ask_the_table(board, ["01-yzent/yzent-01-9-infanteries-de-puissance-4.jpg",
-                                    "01-yzent/yzent-02-6-infanteries-de-puissance-6.jpg"])
-    assert helmets == ["lorc/barbute", "lorc/visored-helm"]
-    assert helmets[0] != helmets[1]
+def two_counters_of_one_symbol_drawn_apart():
+    """Two counters carrying the same symbol whose rows do not say the same thing, or nothing.
+
+    The symbol is what the old table was keyed by, and it does not tell every counter apart: the
+    box holds several infantries, and the file is free to draw them differently - or to draw one
+    and leave the other its photograph.
+    """
+    seen = {}
+    for photograph, icon in CORRESPONDENCES.items():
+        symbol = SYMBOLS[photograph]
+        if symbol is None:
+            continue
+        if symbol in seen and seen[symbol][1] != icon:
+            return [seen[symbol], (PHOTOGRAPHS[photograph], icon)]
+        seen.setdefault(symbol, (PHOTOGRAPHS[photograph], icon))
+    return None
+
+
+def test_two_counters_of_one_symbol_are_told_apart_by_their_photographs(board):
+    """The symbol alone would not: several counters of the box carry the same one, and the file
+    answers each of them on its own."""
+    apart = two_counters_of_one_symbol_drawn_apart()
+    if apart is None:
+        pytest.skip("the file draws every counter of a symbol the same way")
+
+    given = ask_the_table(board, [photograph for photograph, _ in apart])
+    assert given == [icon or None for _, icon in apart]
+    assert given[0] != given[1]
 
 
 def test_a_counter_whose_row_is_blank_is_drawn_by_nothing(board):
-    """A ram, a phalanx, the populace, an infantry of the elves - and a name the file does not
-    carry: an empty icon, hence the counter."""
+    """The counters the file leaves blank - and a name it does not carry at all: an empty icon,
+    hence the photograph."""
     assert ask_the_table(board, BLANK_COUNTERS) == [None] * len(BLANK_COUNTERS)
 
 
 def test_the_table_answers_nothing_before_its_file_is_read(board):
     """It is a data file, and the fallback while it is in flight is the photograph - never a
     wrong icon."""
-    assert board.evaluate(
-        "() => pawnIconOf({ image: '02-reissland/reissland-02-8-cavaleries.jpg' })") is None
+    assert board.evaluate("(photograph) => pawnIconOf({ image: photograph })",
+                          DRAWN_COUNTERS[0][0]) is None
 
 
-def test_the_five_icons_are_read_from_the_server(board):
-    """Each of the five files is where the table says it is: they are fetched and tinted here."""
-    units = [{"image": photograph, "faction": REISSLAND} for photograph, _ in DRAWN_COUNTERS]
+def test_every_icon_named_is_read_from_the_server(board):
+    """Each file is where the table says it is: they are fetched and tinted here."""
+    units = [{"image": photograph, "faction": AN_ARMY} for photograph, _ in DRAWN_COUNTERS]
     drawn = board.evaluate("""async (units) => {
         await loadThePawnIcons(units);
         return units.map((unit) => pawnIconSource(unit));
@@ -326,43 +395,47 @@ def test_the_five_icons_are_read_from_the_server(board):
 
 # --- The colours of the armies ---
 
-def test_the_two_armies_of_reissland_are_told_apart_by_their_blue(board):
-    """Reissland's blue is the clear one, Yzent's the deep one, and both are blue."""
-    colours = board.evaluate("""() => ({
-        reissland: armyColoursOf({ faction: '02-reissland' }),
-        yzent: armyColoursOf({ faction: '01-yzent' }),
-    })""")
-    reissland, yzent = colours["reissland"]["square"], colours["yzent"]["square"]
+def ask_the_colours(page, factions):
+    """What the page gives those armies, the colours file read first.
 
-    for blue in (reissland, yzent):
-        red, green, channel = rgb(blue)
-        assert channel > red and channel > green, blue
-    assert brightness(reissland) > brightness(yzent)
+    They are a data file too (`static/faction_colours.json`), read where the correspondences are
+    read: `loadThePawnIcons` is what fetches both.
+    """
+    return page.evaluate("""async (factions) => {
+        await loadThePawnIcons([]);
+        return factions.map((faction) => armyColoursOf({ faction }));
+    }""", factions)
 
 
-def test_the_drawing_reads_on_the_square_of_both_armies(board):
-    """Dark on the clear blue, pale on the deep one: an icon of one tone would show nothing."""
-    colours = board.evaluate("""() => [
-        armyColoursOf({ faction: '02-reissland' }),
-        armyColoursOf({ faction: '01-yzent' }),
-        armyColoursOf({ faction: '11-orques' }),
-    ]""")
-    for army in colours:
-        assert abs(brightness(army["square"]) - brightness(army["drawing"])) > 100, army
+def test_every_coloured_army_takes_the_colours_of_its_row(board):
+    """The file itself, army by army: what the page paints with is what a hand wrote there."""
+    given = ask_the_colours(board, COLOURED_ARMIES)
+    assert given == [ARMY_COLOURS[faction] for faction in COLOURED_ARMIES]
 
 
-def test_an_army_the_table_does_not_colour_takes_neither_blue(board):
-    """The two blues were given for the two armies of the battle; the others keep out of them."""
-    colours = board.evaluate("""() => ({
-        orcs: armyColoursOf({ faction: '11-orques' }),
-        dwarves: armyColoursOf({ faction: '10-nains' }),
-        reissland: armyColoursOf({ faction: '02-reissland' }),
-        yzent: armyColoursOf({ faction: '01-yzent' }),
-    })""")
-    blues = {colours["reissland"]["square"], colours["yzent"]["square"]}
+def test_the_drawing_reads_on_the_square_of_every_army(board):
+    """The cardboard included: an army of one tone would show nothing at a counter's size."""
+    for army in ask_the_colours(board, COLOURED_ARMIES + CARDBOARD_ARMIES):
+        assert abs(brightness(army["square"]) - brightness(army["drawing"])) > READABLE, army
 
-    assert colours["orcs"] == colours["dwarves"]
-    assert colours["orcs"]["square"] not in blues
+
+def test_an_army_whose_row_is_blank_takes_the_tone_of_the_cardboard(board):
+    """They take it together, and none of the coloured armies claims it: a colour is given to an
+    army, never inherited by the ones nobody has coloured."""
+    cardboard = ask_the_colours(board, CARDBOARD_ARMIES)
+    coloured = ask_the_colours(board, COLOURED_ARMIES)
+
+    assert cardboard, "the colours file leaves no army the cardboard"
+    assert all(army == cardboard[0] for army in cardboard)
+    assert cardboard[0] not in coloured
+
+
+def test_the_colours_answer_the_cardboard_before_their_file_is_read(board):
+    """It is a data file, and the fallback while it is in flight is the tone of the cardboard -
+    never a colour claimed for an army that has none."""
+    before = board.evaluate("(faction) => armyColoursOf({ faction })", COLOURED_ARMIES[0])
+    assert before == board.evaluate("() => ANY_OTHER_ARMY")
+    assert ask_the_colours(board, [COLOURED_ARMIES[0]]) != [before]
 
 
 def test_the_icon_carries_the_colours_of_its_army(board):
@@ -431,7 +504,8 @@ def test_the_ghosts_wear_the_face_in_use(board):
     them."""
     swap_the_face(board)
     move_to_the_orcs_movement(board)
-    piece, _, _ = a_piece_that_can_move(board, lambda unit: has_an_icon(unit.key))
+    piece, _, _ = a_piece_that_can_move(
+        board, lambda unit: unit.faction == ORCS and has_an_icon(unit.key))
     show_the_ghosts(board, piece)
 
     ghosts = pawn_faces(board, "img.ghost")
@@ -532,17 +606,18 @@ def wait_for_the_drawn_face(page, number):
 def a_scenario_with_a_drawn_unit(scenarios_directory, plain_squares):  # noqa: F811
     """Writes a scenario no. 7 with one unit that has an icon and one that has none.
 
-    The orc cavalry's row names an icon; the orc infantry's row is blank, so it keeps its
-    photograph. One file therefore exercises both answers of the edit page.
+    Both are of the Darkness, one taken from either side of the correspondences, so that one file
+    exercises both answers of the edit page. The armies are derived from the placement, as the
+    edit page itself derives them.
     """
+    if A_DRAWN_UNIT is None or AN_UNDRAWN_UNIT is None:
+        pytest.skip("the correspondences leave no counter of the Darkness undrawn")
     drawn, kept, _ = plain_squares
     values = {
         "numero": DRAWN_SCENARIO, "nom": "Deux faces", "source": "les tests",
         "nombre_de_tours": 10,
-        "armees": [
-            {"joueur": 1, "camp": "tenebres", "armee": "Orques", "consigne": None,
-             "ancre": drawn, "unites": 2, "magie": None, "jeteur_de_sorts": None}],
-        "placement": {drawn: ORC_CAVALRY, kept: ORC_INFANTRY}}
+        "armees": armies_of({drawn: A_DRAWN_UNIT, kept: AN_UNDRAWN_UNIT}),
+        "placement": {drawn: A_DRAWN_UNIT, kept: AN_UNDRAWN_UNIT}}
     (scenarios_directory / DRAWN_SCENARIO_FILE).write_text(
         json.dumps(values, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return drawn, kept
@@ -558,8 +633,8 @@ def test_the_edit_page_lays_the_scenarios_units_drawn(
     wait_for_the_drawn_face(editing, 1)
 
     faces = {pawn["key"]: pawn for pawn in pawn_faces(editing, "img.piece")}
-    assert faces[ORC_CAVALRY]["drawn"], drawn
-    assert faces[ORC_INFANTRY]["photograph"], kept
+    assert faces[A_DRAWN_UNIT]["drawn"], drawn
+    assert faces[AN_UNDRAWN_UNIT]["photograph"], kept
 
 
 def test_the_edit_page_keeps_the_counters_without_the_parameter(
@@ -573,6 +648,7 @@ def test_the_edit_page_keeps_the_counters_without_the_parameter(
                for pawn in pawn_faces(editing, "img.piece"))
 
 
+@needs_a_drawn_unit
 def test_a_piece_laid_from_the_palette_wears_the_face(
         page, server, application, seat_the_player, scenarios_directory,  # noqa: F811
         plain_squares):  # noqa: F811
@@ -581,7 +657,7 @@ def test_a_piece_laid_from_the_palette_wears_the_face(
     first, _, _ = plain_squares
     editor = open_the_page(page, server, application, seat_the_player,
                            "/admin/scenarios?icons=1")
-    lay(editor, ORC_CAVALRY, first)
+    lay(editor, A_DRAWN_UNIT, first)
     wait_for_pieces(editor, 1)
     wait_for_the_drawn_face(editor, 1)
 
@@ -589,12 +665,13 @@ def test_a_piece_laid_from_the_palette_wears_the_face(
     assert pawn["drawn"] and pawn["icon"]
 
 
+@needs_a_drawn_unit
 def test_a_piece_laid_without_the_parameter_keeps_its_photograph(
         page, server, application, seat_the_player, scenarios_directory,  # noqa: F811
         plain_squares):  # noqa: F811
     first, _, _ = plain_squares
     editor = open_the_page(page, server, application, seat_the_player, "/admin/scenarios")
-    lay(editor, ORC_CAVALRY, first)
+    lay(editor, A_DRAWN_UNIT, first)
     wait_for_pieces(editor, 1)
 
     [pawn] = pawn_faces(editor, "img.piece")

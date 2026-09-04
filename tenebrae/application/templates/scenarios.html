@@ -40,6 +40,13 @@
   <!-- The top-left panel: the toolbar, and beneath it what the page has to say. -->
   <div id="panel">
     <div id="toolbar">
+      <!-- The same button the board carries, and the same choice behind it (static/pawns.js): the
+           counters photographed, or the drawn icons. It keeps its sign rather than swapping it -
+           the bar is clipped on the right - so what it says is in "aria-pressed" and in the
+           tooltip. First in the bar, as on the board. -->
+      <button type="button" id="pawn-style" aria-pressed="false"
+              title="Afficher les pions en icônes">♟&#xFE0E;</button>
+
       <button type="button" id="zoom-out" title="Reculer">−</button>
       <span id="scale">—</span>
       <button type="button" id="zoom-in" title="Approcher">+</button>

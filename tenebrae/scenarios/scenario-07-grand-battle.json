@@ -1,0 +1,24 @@
+{
+  "numero": 7,
+  "nom": "Grand battle",
+  "source": "composé sur /admin/scenarios le 2026-09-04",
+  "nombre_de_tours": 32,
+  "enabled": true,
+  "armees": [
+    {
+      "joueur": 1,
+      "camp": "alliance",
+      "armee": "Templiers",
+      "consigne": null,
+      "ancre": null,
+      "unites": 1,
+      "magie": null,
+      "jeteur_de_sorts": null
+    }
+  ],
+  "placement": {
+    "15,7,-22": "templiers-01-5-infanteries"
+  },
+  "total_points_alliance": 10,
+  "total_points_tenebres": 0
+}

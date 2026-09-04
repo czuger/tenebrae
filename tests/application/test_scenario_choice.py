@@ -72,6 +72,18 @@ def offered(client):
     return [entry["number"] for entry in client.get("/game/scenarios").get_json()["scenarios"]]
 
 
+def on_file(directory, *withdrawn):
+    """The numbers of the scenarios in that directory, in order, less those named.
+
+    Read from the directory rather than named here: composing a scenario on `/admin/scenarios`
+    writes one more file, and a list written down would have to be edited every time somebody laid
+    a set-up out. What these tests are about is which of the files are offered, not how many there
+    are.
+    """
+    return [int(path.name.split("-")[1]) for path in sorted(directory.glob("scenario-*.json"))
+            if int(path.name.split("-")[1]) not in withdrawn]
+
+
 # --- The list on offer ---
 
 
@@ -79,7 +91,7 @@ def test_the_list_carries_every_scenario_on_file(client, scenarios_directory):
     answer = client.get("/game/scenarios").get_json()
 
     assert answer["current"] == WAR_OF_THE_DWARVES
-    assert [entry["number"] for entry in answer["scenarios"]] == [WAR_OF_THE_DWARVES, REISSLAND]
+    assert [entry["number"] for entry in answer["scenarios"]] == on_file(scenarios_directory)
     dwarves = answer["scenarios"][0]
     assert dwarves["name"] == "La guerre des nains"
     assert dwarves["max_turns"] == 32
@@ -88,7 +100,7 @@ def test_the_list_carries_every_scenario_on_file(client, scenarios_directory):
 
 def test_a_disabled_scenario_leaves_the_list(client, scenarios_directory):
     disable(scenarios_directory, REISSLAND)
-    assert offered(client) == [WAR_OF_THE_DWARVES]
+    assert offered(client) == on_file(scenarios_directory, REISSLAND)
 
 
 def test_the_list_is_read_again_at_every_request(client, scenarios_directory):
@@ -224,7 +236,7 @@ def test_a_game_under_way_on_a_disabled_scenario_is_still_resumed(client, scenar
 
     assert client.get("/").status_code == 200
     assert current_game.SCENARIO_NUMBER == REISSLAND
-    assert offered(client) == [WAR_OF_THE_DWARVES]
+    assert offered(client) == on_file(scenarios_directory, REISSLAND)
 
 
 def test_a_saved_scenario_whose_file_has_gone_opens_a_new_game(client, scenarios_directory):

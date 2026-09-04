@@ -834,6 +834,98 @@ def test_the_palette_wears_the_face_too(
     assert all(entry["drawn"] is has_an_icon(entry["key"]) for entry in faces)
 
 
+# --- The same button on the scenario page ---
+
+def swap_the_face_on_the_editor(page):
+    """Clicks the editor's button and waits for it to announce the new face."""
+    before = page.evaluate(
+        "() => document.getElementById('pawn-style').getAttribute('aria-pressed')")
+    page.locator("#pawn-style").click()
+    page.wait_for_function(
+        "(before) => document.getElementById('pawn-style').getAttribute('aria-pressed') !== before",
+        arg=before)
+    return page.evaluate(
+        "() => document.getElementById('pawn-style').getAttribute('aria-pressed')")
+
+
+def test_the_editors_bar_carries_the_button_and_it_fits(
+        page, server, application, seat_the_player, scenarios_directory):  # noqa: F811
+    """That bar is `overflow: hidden` too, and narrower than the board's - the palette takes the
+    right of the window: one button too many would be clipped there silently."""
+    editor = open_the_page(page, server, application, seat_the_player, "/admin/scenarios")
+    room = editor.evaluate("""() => {
+        const toolbar = document.getElementById('toolbar').getBoundingClientRect();
+        const save = document.getElementById('save').getBoundingClientRect();
+        return toolbar.right - save.right;
+    }""")
+
+    assert editor.locator("#pawn-style").is_visible()
+    assert room >= 0, room
+
+
+def test_the_editors_button_draws_the_map_and_the_palette(
+        page, server, application, seat_the_player, scenarios_directory,  # noqa: F811
+        plain_squares):  # noqa: F811
+    """The same button the board carries, and the same two faces behind it."""
+    first, *_ = plain_squares
+    editor = open_the_page(page, server, application, seat_the_player, "/admin/scenarios")
+    lay(editor, A_DRAWN_UNIT, first)
+    wait_for_pieces(editor, 1)
+    assert all(pawn["photograph"] for pawn in pawn_faces(editor, "img.piece"))
+
+    assert swap_the_face_on_the_editor(editor) == "true"
+    wait_for_the_drawn_face(editor, 1)
+
+    [pawn] = pawn_faces(editor, "img.piece")
+    assert pawn["drawn"] and pawn["icon"]
+    assert any(entry["drawn"] for entry in palette_faces(editor))
+
+
+def test_the_editors_button_puts_the_photographs_back(
+        page, server, application, seat_the_player, scenarios_directory,  # noqa: F811
+        plain_squares):  # noqa: F811
+    """A swap and a swap back leave the page as it was found."""
+    first, *_ = plain_squares
+    editor = open_the_page(page, server, application, seat_the_player,
+                           "/admin/scenarios?icons=1")
+    lay(editor, A_DRAWN_UNIT, first)
+    wait_for_the_drawn_face(editor, 1)
+
+    assert swap_the_face_on_the_editor(editor) == "false"
+
+    assert all(pawn["photograph"] and not pawn["icon"]
+               for pawn in pawn_faces(editor, "img.piece"))
+    assert all(entry["photograph"] for entry in palette_faces(editor))
+
+
+def test_the_face_chosen_on_the_editor_survives_a_reload(
+        page, server, application, seat_the_player, scenarios_directory):  # noqa: F811
+    """It is kept where the board keeps it: one key, this browser's, for the two pages."""
+    editor = open_the_page(page, server, application, seat_the_player, "/admin/scenarios")
+    assert swap_the_face_on_the_editor(editor) == "true"
+
+    editor.reload()
+    editor.wait_for_function(
+        "() => document.getElementById('pawn-style').getAttribute('aria-pressed') === 'true'")
+
+
+def test_the_face_chosen_on_the_board_is_the_one_the_editor_opens_on(
+        page, server, application, seat_the_player, scenarios_directory):  # noqa: F811
+    """One choice for the two pages: a counter does not change appearance because one walked from
+    the game to the composing."""
+    board = open_the_board(page, server, application, seat_the_player)
+    assert swap_the_face(board) == "true"
+
+    editor = open_the_page(page, server, application, seat_the_player, "/admin/scenarios")
+    editor.wait_for_function(
+        "() => document.getElementById('pawn-style').getAttribute('aria-pressed') === 'true'")
+    # The whole box is read before anything is dressed: the button announces the face at once, the
+    # palette wears it when the set has arrived.
+    editor.wait_for_function("() => document.querySelectorAll('#palette img.icon').length > 0")
+
+    assert any(entry["drawn"] for entry in palette_faces(editor))
+
+
 def test_the_palette_keeps_the_counter_where_there_is_no_icon(
         page, server, application, seat_the_player, scenarios_directory):  # noqa: F811
     """The same answer as the map's: a unit the file leaves blank stays its photograph."""

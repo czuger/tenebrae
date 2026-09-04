@@ -16,7 +16,7 @@ from tenebrae.engine.retreat import RetreatOutcome
 COMBAT_MESSAGES = {
     "DE": "Combat résolu : Défenseur Éliminé",
     "AE": "Combat résolu : Attaquant Éliminé",
-    "EX": "Combat résolu : Échange — la cible est éliminée, avec les attaquants qui ne tirent pas",
+    "EX": "Combat résolu : Échange — la cible est éliminée, avec juste assez d'attaquants",
     "DR": "Combat résolu : Défenseur Recule",
     "AR": "Combat résolu : Attaquant Recule",
 }

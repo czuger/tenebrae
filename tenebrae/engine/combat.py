@@ -8,12 +8,13 @@ applies the terrain modifiers from the *Terrain table*.
 
 `AR` and `DR` make the units fall back, and the fall-back is a rule of its own -
 `tenebrae.engine.retreat`, which this module calls and which alone knows what to do when there is
-nowhere to fall back to. `EX` removes the engaged units, without the booklet's "attackers totalling
-a strength at least equal" sorting - but **an attacker that fires escapes both**: "a unit firing
-missiles can in no case suffer a retreat or exchange result", read as covering the unit that is
-firing, so a missile unit assaulted in its own square gives ground like any other; a defender in a
-fort or a castle escapes `DR` too. Special abilities, the cavalry charge, phalanxes and the
-day/night alternation are out of reach - see `tenebrae/engine/README.md`.
+nowhere to fall back to. `EX` takes the defender and, with it, "attacking units totalling a
+strength at least equal" - `exchanged_attackers` picks them, and the group it picks is the
+**smallest** that can reach that total. An attacker that fires escapes both `EX` and the retreats:
+"a unit firing missiles can in no case suffer a retreat or exchange result", read as covering the
+unit that is firing, so a missile unit assaulted in its own square gives ground like any other; a
+defender in a fort or a castle escapes `DR` too. Special abilities, the cavalry charge, phalanxes
+and the day/night alternation are out of reach - see `tenebrae/engine/README.md`.
 
 The advance after combat is not played: the booklet lets the attacker occupy the square the
 defender has just left, "the decision must be announced immediately after the combat", and that is
@@ -397,16 +398,62 @@ def record_the_loss(casualties: Optional[Casualties], hexagon: Hex,
     casualties.record(hexagon, piece, OPPONENTS.get(piece.side))
 
 
+def exchanged_attackers(board: Board, attacker_hexagons: Sequence[Hex],
+                        defending_strength: int) -> list[Hex]:
+    """Picks the attackers an exchange takes with the defender.
+
+    The booklet asks for "attacking units totalling a strength at least equal"; **which** units is
+    left open, and it is read here as the fewest counters that can reach that total. Taking the
+    strongest first gives exactly that: no *k* counters can total more than the *k* strongest, so
+    the first *k* to reach the defender's strength are the smallest group there is. Ties are broken
+    by square key, as everywhere else in the engine.
+
+    Note what the reading costs: the fewest counters are the biggest ones, so a general standing
+    among its infantry is what the exchange takes. That is the price of counting counters rather
+    than strength, and it is what the sentence asks for read this way.
+
+    The strength to reach is the defender's own, as it is printed on the counter: the terrain
+    multiplier is what the ratio is worked out on, and an exchange trades units, not positions.
+
+    Two attackers are never picked - a unit that fires, which the booklet exempts from the exchange
+    altogether, and one whose strength is illegible, which cannot help reach a total. Should
+    everything that can be picked still fall short - a defender stronger than all its assailants
+    together - the whole group goes, which is as far as the sentence carries.
+
+    Args:
+        board: The board, read for the attacking pieces.
+        attacker_hexagons: The attackers' squares.
+        defending_strength: The strength the group must total: the defender's.
+
+    Returns:
+        The squares the exchange clears, in the order the attackers were given.
+    """
+    candidates = [(piece.strength, hexagon) for hexagon in attacker_hexagons
+                  if (piece := board.piece_on(hexagon)) is not None
+                  and piece.strength is not None and not fires_missiles(piece)]
+
+    taken: set[str] = set()
+    total = 0
+    for strength, hexagon in sorted(candidates, key=lambda one: (-one[0], one[1].key)):
+        if total >= defending_strength:
+            break
+        taken.add(hexagon.key)
+        total += strength
+    return [hexagon for hexagon in attacker_hexagons if hexagon.key in taken]
+
+
 def fight(board: Board, target_hexagon: Hex, attacker_hexagons: Sequence[Hex], roll: int,
           casualties: Optional[Casualties] = None) -> CombatResult:
     """Resolves a combat on the board, **removing** the eliminated pieces and falling back the rest.
 
     The attackers are held to be valid - in range, on the right side: it is up to the caller to
-    have filtered them. An attacker with no legible strength is ignored in the computation but
-    shares the group's fate. `AE` removes the attackers, `DE` the target, `EX` both - except the
-    attackers firing missiles, whom the booklet exempts from retreat and exchange; `AR` and `DR`
-    make them fall back one square, and a unit with nowhere to fall back to is removed from play in
-    its turn (`tenebrae/engine/retreat.py`).
+    have filtered them. An attacker with no legible strength is ignored in the computation; under
+    `AE` it shares the group's fate all the same, under `EX` it is never one of those picked. `AE`
+    removes the attackers, `DE` the target, `EX` the target and as few attackers as total its
+    strength (`exchanged_attackers`) - the attackers firing missiles apart, whom the booklet
+    exempts from retreat and exchange; `AR` and `DR` make them fall back one square, and a unit
+    with nowhere to fall back to is removed from play in its turn
+    (`tenebrae/engine/retreat.py`).
 
     Args:
         board: The board the combat is played on.
@@ -433,8 +480,7 @@ def fight(board: Board, target_hexagon: Hex, attacker_hexagons: Sequence[Hex], r
     if outcome == AE:
         eliminated.extend(attacker_hexagons)
     elif outcome == EX:
-        eliminated.extend(hexagon for hexagon in attacker_hexagons
-                          if not fires_missiles(board.piece_on(hexagon)))
+        eliminated.extend(exchanged_attackers(board, attacker_hexagons, target_piece.strength))
     if outcome in (DE, EX):
         eliminated.append(target_hexagon)
     for hexagon in eliminated:

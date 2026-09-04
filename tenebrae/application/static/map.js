@@ -99,7 +99,7 @@ const { centre: hexagonCentre, hexagonOfPixel } = alignment(grid);
 // born under a selection - is dressed in the face in use, without anything having to think of it.
 const { place, createImage } = pieceLayer({
   board, centre: hexagonCentre, pieceSize: grid.piece_size,
-  dress: (image, piece) => dressThePawn(image, piece, pawnStyle === ICON_PAWNS),
+  dress: (image, piece) => dressThePawn(image, piece, pawnsAreDrawn()),
 });
 
 // The images placed on the map: the pieces, and the ghosts of the selected piece.
@@ -761,69 +761,29 @@ function swapThePanelSide() {
 // selection - arrives wearing it. Which counter is drawn as what is nobody's business here: it is
 // `static/pawn_icons.json`, and `static/pawns.js` reads it.
 //
-// What has no icon keeps its photograph, and the board then shows both at once. The choice is kept
-// in `localStorage` like the panel's edge, and guarded like it: it is this browser's, not the
-// player's and not the game's. "?icons=1" and "?icons=0" in the address override it and are kept -
-// it is the same parameter the scenario page is opened on, which has no button.
-
-const PAWN_STYLE_KEY = "tenebrae.pawnStyle";
-const ICON_PAWNS = "icons";
-const COUNTER_PAWNS = "counters";
-
-let pawnStyle = COUNTER_PAWNS;
-
-function storedPawnStyle() {
-  try {
-    return window.localStorage.getItem(PAWN_STYLE_KEY) === ICON_PAWNS ? ICON_PAWNS : COUNTER_PAWNS;
-  } catch (error) {
-    // Private browsing and a blocked storage throw rather than answer: the board then opens on
-    // the counters, as it always has.
-    return COUNTER_PAWNS;
-  }
-}
-
-function rememberThePawnStyle(style) {
-  try {
-    window.localStorage.setItem(PAWN_STYLE_KEY, style);
-  } catch (error) {
-    // Nothing to do: the choice will simply not survive the reload.
-  }
-}
-
-// The address decides when it says anything - "?icons=1", "?icons=0" - and what it says is kept,
-// as the debug log keeps what "?debug=1" asked for: one opens the board on a face, and it is still
-// that face on the next load. Said nothing, the address leaves the stored choice alone.
-function initialPawnStyle() {
-  const asked = pawnStyleAskedInTheAddress();
-  if (asked === null) return storedPawnStyle();
-  const style = asked ? ICON_PAWNS : COUNTER_PAWNS;
-  trace.info("the address asks for a face", { style });
-  rememberThePawnStyle(style);
-  return style;
-}
+// What has no icon keeps its photograph, and the board then shows both at once. The choice itself
+// - where it is kept, what the address says about it, what the button announces - is in
+// `static/pawns.js`, shared with the scenario page, which carries the same button: what is left
+// here is the redrawing of what this page has on screen.
 
 function showThePawnStyle() {
-  const icons = pawnStyle === ICON_PAWNS;
-  pawnStyleButton.setAttribute("aria-pressed", String(icons));
-  pawnStyleButton.title = icons
-    ? "Revenir aux pions photographiés"
-    : "Afficher les pions en icônes";
-  for (const image of [...placedPieces, ...ghosts]) dressThePawn(image, image.piece, icons);
-  trace.info("the pawns are dressed", { style: pawnStyle, pawns: placedPieces.length,
+  labelThePawnStyleButton(pawnStyleButton);
+  for (const image of [...placedPieces, ...ghosts]) {
+    dressThePawn(image, image.piece, pawnsAreDrawn());
+  }
+  trace.info("the pawns are dressed", { drawn: pawnsAreDrawn(), pawns: placedPieces.length,
                                         ghosts: ghosts.length });
 }
 
 // The icons are read the first time they are asked for, and not before: a player who never leaves
 // the counters fetches nothing. What has been read is kept, so the swap back and forth is free.
 async function applyThePawnStyle() {
-  if (pawnStyle === ICON_PAWNS) await loadThePawnIcons(pieces);
+  if (pawnsAreDrawn()) await loadThePawnIcons(pieces);
   showThePawnStyle();
 }
 
 async function swapThePawnStyle() {
-  pawnStyle = pawnStyle === ICON_PAWNS ? COUNTER_PAWNS : ICON_PAWNS;
-  trace.info("the face of the pawns is swapped", { style: pawnStyle });
-  rememberThePawnStyle(pawnStyle);
+  turnThePawnStyleOver();
   await applyThePawnStyle();
 }
 
@@ -1302,7 +1262,7 @@ function layThePiecesOut(fresh) {
   // nevertheless bring a unit, or an army, whose icon has not been drawn yet. Reading it is not
   // waited for: the board is complete without it, and the icons take the place of the photographs
   // as soon as they are there.
-  if (pawnStyle === ICON_PAWNS) applyThePawnStyle();
+  if (pawnsAreDrawn()) applyThePawnStyle();
 
   // The unit may have been eliminated meanwhile: there is then nothing left to aim at.
   const found = marker && placedPieces.find((image) => key(image.dataset) === marker);
@@ -1341,7 +1301,7 @@ function start() {
   pawnStyleButton.addEventListener("click", swapThePawnStyle);
   // The counters are already laid: on the icons, the board is opened with the photographs and they
   // are put on as soon as the set is read, rather than the page waiting on five files for a face.
-  pawnStyle = initialPawnStyle();
+  settleThePawnStyle();
   applyThePawnStyle();
   playerButton.addEventListener("click", () => {
     trace.info("the player button is clicked", { connected: table.connected });

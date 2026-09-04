@@ -73,6 +73,17 @@ def sit_down_at_the_alliance(page):
     page.wait_for_function("!document.getElementById('table-dialog').open")
 
 
+def on_file(directory, *withdrawn):
+    """The numbers of the scenarios in that directory, in order, less those named.
+
+    Read from the directory rather than named here: composing a scenario on `/admin/scenarios`
+    writes one more file, and a list written down would have to be edited every time somebody laid
+    a set-up out.
+    """
+    return [int(path.name.split("-")[1]) for path in sorted(directory.glob("scenario-*.json"))
+            if int(path.name.split("-")[1]) not in withdrawn]
+
+
 def open_the_chooser(page):
     """Reopens the table and waits for the chooser to have been filled from the server."""
     page.locator("#player").click()
@@ -88,7 +99,7 @@ def test_the_chooser_offers_the_scenarios_on_file(page, server, scenarios_direct
     chooser = open_the_chooser(page)
 
     assert chooser.evaluate("select => [...select.options].map((option) => Number(option.value))") \
-        == [WAR_OF_THE_DWARVES, REISSLAND]
+        == on_file(scenarios_directory)
     # The set-up being played is the proposal.
     assert chooser.input_value() == str(WAR_OF_THE_DWARVES)
 
@@ -104,13 +115,13 @@ def test_a_scenario_disabled_in_its_file_leaves_the_chooser(page, server, scenar
     """No reload: the list is fetched at every opening of the dialog."""
     open_the_board(page, server)
     sit_down_at_the_alliance(page)
-    assert open_the_chooser(page).locator("option").count() == 2
+    assert open_the_chooser(page).locator("option").count() == len(on_file(scenarios_directory))
 
     page.locator("#table-close").click()
     disable(scenarios_directory, REISSLAND)
 
     chooser = open_the_chooser(page)
-    assert chooser.locator("option").count() == 1
+    assert chooser.locator("option").count() == len(on_file(scenarios_directory, REISSLAND))
     assert chooser.input_value() == str(WAR_OF_THE_DWARVES)
 
 

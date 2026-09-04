@@ -162,6 +162,96 @@ class TestFight:
         assert result.eliminated == [target]
         assert board.piece_on(shooter) is not None
 
+    def test_the_exchange_takes_one_attacker_where_one_is_enough(self, pair):
+        """"[...] along with attacking units totalling a strength at least equal": one dwarf
+        totals more than the archer on its own, so its two companions come out of it.
+
+        Which of the three is a tie at equal strength, and a tie is broken by square key, as
+        everywhere else in the engine.
+        """
+        target, _ = pair
+        squares = target.neighbours()[:3]
+        board = Board([(target, piece(ARCHER))]
+                      + [(square, piece(DWARF)) for square in squares])
+        # 3 x DWARF 12 = 36 against ARCHER 2 -> 6-1; die 6 -> EX.
+        result = combat.fight(board, target, squares, roll=6)
+        taken = min(squares, key=lambda square: square.key)
+
+        assert result.outcome == EX
+        assert result.eliminated == [taken, target]
+        assert [square for square in squares if board.piece_on(square) is None] == [taken]
+
+    def test_it_takes_a_second_attacker_where_one_falls_short(self, pair):
+        """One elf does not total the orc's strength; two do, and the other three stay."""
+        target, _ = pair
+        elves = target.neighbours()[:5]
+        board = Board([(target, piece(ORC))] + [(square, piece(ELF)) for square in elves])
+        # 5 x ELF 7 = 35 against ORC 8 -> 4-1; die 6 -> EX. ELF 7 < 8, ELF + ELF = 14 >= 8.
+        result = combat.fight(board, target, elves, roll=6)
+        taken = sorted(elves, key=lambda square: square.key)[:2]
+
+        assert result.outcome == EX
+        assert set(result.eliminated) == {*taken, target}
+        assert [square for square in elves if board.piece_on(square) is None] == list(
+            square for square in elves if square in taken)
+
+    def test_the_fewest_counters_are_the_biggest_ones(self, pair):
+        """What counting counters costs: the dwarf alone totals the orc's strength, so the dwarf
+        is what the exchange takes and the four elves walk away."""
+        target, _ = pair
+        dwarf, *elves = target.neighbours()[:5]
+        board = Board([(target, piece(ORC)), (dwarf, piece(DWARF))]
+                      + [(square, piece(ELF)) for square in elves])
+        # DWARF 12 + 4 x ELF 7 = 40 against ORC 8 -> 5-1; die 6 -> EX.
+        result = combat.fight(board, target, [dwarf, *elves], roll=6)
+
+        assert result.outcome == EX
+        assert result.eliminated == [dwarf, target]
+        assert all(board.piece_on(square) is not None for square in elves)
+
+    def test_neither_a_shooter_nor_an_illegible_counter_is_ever_taken(self, pair):
+        """The booklet exempts what fires; a counter with no strength printed cannot help reach a
+        total. The elf is left to answer for the group on its own."""
+        target, _ = pair
+        shooter, marker, elf, *_ = target.neighbours()
+        board = Board([(target, piece(ARCHER)), (shooter, piece(CROSSBOWMAN)),
+                       (marker, piece(MARKER)), (elf, piece(ELF))])
+        # CROSSBOWMAN 6 + ELF 7 = 13 against ARCHER 2 -> 6-1; die 6 -> EX.
+        result = combat.fight(board, target, [shooter, marker, elf], roll=6)
+
+        assert result.outcome == EX
+        assert result.eliminated == [elf, target]
+        assert board.piece_on(shooter) is not None
+        assert board.piece_on(marker) is not None
+
+    def test_a_total_out_of_reach_takes_everything_that_can_be_taken(self, pair):
+        """Four heavy crossbowmen carry the ratio and are exempt; the lone elf cannot total the
+        orc's strength by itself, and goes all the same - as far as the sentence carries."""
+        target, _ = pair
+        elf, *shooters = target.neighbours()[:5]
+        board = Board([(target, piece(ORC)), (elf, piece(ELF))]
+                      + [(square, piece(HEAVY_CROSSBOWMAN)) for square in shooters])
+        # ELF 7 + 4 x HEAVY_CROSSBOWMAN 8 = 39 against ORC 8 -> 4-1; die 6 -> EX.
+        result = combat.fight(board, target, [elf, *shooters], roll=6)
+
+        assert result.outcome == EX
+        assert result.eliminated == [elf, target]
+        assert all(board.piece_on(square) is not None for square in shooters)
+
+    def test_the_attackers_left_standing_are_the_ones_not_taken(self, pair):
+        """Nothing else moves: an exchange has no fall-back, and what was not picked is where it
+        was."""
+        target, _ = pair
+        squares = target.neighbours()[:3]
+        board = Board([(target, piece(ARCHER))]
+                      + [(square, piece(DWARF)) for square in squares])
+        before = dict(board.pieces)
+
+        combat.fight(board, target, squares, roll=6)
+        taken = min(squares, key=lambda square: square.key)
+
+        assert set(before) - set(board.pieces) == {taken.key, target.key}
+
     def test_the_shooter_still_counts_in_the_ratio(self, pair):
         """Spared by the exchange, but not absent from the combat: its strength weighs on the
         column."""

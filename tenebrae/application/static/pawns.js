@@ -56,6 +56,19 @@
 // the hovering, the click and the tests all read `img.piece`; only the source changes, and nothing
 // else in the two pages has to learn that the face has.
 //
+// --- Which face is showing, and the button that turns it over ---
+//
+// Both pages that lay counters offer the same choice, and the same button in their bar: the board
+// while a game is played, the scenario page while one is composed. So the choice itself lives
+// here rather than in either of them - one key in `localStorage`, one reading of the address, one
+// label on the button - and each page keeps only what is its own, which is the redrawing of what
+// it has on screen.
+//
+// It belongs to this browser, as the panel's edge does: not to the player, and not to the game.
+// One key for the two pages, deliberately - a face chosen on the board is the face the scenario
+// page opens on, and a counter does not change appearance because one walked from one to the
+// other.
+//
 // --- What has no icon keeps its photograph ---
 //
 // A unit whose row is blank keeps its counter, and the board then shows both faces at once. That is
@@ -63,6 +76,15 @@
 // box does not.
 
 const pawnsTrace = debugScope("pawns.js");
+
+// Where the choice is kept, and the two faces between which it chooses.
+const PAWN_STYLE_KEY = "tenebrae.pawnStyle";
+const ICON_PAWNS = "icons";
+const COUNTER_PAWNS = "counters";
+
+// The face in use. The pages read it through `pawnsAreDrawn` rather than by name: what they hand
+// `dressThePawn` is a boolean, and one place decides what it is.
+let pawnStyle = COUNTER_PAWNS;
 
 // Where the set lies: the drawing's colour, the square's, the ratio, then the artist and the name.
 const ICON_ROOT = "/static/icons/000000/ffffff/1x1";
@@ -76,8 +98,8 @@ const COLOURS_PATH = "/static/faction_colours.json";
 // The counters that are painted in colours of their own rather than their army's.
 const PAWN_COLOURS_PATH = "/static/pawn_colours.json";
 
-// What turns the icons on from the address bar - "?icons=1" - and off again - "?icons=0". It is the
-// scenario page's only way in, having no button, and on the board it overrides what was stored.
+// What turns the icons on from the address bar - "?icons=1" - and off again - "?icons=0". Both
+// pages understand it, and on both it overrides what was stored.
 const QUERY_KEY = "icons";
 const REFUSALS = ["0", "no", "off", "false"];
 
@@ -266,4 +288,69 @@ function dressThePawn(image, piece, icons) {
   const icon = icons ? pawnIconSource(piece) : null;
   image.src = icon ?? `/pieces/${piece.image}`;
   image.classList.toggle("icon", Boolean(icon));
+}
+
+
+// --- The choice between the two faces ---
+
+/** Whether the pawns are showing their drawn face, which is what `dressThePawn` is handed. */
+function pawnsAreDrawn() {
+  return pawnStyle === ICON_PAWNS;
+}
+
+function storedPawnStyle() {
+  try {
+    return window.localStorage.getItem(PAWN_STYLE_KEY) === ICON_PAWNS ? ICON_PAWNS : COUNTER_PAWNS;
+  } catch (error) {
+    // Private browsing and a blocked storage throw rather than answer: the page then opens on the
+    // counters, as it always has.
+    return COUNTER_PAWNS;
+  }
+}
+
+function rememberThePawnStyle(style) {
+  try {
+    window.localStorage.setItem(PAWN_STYLE_KEY, style);
+  } catch (error) {
+    // Nothing to do: the choice will simply not survive the reload.
+  }
+}
+
+/**
+ * Settles the face the page opens on, and returns it.
+ *
+ * The address decides when it says anything - "?icons=1", "?icons=0" - and what it says is kept,
+ * as the debug log keeps what "?debug=1" asked for: one opens a page on a face, and it is still
+ * that face on the next load. Said nothing, the address leaves the stored choice alone.
+ */
+function settleThePawnStyle() {
+  const asked = pawnStyleAskedInTheAddress();
+  pawnStyle = asked === null ? storedPawnStyle() : (asked ? ICON_PAWNS : COUNTER_PAWNS);
+  if (asked !== null) {
+    pawnsTrace.info("the address asks for a face", { style: pawnStyle });
+    rememberThePawnStyle(pawnStyle);
+  }
+  return pawnStyle;
+}
+
+/** Turns the face over and keeps it. The redrawing is the page's own business. */
+function turnThePawnStyleOver() {
+  pawnStyle = pawnsAreDrawn() ? COUNTER_PAWNS : ICON_PAWNS;
+  pawnsTrace.info("the face of the pawns is turned over", { style: pawnStyle });
+  rememberThePawnStyle(pawnStyle);
+  return pawnStyle;
+}
+
+/**
+ * Says on the button which face is showing.
+ *
+ * The button **keeps its sign** rather than swapping it - the bars are held to a reference size,
+ * and a second glyph is not held to the width of the first - so what it says is in `aria-pressed`
+ * and in its tooltip.
+ */
+function labelThePawnStyleButton(button) {
+  button.setAttribute("aria-pressed", String(pawnsAreDrawn()));
+  button.title = pawnsAreDrawn()
+    ? "Revenir aux pions photographiés"
+    : "Afficher les pions en icônes";
 }

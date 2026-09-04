@@ -41,6 +41,7 @@ const inHand = document.getElementById("in-hand");
 const removeButton = document.getElementById("remove");
 const saveButton = document.getElementById("save");
 const chooser = document.getElementById("chooser");
+const pawnStyleButton = document.getElementById("pawn-style");
 const paletteFactions = document.getElementById("palette-factions");
 
 const saveDialog = document.getElementById("save-dialog");
@@ -62,18 +63,23 @@ const { centre, hexagonOfPixel, vertices } = alignment(grid);
 // --- The face the counters show ---
 //
 // The page composes on the same map the game is played on, and a counter there is the same small
-// grey square. "?icons=1" in the address lays the units that have one as drawn icons instead - the
-// board's second face (static/pawns.js), on a page whose toolbar carries no button for it: the
-// composing is what its bar is for, and the face is chosen when the page is opened.
+// grey square. The board's second face is offered here too, and by the same button in the bar
+// (static/pawns.js): the counters photographed, or the drawn icons in the colour of their army.
+// The choice is the browser's and is shared with the board - one key, one address parameter - so
+// that a face chosen while playing is the face the composing opens on. "?icons=1" in the address
+// still decides when it says anything.
 //
 // The palette wears it too: one picks there what one lays on the map, and a list showing the
 // photographs of counters the map draws would have to be read twice. Its labels do not change -
 // each entry keeps the counter's own name beside the drawing.
-const pawnsAsIcons = pawnStyleAskedInTheAddress() === true;
+
+// Settled before anything is laid: the palette and the scenario's units are built with the face
+// already known, rather than dressed once in photographs and again a moment later.
+settleThePawnStyle();
 
 const { place, createImage } = pieceLayer({
   board, centre, pieceSize: grid.piece_size,
-  dress: (image, piece) => dressThePawn(image, piece, pawnsAsIcons),
+  dress: (image, piece) => dressThePawn(image, piece, pawnsAreDrawn()),
 });
 scenariosTrace.info("page loaded", { catalogue: catalogue.length,
                                      hexagons: Object.keys(hexagons).length,
@@ -127,7 +133,7 @@ function paletteButton(piece) {
   // down. Dressed here for the face already known, and again by `putTheIconsOn` when the set has
   // been read - the palette is built before the first icon has arrived.
   image.piece = piece;
-  dressThePawn(image, piece, pawnsAsIcons);
+  dressThePawn(image, piece, pawnsAreDrawn());
   image.alt = "";
   image.loading = "lazy";
   const label = document.createElement("span");
@@ -157,9 +163,10 @@ function buildTheChooser() {
   chooser.addEventListener("change", () => {
     scenariosTrace.info("another scenario chosen, leaving the page", { number: chooser.value });
     const page = chooser.value ? `/admin/scenarios/${chooser.value}/edit` : "/admin/scenarios";
-    // The face is asked for in the address, and the chooser writes a new one: it carries it over,
-    // so that going from one scenario to the next does not put the photographs back unasked.
-    window.location.href = pawnsAsIcons ? `${page}?icons=1` : page;
+    // The face in use is written into the address the chooser leaves for: the stored choice would
+    // carry it over by itself, and saying it out loud keeps the link one copies from there worth
+    // copying.
+    window.location.href = pawnsAreDrawn() ? `${page}?icons=1` : page;
   });
 }
 
@@ -257,16 +264,21 @@ function layAPiece(piece, hexagon) {
 // taken from there is dressed the moment it is placed - waiting on the server then would show its
 // photograph first. The map and the palette are both dressed again here, the set having arrived
 // after they were built.
-async function putTheIconsOn() {
-  if (!pawnsAsIcons) return;
-  scenariosTrace.info("the address asks for the icons", { placed: placed.length });
-  if (!await loadThePawnIcons(catalogue)) return;
-  for (const image of placed) dressThePawn(image, image.piece, true);
+async function applyThePawnStyle() {
+  const drawn = pawnsAreDrawn();
+  if (drawn && !await loadThePawnIcons(catalogue)) return;
+  labelThePawnStyleButton(pawnStyleButton);
+  for (const image of placed) dressThePawn(image, image.piece, drawn);
   for (const image of paletteFactions.querySelectorAll("img")) {
-    dressThePawn(image, image.piece, true);
+    dressThePawn(image, image.piece, drawn);
   }
-  scenariosTrace.info("the counters wear their drawn face",
-                      { placed: placed.length, palette: catalogue.length });
+  scenariosTrace.info("the counters are dressed",
+                      { drawn, placed: placed.length, palette: catalogue.length });
+}
+
+async function swapThePawnStyle() {
+  turnThePawnStyleOver();
+  await applyThePawnStyle();
 }
 
 function removeThePiece(image) {
@@ -469,7 +481,9 @@ function start() {
   buildTheChooser();
   layTheScenario();
   count();
-  putTheIconsOn();
+  pawnStyleButton.addEventListener("click", swapThePawnStyle);
+  labelThePawnStyleButton(pawnStyleButton);
+  applyThePawnStyle();
   // The wheel, the "+", "-" and "ajuster" buttons: the mechanics are in zoom.js.
   view = zoom({ frame, canvas, board, map, display: document.getElementById("scale") });
   view.fit();

@@ -174,7 +174,7 @@ def fell_back():
     ("DE", "Combat résolu : Défenseur Éliminé"),
     ("AE", "Combat résolu : Attaquant Éliminé"),
     ("EX", "Combat résolu : Échange — la cible est éliminée, "
-           "avec les attaquants qui ne tirent pas"),
+           "avec juste assez d'attaquants"),
 ])
 def test_each_elimination_names_itself(outcome, written):
     assert outcome_sentence(outcome) == written

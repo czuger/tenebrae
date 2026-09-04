@@ -657,25 +657,32 @@ which face is showing. Nor is the face applied piece by piece from there: `dress
 to the layer as `dress`, so that a counter born after the choice — the scene laid out again after a
 move or a phase, a ghost under a selection — arrives already wearing it.
 
-### The scenario page wears it too — `?icons=1`
+### The scenario page carries the same button
 
 `/admin/scenarios` and `/admin/scenarios/<number>/edit` compose on the same map, where a counter is
-the same small grey square. **`?icons=1` in the address** lays the units that have one as drawn
-icons: `/admin/scenarios/6/edit?icons=1` opens the battle of Reissland with its two armies drawn.
-The page has no button for it — its bar is for composing, and the face is chosen when the page is
-opened — and the chooser carries the parameter over, so that going from one scenario to the next
-does not put the photographs back unasked.
+the same small grey square, so the composing gets **the board's own button**, first in its bar and
+carrying the same sign. Clicking it draws the map and the palette together, and clicking it again
+puts the photographs back.
 
-There, **the whole box is tinted at start-up** rather than only what is laid: a piece taken from
-the palette is dressed the moment it lands, and waiting on the server then would show its
-photograph first.
+**The choice is one choice for the two pages.** Where it is kept (`localStorage`, under
+`tenebrae.pawnStyle`), what the address says about it and what the button announces are all in
+`static/pawns.js`, which both pages load; each page keeps only the redrawing of what it has on
+screen. A face chosen while playing is therefore the face the composing opens on, and a counter
+does not change appearance because one walked from the game to the editor. **`?icons=1` in the
+address** still decides when it says anything — `/admin/scenarios/6/edit?icons=1` opens the battle
+of Reissland with its two armies drawn — and the chooser writes the face in use into the address it
+leaves for, so a link copied from there is worth copying.
 
-**The palette keeps its photographs** whichever face the map wears. It is the catalogue of the box,
-each entry labelled with the counter's own name, and it is by the counter that one picks there.
+There, **the whole box is tinted** rather than only what is laid: a piece taken from the palette is
+dressed the moment it lands, and waiting on the server then would show its photograph first.
 
-The board understands the same parameter — `?icons=1`, `?icons=0` — and, like the debug log with
-`?debug=1`, **keeps what it was asked**: one opens the board on a face, and it is still that face
-on the next load. Said nothing, the address leaves the stored choice alone.
+**The palette wears the face too**: one picks there what one lays on the map, and a list of
+photographs beside a map of drawings would have to be read twice. Its labels do not change — each
+entry keeps the counter's own name beside the drawing.
+
+Both pages understand the same parameter — `?icons=1`, `?icons=0` — and, like the debug log with
+`?debug=1`, **keep what they were asked**: one opens a page on a face, and it is still that face on
+the next load. Said nothing, the address leaves the stored choice alone.
 
 **The card keeps the photograph**, whichever face the board wears: the icon is a reading aid on the
 map, and the card is where the counter itself is read.
@@ -686,10 +693,10 @@ set that cannot be read at all leaves the counters alone rather than empty the b
 
 The choice is kept in `localStorage` under `tenebrae.pawnStyle`, as the panel's edge is, and
 guarded like it: it belongs to this browser, not to the player and not to the game. The button
-**keeps its sign** rather than swapping it — the bar is held to the reference size `map.css`
-documents, and a second glyph is not held to the width of the first — so what it says is in
-`aria-pressed` and in its tooltip. It sits beside the button that moves the panel, being of the
-same kind and, like it, out of reach of the clipping on the right.
+**keeps its sign** rather than swapping it — both bars are clipped on the right, and a second glyph
+is not held to the width of the first — so what it says is in `aria-pressed` and in its tooltip. On
+the board it sits beside the button that moves the panel, being of the same kind; on the scenario
+page it opens the bar. Both bars are `overflow: hidden`, and a test holds that neither clips it.
 
 `tests/application/test_pawns_browser.py` holds all of it, taking the counters and the armies it
 works on from the three files rather than writing down what they hold: which counter is drawn and
@@ -892,9 +899,10 @@ nothing until saving:
   empties the hand.
 - **Hovering** highlights the hexagon and states `q,r,s — terrain`, and the occupant if any; a
   forbidden square is ringed in red and refuses the piece with a message.
-- **`?icons=1`** lays the units that have one as drawn icons rather than as their photographs — the
-  board's second face, on a page that has no button for it (see "The face the pawns show"). The
-  palette keeps its photographs, and the chooser carries the parameter over.
+- **The board's button, first in the bar**, turns the counters over to their drawn face — the map
+  and the palette together — and `?icons=1` in the address asks for it too. The choice is the
+  board's own, kept in the same place (see "The face the pawns show"), and the chooser writes it
+  into the address it leaves for.
 - **The counters are laid by the board's own code**: `static/pieces.js` and `pieces.css`, shared by
   both pages, centre the image on the hexagon and tilt it (see "The server's board"). Here the tilt
   is drawn by the page: the pieces are not yet in a game, and the file carries none.

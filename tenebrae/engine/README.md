@@ -430,15 +430,31 @@ the application's business (`describe_the_ratio` in `tenebrae/application/logs/c
 the log line `Rapport 2-1 : attaque 12 + 8 = 20 contre défense 8 × 3 = 24 (montagne) — dé 4`.
 
 **The five outcomes change the board.** `fight` removes the pieces the three eliminations name —
-`AE` (attacker eliminated), `DE` (defender eliminated), `EX` (both) — and makes the units fall back
+`AE` (attacker eliminated), `DE` (defender eliminated), `EX` (the defender and part of the
+attackers, see below) — and makes the units fall back
 on the two retreats, `AR` and `DR`, which are a rule of their own: `retreat.py`, below. Whichever
 way a square is emptied, it comes back in `result.eliminated`; the fall-backs themselves are in
 `result.retreats`, and the units removed from play are entered in the game's register of casualties
 (`casualties.py`). Two exemptions from the booklet are applied before falling anybody back: "a unit
 firing missiles can in no case suffer a retreat or exchange result" — read as covering the unit
 that is firing, so an **attacker** that fires, never a missile unit assaulted in its own square —
-and a defender in a fort or a castle does not suffer `DR`. The advance after combat is not played — the booklet makes it a
-decision announced by the attacker, and nothing here asks for one. See the caveats below.
+and a defender in a fort or a castle does not suffer `DR`. The advance after combat is not
+played — the booklet makes it a decision announced by the attacker, and nothing here asks for one.
+See the caveats below.
+
+**The exchange takes as few attackers as it can.** The booklet has `EX` remove the defender "along
+with attacking units totalling a strength at least equal"; **which** units it leaves open, and
+`exchanged_attackers` reads it as *the fewest counters that reach that total*. Taking the strongest
+first gives exactly that minimum — no *k* counters can total more than the *k* strongest — and ties
+go by square key. So a dwarf of 12 answers for an archer of 2 on its own, and the two dwarves
+beside it walk away; five elves of 7 against an orc of 8 lose two of their number and no more.
+
+Three things follow. The strength to reach is the defender's **as printed on its counter**: the
+terrain multiplier is what the ratio is worked out on, and an exchange trades units, not positions.
+A unit that fires and a unit with no legible strength are never picked — the first is exempt from
+the exchange, the second cannot help reach a total. And the reading has a price: the fewest
+counters are the biggest ones, so a general standing among its infantry is what an exchange takes,
+where counting strength rather than counters would have spent the infantry instead.
 
 ### Retreat or elimination — `retreat.py`
 
@@ -622,8 +638,7 @@ As for the map and the counter inventory, doubts are kept, not settled.
   special abilities (fear, paralysis, protection rolls) are waiting.
 - **The advance after combat is not played.** The booklet lets the attacker occupy the square the
   defender has just left, "the decision must be announced immediately after the combat": that is a
-  player's decision, and nothing asks for one. `EX` removes **all** the attackers, without the
-  booklet's "strength at least equal" filter. Neither cavalry charge (× 2), nor phalanx (× 3), nor
+  player's decision, and nothing asks for one. Neither cavalry charge (× 2), nor phalanx (× 3), nor
   day/night alternation: apart from the two exemptions from retreat — an attacker that fires, and a
   defender in a fort or a castle — the counter's strength and the defender's terrain are the only
   factors.

@@ -384,7 +384,7 @@ def read_card(page):
         const image = document.getElementById('card-image');
         const remarks = document.getElementById('card-remarks');
         return {
-            hidden: document.getElementById('card').hidden,
+            empty: document.getElementById('card').classList.contains('empty'),
             name: document.getElementById('card-name').textContent,
             extra: document.getElementById('card-extra').textContent,
             symbol: document.getElementById('card-symbol').textContent,
@@ -397,16 +397,25 @@ def read_card(page):
 
 
 def hover(page, piece):
-    """Hovers the piece and waits for its card to appear; returns what it shows."""
+    """Hovers the piece and waits for its card to be filled; returns what it shows."""
     piece.hover()
-    page.wait_for_function("() => !document.getElementById('card').hidden")
+    page.wait_for_function("() => !document.getElementById('card').classList.contains('empty')")
     return read_card(page)
 
 
 def leave_the_piece(page):
-    """Moves the pointer away from any piece, and waits for the card to close."""
+    """Moves the pointer away from any piece, and waits for the card to empty."""
     page.mouse.move(1, 1)
-    page.wait_for_function("() => document.getElementById('card').hidden")
+    page.wait_for_function("() => document.getElementById('card').classList.contains('empty')")
+
+
+def card_box(page):
+    """The card's box on screen, rounded to the pixel."""
+    return page.evaluate("""() => {
+        const box = document.getElementById('card').getBoundingClientRect();
+        return { top: Math.round(box.top), left: Math.round(box.left),
+                 width: Math.round(box.width), height: Math.round(box.height) };
+    }""")
 
 
 def as_written_on_the_card(value):
@@ -414,12 +423,66 @@ def as_written_on_the_card(value):
     return "—" if value is None else str(value)
 
 
-def test_the_card_is_hidden_until_a_piece_is_hovered_and_again_after(board):
-    assert read_card(board)["hidden"]
+def test_the_card_is_empty_until_a_piece_is_hovered_and_again_after(board):
+    assert read_card(board)["empty"]
     piece = board.locator("img.piece:not(.ghost)").first
-    assert not hover(board, piece)["hidden"]
+    assert not hover(board, piece)["empty"]
     leave_the_piece(board)
-    assert read_card(board)["hidden"]
+    assert read_card(board)["empty"]
+
+
+def test_the_cards_area_stays_in_place_whether_a_piece_is_hovered_or_not(board):
+    """The requested behaviour: the area is always there, and empty when nothing is hovered.
+
+    Always there - it has a box on screen even empty - and in place: the log column sits under it,
+    and a card appearing and disappearing would make it travel at every pointer movement over the
+    map.
+    """
+    empty = card_box(board)
+    assert empty["width"] > 0 and empty["height"] > 0
+
+    hover(board, board.locator("img.piece:not(.ghost)").first)
+    filled = card_box(board)
+    assert (filled["top"], filled["left"]) == (empty["top"], empty["left"])
+    assert filled["height"] == empty["height"]
+
+    leave_the_piece(board)
+    assert card_box(board) == empty
+
+
+def test_the_card_keeps_one_width_whatever_it_shows(board):
+    """The width is measured once, at start-up, and fixed: no unit widens or narrows the box.
+
+    It is the widest of the cards the pieces in play give - so no card is squeezed - and the empty
+    box has that width too: the area does not breathe as the pointer crosses the map.
+    """
+    values_height = "() => Math.round("\
+                    "document.getElementById('card-values').getBoundingClientRect().height)"
+    widths = {card_box(board)["width"]}
+    rows = set()
+    for index in range(len(current_game.SCENARIO)):
+        hover(board, board.locator("img.piece:not(.ghost)").nth(index))
+        widths.add(card_box(board)["width"])
+        rows.add(board.evaluate(values_height))
+    leave_the_piece(board)
+    widths.add(card_box(board)["width"])
+
+    assert len(widths) == 1, widths
+    # Wide enough for the widest of them: the row of values stays on one line for every unit.
+    assert len(rows) == 1, rows
+
+
+def test_the_empty_card_shows_nothing(board):
+    """Empty is empty: no name, no values, no photograph left from the piece last hovered."""
+    hover(board, board.locator("img.piece:not(.ghost)").first)
+    leave_the_piece(board)
+
+    card = read_card(board)
+    assert (card["name"], card["extra"], card["symbol"]) == ("", "", "")
+    assert card["values"] == {}
+    assert card["remarks"] is None
+    assert board.evaluate("() => document.getElementById('card-image').hasAttribute('src')") \
+        is False
 
 
 def test_hovering_a_piece_shows_its_counters_values(board):
@@ -474,7 +537,7 @@ def test_hovering_a_ghost_shows_no_card(board):
     leave_the_piece(board)
 
     board.locator("img.ghost").last.hover()
-    assert read_card(board)["hidden"]
+    assert read_card(board)["empty"]
 
 
 def test_the_card_states_the_square_the_piece_has_just_reached(board):
@@ -601,7 +664,7 @@ def test_the_bar_keeps_its_size_when_the_card_appears(board):
         bare = toolbar_height(board)
 
         board.evaluate(hovering, [index, "mouseover"])
-        assert not read_card(board)["hidden"]
+        assert not read_card(board)["empty"]
         assert toolbar_height(board) == bare, width
 
 
@@ -627,7 +690,7 @@ def test_the_panel_does_not_overflow_the_window(board):
         board.set_viewport_size({"width": width, "height": 900})
         board.wait_for_function("(w) => window.innerWidth === w", arg=width)
         board.evaluate(hovering, index)
-        assert not read_card(board)["hidden"]
+        assert not read_card(board)["empty"]
 
         measurements = board.evaluate("""() => {
             const panel = document.getElementById('panel').getBoundingClientRect();

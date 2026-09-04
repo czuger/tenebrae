@@ -87,17 +87,14 @@ def test_the_last_line_is_at_the_top(board):
 def test_the_column_sits_under_the_card(board):
     """The requested placement: a column just below the card's area.
 
-    The card being hidden as long as nothing is hovered, we show it by hand for the length of the
-    measurement - it is the order of the two boxes in the panel that is checked, not the hovering.
+    The card's area is always there, empty as long as nothing is hovered: it can be measured as it
+    stands, without anything having to be shown by hand.
     """
     assert board.locator("#panel > #log").count() == 1
     pass_a_phase(board, 1)
     places = board.evaluate("""() => {
-        const card = document.getElementById('card');
-        card.hidden = false;
         const box = (id) => document.getElementById(id).getBoundingClientRect();
         const measurements = { card: box('card'), log: box('log') };
-        card.hidden = true;
         return { card: [measurements.card.bottom, measurements.card.left],
                  log: [measurements.log.top, measurements.log.left] };
     }""")

@@ -123,8 +123,11 @@ body {
   font-size: 0.85rem;
 }
 
-#card[hidden] {
-  display: none;
+/* Empty - nothing hovered - the box stays where it is and shows nothing. Its contents are cleared
+   rather than the box removed (`emptyTheCard` in map.js): the area is reserved, and neither the
+   card nor the log column below it travels up and down as the pointer crosses the map. */
+#card.empty > * {
+  visibility: hidden;
 }
 
 /* The counter as a thumbnail: enough to recognise the piece at a glance. Its numbers are spelled
@@ -149,6 +152,10 @@ body {
   flex-direction: column;
   flex: 0 1 auto;
   min-width: 0;
+  /* The four lines a card always has - name, side and square, symbol, values -, reserved so that
+     the empty box is the height of a filled one. In `em`, that is at the card's own size: only a
+     remark, which not every counter carries, adds a line to it. */
+  min-height: 5.2em;
 }
 
 /* Nothing shrinks, except the remarks: they give way first, being what the card has of least use

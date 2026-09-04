@@ -177,6 +177,11 @@ function clickedHexagon(event) {
 // Everything is already there: the server passed the counter's values in the hidden field, so
 // hovering asks it nothing. The card extends the toolbar, which is outside #board: it keeps its
 // size whatever the scale, and never lies on the map.
+//
+// Its box never leaves: leaving a piece empties it rather than removing it (`emptyTheCard`), so
+// that the area stays the player's and the log column below it does not travel up and down at
+// every pointer movement over the map. The "empty" class is what says which of the two states it
+// is in.
 
 function showTheCard(image) {
   const piece = image.piece;
@@ -206,13 +211,46 @@ function showTheCard(image) {
   }
 
   hovered = image;
-  card.hidden = false;
+  card.classList.remove("empty");
 }
 
-function hideTheCard() {
-  trace.trace("hideTheCard", { was: hovered?.piece?.key ?? null });
+// The card's width is set **once**, at start-up, to the widest of the cards the pieces in play
+// give. Without it the box changed width from one unit to the next - a longer name, a remark - and
+// the log column under it moved with it; the area is now the same whatever is hovered, and whether
+// anything is.
+//
+// Once for all, as asked: the width is not measured again. A game opened on another set-up keeps
+// it, and a name longer than any of these wraps inside the box rather than widening it. On a window
+// too narrow to hold it, `max-width` in the stylesheet keeps it inside the panel.
+function fixTheCardWidth() {
+  trace.enter("fixTheCardWidth", { pieces: placedPieces.length });
+  // The natural width, unclamped, for the length of the measurement: the box is filled with each
+  // piece in turn and emptied again in one go, so nothing of it is painted.
+  card.style.width = "max-content";
+  card.style.maxWidth = "none";
+  let widest = 0;
+  for (const image of placedPieces) {
+    showTheCard(image);
+    widest = Math.max(widest, card.getBoundingClientRect().width);
+  }
+  emptyTheCard();
+  card.style.maxWidth = "";
+  if (widest > 0) card.style.width = `${Math.ceil(widest)}px`;
+  trace.exit("fixTheCardWidth", { width: card.style.width, measured: placedPieces.length });
+}
+
+function emptyTheCard() {
+  trace.trace("emptyTheCard", { was: hovered?.piece?.key ?? null });
   hovered = null;
-  card.hidden = true;
+  cardImage.removeAttribute("src");  // rather than an empty source, which draws a broken image
+  cardImage.alt = "";
+  cardName.textContent = "";
+  cardExtra.textContent = "";
+  cardSymbol.textContent = "";
+  cardValues.replaceChildren();
+  cardRemarks.textContent = "";
+  cardRemarks.hidden = true;
+  card.classList.add("empty");
 }
 
 function isAPlacedPiece(element) {
@@ -1080,6 +1118,7 @@ function start() {
   trace.info("start", { pieces: pieces.length, phase: phase.label, version,
                         connected: table.connected });
   placeThePieces();
+  fixTheCardWidth();
   phaseLabel.textContent = phase.label;
   markTheUnavailable(phase.unavailable);
   refreshTheLog(logEntries);
@@ -1139,7 +1178,7 @@ function start() {
     if (isAPlacedPiece(event.target)) showTheCard(event.target);
   });
   board.addEventListener("mouseout", (event) => {
-    if (isAPlacedPiece(event.target)) hideTheCard();
+    if (isAPlacedPiece(event.target)) emptyTheCard();
   });
   trace.info("the board is ready");
 }

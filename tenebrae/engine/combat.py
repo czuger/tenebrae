@@ -9,10 +9,11 @@ applies the terrain modifiers from the *Terrain table*.
 `AR` and `DR` make the units fall back, and the fall-back is a rule of its own -
 `tenebrae.engine.retreat`, which this module calls and which alone knows what to do when there is
 nowhere to fall back to. `EX` removes the engaged units, without the booklet's "attackers totalling
-a strength at least equal" sorting - but **missile troops escape both**: "a unit firing missiles
-can in no case suffer a retreat or exchange result", and a defender in a fort or a castle escapes
-`DR` too. Special abilities, the cavalry charge, phalanxes and the day/night alternation are out of
-reach - see `tenebrae/engine/README.md`.
+a strength at least equal" sorting - but **an attacker that fires escapes both**: "a unit firing
+missiles can in no case suffer a retreat or exchange result", read as covering the unit that is
+firing, so a missile unit assaulted in its own square gives ground like any other; a defender in a
+fort or a castle escapes `DR` too. Special abilities, the cavalry charge, phalanxes and the
+day/night alternation are out of reach - see `tenebrae/engine/README.md`.
 
 The advance after combat is not played: the booklet lets the attacker occupy the square the
 defender has just left, "the decision must be announced immediately after the combat", and that is
@@ -358,7 +359,10 @@ def suffers_a_retreat(piece: Optional[Piece], hexagon: Hex, as_defender: bool) -
 
     Two exemptions, both the booklet's own: "a unit firing missiles can in no case suffer a
     retreat or exchange result", and "a unit defending in a castle or a citadel does not suffer DR
-    results".
+    results". The first covers the unit **that is firing**, which is the attacker: the engine holds
+    a missile unit to fire in every combat it declares. A defender fires nothing - a catapult
+    assaulted in its own square falls back like any other unit, and only its terrain can hold it
+    there.
 
     Args:
         piece: The unit, or `None` for an empty square.
@@ -368,9 +372,11 @@ def suffers_a_retreat(piece: Optional[Piece], hexagon: Hex, as_defender: bool) -
     Returns:
         True if it must fall back.
     """
-    if piece is None or fires_missiles(piece):
+    if piece is None:
         return False
-    return not (as_defender and hexagon.terrain in RETREAT_PROOF_TERRAINS)
+    if as_defender:
+        return hexagon.terrain not in RETREAT_PROOF_TERRAINS
+    return not fires_missiles(piece)
 
 
 def record_the_loss(casualties: Optional[Casualties], hexagon: Hex,

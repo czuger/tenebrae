@@ -396,8 +396,9 @@ on the two retreats, `AR` and `DR`, which are a rule of their own: `retreat.py`,
 way a square is emptied, it comes back in `result.eliminated`; the fall-backs themselves are in
 `result.retreats`, and the units removed from play are entered in the game's register of casualties
 (`casualties.py`). Two exemptions from the booklet are applied before falling anybody back: "a unit
-firing missiles can in no case suffer a retreat or exchange result", and a defender in a fort or a
-castle does not suffer `DR`. The advance after combat is not played — the booklet makes it a
+firing missiles can in no case suffer a retreat or exchange result" — read as covering the unit
+that is firing, so an **attacker** that fires, never a missile unit assaulted in its own square —
+and a defender in a fort or a castle does not suffer `DR`. The advance after combat is not played — the booklet makes it a
 decision announced by the attacker, and nothing here asks for one. See the caveats below.
 
 ### Retreat or elimination — `retreat.py`
@@ -576,9 +577,15 @@ As for the map and the counter inventory, doubts are kept, not settled.
   defender has just left, "the decision must be announced immediately after the combat": that is a
   player's decision, and nothing asks for one. `EX` removes **all** the attackers, without the
   booklet's "strength at least equal" filter. Neither cavalry charge (× 2), nor phalanx (× 3), nor
-  day/night alternation: apart from the two exemptions from retreat — missile troops, and a
+  day/night alternation: apart from the two exemptions from retreat — an attacker that fires, and a
   defender in a fort or a castle — the counter's strength and the defender's terrain are the only
   factors.
+- **The missile exemption goes to the attacker, and that reading is ours.** "A unit firing missiles
+  can in no case suffer a retreat or exchange result" is applied to the unit that is firing: an
+  attacker, since `fires_missiles` holds a missile unit to fire in every combat it declares. A
+  catapult assaulted in its own square therefore suffers `DR` like any other defender, and only a
+  fort or a castle holds it. Reading the sentence the other way would make a missile unit
+  unmovable by any assault, and would leave a `DR` the table gave without any effect at all.
 - **A fall-back is read narrowly, and three readings are ours.** The booklet names three
   impediments and no more, so a unit falls back into any habitable square on the map that no enemy
   controls, whatever the terrain costs. From there: the ban on falling back into an enemy zone of

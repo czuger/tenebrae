@@ -67,8 +67,12 @@
 
     <!-- The card of the hovered unit, under the bar rather than following it: inside the bar it
          had to stay tiny so as not to lengthen it. The JavaScript fills it from what the hidden
-         "pieces" field carries. -->
-    <div id="card" hidden>
+         "pieces" field carries.
+
+         It is **always there**, empty as long as nothing is hovered: the area is the player's, and
+         reserving it stops the panel - and the log column below it - from jumping at every pointer
+         movement over the map. -->
+    <div id="card" class="empty">
       <img id="card-image" alt="">
       <div id="card-text">
         <span id="card-name"></span>

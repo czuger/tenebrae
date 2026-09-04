@@ -246,6 +246,33 @@ class TestFight:
         assert result.retreats == []
         assert board.piece_on(castle).key == ORC
 
+    def test_a_defender_that_fires_falls_back_like_any_other(self, pair):
+        """The exemption covers the unit **that is firing**, which is the attacker.
+
+        A shooter assaulted in its own square fires nothing: it gives ground like any other
+        defender, and only a fort or a castle would hold it. Read the other way, the sentence made
+        a `DR` the table had given move nobody at all.
+        """
+        target, attacker = pair
+        board = Board([(target, piece(ARCHER)), (attacker, piece(ORC))])
+        # ORC 8 against ARCHER 2 -> 4-1; die 4 -> DR.
+        result = combat.fight(board, target, [attacker], roll=4)
+
+        assert result.outcome == DR
+        assert board.piece_on(target) is None
+        assert board.piece_on(result.retreats[0].destination).key == ARCHER
+
+    def test_an_attacker_that_fires_still_escapes_the_retreat(self, pair):
+        """The other side of the same reading: firing, it suffers no `AR`."""
+        target, shooter = pair
+        board = Board([(target, piece(DWARF)), (shooter, piece(CROSSBOWMAN))])
+        # CROSSBOWMAN 6 against DWARF 12 -> 1-2; die 3 -> AR.
+        result = combat.fight(board, target, [shooter], roll=3)
+
+        assert result.outcome == AR
+        assert result.retreats == []
+        assert board.piece_on(shooter).key == CROSSBOWMAN
+
     def test_the_units_that_fell_back_are_told_square_by_square(self, pair):
         """What the application logs and the browser follows: each unit, from where to where."""
         target, attacker = pair

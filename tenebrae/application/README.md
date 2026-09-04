@@ -417,6 +417,19 @@ Rapport 2-1 : attaque 12 + 8 = 20 contre défense 8 × 3 = 24 (montagne) — dé
 Combat résolu : Défenseur Éliminé
 ```
 
+**Each of the five outcomes names itself**, the two retreats like the three eliminations
+(`COMBAT_MESSAGES`): `Combat résolu : Défenseur Recule` is followed by the `Recul :` line of the
+unit that gave ground. When a retreat moved nobody — the two exemptions of
+`tenebrae/engine/combat.py`, a defender in a fort or a castle and an attacker that fires — the
+sentence says so rather than leaving the result unexplained:
+
+```
+Combat résolu : Défenseur Recule — mais un défenseur en fort ou en château ne recule pas
+```
+
+`Combat résolu : sans effet` is left to the combat that could **not** be resolved: an absent
+target, an illegible strength.
+
 The computation first, the outcome next — the browser's column reading the other way round from
 the file, that is what puts the outcome at the top and its breakdown just below. The sentence is
 composed by `describe_the_ratio` (`logs/combat_sentences.py`), from the numbers
@@ -509,8 +522,19 @@ never has — whereas it logs the AI's. Combat, for its part, is told on both si
 The map opens fitted to the window, where a piece is about fifteen pixels: neither its drawing nor
 its figures can be read there. **Hovering a unit fills its card**, a box that is not placed
 anywhere on the map but **under the bar of zoom buttons**, in the same panel (`#panel`) and aligned
-on its left edge. The card appears and disappears under the bar; neither of them moves.
+on its left edge. Neither of them moves.
 
+- **The card's area is always there**, and empty as long as nothing is hovered: leaving a piece
+  clears its contents rather than removing the box (`emptyTheCard` in `map.js`, the `empty` class
+  being what says which of the two states it is in). The area is the player's, and the log column
+  under it no longer travels up and down as the pointer crosses the map.
+- **Its width is fixed once and for all**, at start-up, to the widest of the cards the pieces in
+  play give: `fixTheCardWidth` fills the box with each of them in turn, measures, empties it again
+  and pins the largest of those widths. Nothing of it is painted, and the width is never measured
+  again — a game opened on another set-up keeps it, and a name longer than any of these wraps
+  inside the box rather than widening it. On a window too narrow to hold it, `max-width` keeps it
+  inside the panel. The four lines a card always carries are reserved in height as well
+  (`min-height` on `#card-text`), so that the empty box is the height of a filled one.
 - **Hovering never queries the server.** Everything the card shows is already in the hidden field
   `#pieces`, counter values included; it is the same stance as the map-fixing page, where the 2280
   terrains go out at once.
@@ -1083,8 +1107,9 @@ must be the same, only a moved piece lying down again — a map that stays scale
 zoom — buttons, the wheel keeping its point under the pointer, pieces staying on their hexagon once
 zoomed in, a hand-set scale that a resize does not undo — the hover card — the counter values of all
 the units compared with the engine's catalogue, the mention of remarks appearing only when
-warranted, the photograph, the square of a piece one has just moved, the card closing on leaving the
-piece, not appearing on a ghost, its elements stacked one per line, sitting **under** the toolbar
+warranted, the photograph, the square of a piece one has just moved, the card emptying on leaving
+the piece without its area leaving with it, its one fixed width whatever it shows, staying empty on
+a ghost, its elements stacked one per line, sitting **under** the toolbar
 and aligned on its left edge, reading **at the bar's body size**, not making the bar grow — on a
 narrow window as on a wide one — and not capturing clicks — the layout itself — the panel neither
 overflowing the window nor scrolling sideways at 1400, 800 and 480 px, and the map it neither

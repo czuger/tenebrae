@@ -19,6 +19,7 @@ from tenebrae.application.logs import battle_log, combat_sentences, rotating_log
 from tenebrae.application.config import ROOT
 from tenebrae.engine import combat
 from tenebrae.engine.hexagon import Hex
+from tenebrae.engine.retreat import RetreatOutcome
 from tenebrae.engine.piece import CATALOGUE
 from tenebrae.application.stream import Broadcaster
 
@@ -29,6 +30,7 @@ NEIGHBOUR = {"q": 2, "r": 26, "s": -28}
 
 DWARF = "nains-01-5-infanteries"  # alliance, strength 12
 ARCHER = "yzent-03-8-archers"     # darkness, strength 2 -> ratio 6-1, die 1 -> DE
+CROSSBOWMAN = "nains-02-4-arbaletriers"  # alliance, strength 6 -> ratio 3-1, die 4 -> DR
 
 
 @pytest.fixture(autouse=True)
@@ -151,6 +153,65 @@ def test_the_sentence_shows_the_whole_computation(why, computation, written):
     assert sentence(*computation) == written, why
 
 
+# --- The outcome's sentence ----------------------------------------------------------------------
+#
+# Each of the five outcomes of Table I names itself. A retreat that moved nobody says which
+# exemption held: a result the table gave is never written as no result.
+
+def outcome_sentence(outcome, retreats=()):
+    """The line the log would write for that outcome and those fall-backs."""
+    return combat_sentences.combat_message(
+        combat.CombatResult(outcome, [], (1, 1), 1, retreats=retreats))
+
+
+def fell_back():
+    """One unit that found somewhere to go."""
+    return RetreatOutcome(moves=[(Hex(**PLAIN), Hex(**NEIGHBOUR))])
+
+
+@pytest.mark.parametrize("outcome, written", [
+    ("DE", "Combat résolu : Défenseur Éliminé"),
+    ("AE", "Combat résolu : Attaquant Éliminé"),
+    ("EX", "Combat résolu : Échange — la cible est éliminée, "
+           "avec les attaquants qui ne tirent pas"),
+])
+def test_each_elimination_names_itself(outcome, written):
+    assert outcome_sentence(outcome) == written
+
+
+@pytest.mark.parametrize("outcome, written", [
+    ("DR", "Combat résolu : Défenseur Recule"),
+    ("AR", "Combat résolu : Attaquant Recule"),
+])
+def test_a_retreat_names_itself_too(outcome, written):
+    """Both retreats used to fall through to "sans effet": a unit pushed off its square read as a
+    combat that had done nothing."""
+    assert outcome_sentence(outcome, [fell_back()]) == written
+
+
+def test_a_unit_that_fell_for_want_of_a_retreat_has_given_ground_all_the_same():
+    """It left the board: the retreat did happen, and there is nothing to excuse."""
+    fallen = RetreatOutcome(eliminated=Hex(**PLAIN))
+    assert outcome_sentence("DR", [fallen]) == "Combat résolu : Défenseur Recule"
+
+
+@pytest.mark.parametrize("outcome, written", [
+    ("DR", "Combat résolu : Défenseur Recule — "
+           "mais un défenseur en fort ou en château ne recule pas"),
+    ("AR", "Combat résolu : Attaquant Recule — mais une unité qui tire ne recule pas"),
+])
+def test_a_retreat_that_moved_nobody_says_which_exemption_held(outcome, written):
+    """The two exemptions of `tenebrae/engine/combat.py` leave the board as it was: without the
+    note, the outcome would be followed by no fall-back line and explain nothing."""
+    assert outcome_sentence(outcome) == written
+
+
+def test_only_an_unresolved_combat_is_without_effect():
+    """No target, or a strength that could not be read: there was no table to read."""
+    assert combat_sentences.combat_message(combat.CombatResult(None, [], None, None)) \
+        == "Combat résolu : sans effet"
+
+
 # --- Logging before marking the move -------------------------------------------------------------
 #
 # What each test checks: the move's line is **in the state published by that move**, and not in the
@@ -191,6 +252,27 @@ def test_the_combat_leaves_with_its_computation_and_its_result(client, subscribe
         "Rapport 6-1 : attaque 12 contre défense 2 (plaine) — dé 1",
         "Combat résolu : Défenseur Éliminé",
     ]
+
+
+def test_the_combat_that_pushes_the_defender_back_tells_the_three_of_it(client, subscriber,
+                                                                        monkeypatch):
+    """The whole of a retreat, from the map to the log: the computation, the fall-back, the
+    outcome that names it.
+
+    The defender fires and is pushed back all the same, and the sentence says `Défenseur Recule`
+    where it used to say `sans effet`.
+    """
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: 4)
+    place(PLAIN, CROSSBOWMAN)  # strength 6
+    place(NEIGHBOUR, ARCHER)   # strength 2, on the plain -> ratio 3-1, die 4 -> DR
+    client.post("/phase/next")  # the Dwarves' combat phase
+    assert client.post("/combat",
+                       json={"target": NEIGHBOUR, "attackers": [PLAIN]}).json["outcome"] == "DR"
+
+    written = texts(last_published(subscriber)["log"])[-3:]
+    assert written[0] == "Rapport 3-1 : attaque 6 contre défense 2 (plaine) — dé 4"
+    assert written[1].startswith("Recul : 2,26,-28 → ")
+    assert written[2] == "Combat résolu : Défenseur Recule"
 
 
 def test_the_seat_taken_leaves_with_its_line(application, anonymous_client, subscriber,

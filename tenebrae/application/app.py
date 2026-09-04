@@ -2,8 +2,9 @@
 
 `create_app` reads the configuration, hooks persistence and authentication onto the application,
 and registers the routes - one blueprint per subject, under `routes/`. Nothing else lives here:
-the game state is in `current_game.py`, the players in `players.py`, the log in `logs/`, and the
-rules in `tenebrae.engine`, which the routes merely expose. The application's README sets out how
+the game state is in `current_game.py`, the players in `players.py`, the logs in `logs/` - the
+game log configured at import, the engine's movement trace wired here - and the rules in
+`tenebrae.engine`, which the routes merely expose. The application's README sets out how
 the pieces fit together.
 
 Launch (from the root of the repository):
@@ -18,6 +19,7 @@ from typing import Optional
 from flask import Blueprint, Flask
 
 from tenebrae.application.config import Config
+from tenebrae.application.logs.movement_log import wire_the_movement_log
 from tenebrae.application.persistence import wire_persistence
 from tenebrae.application.players import wire_authentication
 from tenebrae.application.routes import (authentication, combat, game, images, map_fix, movement,
@@ -51,6 +53,7 @@ def create_app(config: Optional[type] = None) -> Flask:
             "SECRET_KEY missing: without it no session can be signed. Set one in .env - "
             "python3 -c \"import secrets; print(secrets.token_hex(32))\"")
 
+    wire_the_movement_log()
     wire_persistence(application)
     wire_authentication(application)
     for blueprint in BLUEPRINTS:

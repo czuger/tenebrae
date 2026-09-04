@@ -10,12 +10,13 @@ The rendering of the column is in `test_log_browser.py`.
 """
 
 import logging
+import logging.handlers
 from pathlib import Path
 
 import pytest
 
 from tenebrae.application import current_game
-from tenebrae.application.logs import battle_log, combat_sentences, rotating_log
+from tenebrae.application.logs import battle_log, combat_sentences, movement_log, rotating_log
 from tenebrae.application.config import ROOT
 from tenebrae.engine import combat
 from tenebrae.engine.hexagon import Hex
@@ -290,82 +291,75 @@ def test_the_fresh_game_leaves_with_its_line(client, subscriber):
     assert "New game: scenario 4" in texts(last_published(subscriber)["log"])
 
 
-# --- The log on disk: files of a thousand lines, three archives behind ---
+# --- The two logs on disk ---
 #
-# `RotatingLog` counts lines where `RotatingFileHandler` counts bytes. What is worth exercising
-# comes down to three points: that the file really is set aside at the threshold, that no more than
-# asked is kept, and that a restarted server does not start again from zero.
+# One `RotatingFileHandler` each - the standard one, by size - and one file each: the game the
+# player reads, and the engine's movement trace, which must not land in it.
 
 
-def log_lines_into(handler, how_many, start=0):
-    """`how_many` lines into the handler, numbered, without going through the global logger."""
-    for number in range(start, start + how_many):
-        handler.emit(logging.LogRecord("test", logging.INFO, __file__, 0,
-                                       "line %s", (number,), None))
+def file_handler(logger):
+    """The rotating file the logger writes to."""
+    return next(handler for handler in logger.handlers
+                if isinstance(handler, logging.handlers.RotatingFileHandler))
 
 
-@pytest.fixture
-def log_on_disk(tmp_path):
-    """A rotating log of one's own, in a throwaway directory, closed on the way out."""
-    opened = []
+def test_a_log_makes_its_directory_and_is_set_aside_at_its_size(tmp_path):
+    """`logs/` is not versioned - a fresh clone has none - and the standard handler does not make
+    it. Rotating itself is the handler's business, not ours: what is checked here is that it is
+    opened with the size and the archives asked for, and that it does rotate."""
+    path = tmp_path / "logs" / "battle_log.log"
+    assert not path.parent.exists()
 
-    def open_one(lines_per_file=3, files_kept=2):
-        handler = rotating_log.RotatingLog(tmp_path / "logs" / "battle_log.log",
-                                           lines_per_file, files_kept)
-        opened.append(handler)
-        return handler
-
-    yield open_one
-    for handler in opened:
+    handler = rotating_log.open_the_log(path, max_bytes=200, files_kept=2)
+    try:
+        assert path.exists()
+        for number in range(60):
+            handler.emit(logging.LogRecord("test", logging.INFO, __file__, 0,
+                                           "line %s", (number,), None))
+    finally:
         handler.close()
 
-
-def test_the_logs_directory_is_created_as_needed(log_on_disk, tmp_path):
-    """`logs/` is not versioned: a fresh clone has none, and the log must open it."""
-    assert not (tmp_path / "logs").exists()
-    log_on_disk()
-    assert (tmp_path / "logs" / "battle_log.log").exists()
-
-
-def test_the_file_is_set_aside_at_the_threshold(log_on_disk, tmp_path):
-    handler = log_on_disk(lines_per_file=3)
-    log = tmp_path / "logs" / "battle_log.log"
-    log_lines_into(handler, 3)
-    assert log.read_text(encoding="utf-8").splitlines() == ["line 0", "line 1", "line 2"]
-    assert not log.with_suffix(".log.1").exists()
-
-    log_lines_into(handler, 1, start=3)
-    assert log.with_suffix(".log.1").read_text(encoding="utf-8").splitlines() \
-        == ["line 0", "line 1", "line 2"]
-    assert log.read_text(encoding="utf-8").splitlines() == ["line 3"]
-
-
-def test_only_the_requested_archives_are_kept(log_on_disk, tmp_path):
-    """Beyond that, the oldest is erased: the log does not fill the disk."""
-    handler = log_on_disk(lines_per_file=2, files_kept=2)
-    log_lines_into(handler, 20)
-    files = sorted(path.name for path in (tmp_path / "logs").iterdir())
+    files = sorted(one.name for one in (tmp_path / "logs").iterdir())
     assert files == ["battle_log.log", "battle_log.log.1", "battle_log.log.2"]
-    # The last lines written, and nothing older than the two archives.
-    assert (tmp_path / "logs" / "battle_log.log").read_text(
-        encoding="utf-8").splitlines() == ["line 18", "line 19"]
-    assert (tmp_path / "logs" / "battle_log.log.2").read_text(
-        encoding="utf-8").splitlines() == ["line 14", "line 15"]
+    assert path.read_text(encoding="utf-8").splitlines()[-1].endswith("line 59")
 
 
-def test_a_restart_does_not_start_again_from_zero(log_on_disk, tmp_path):
-    """The counter picks up what the file already carries: ten restarts do not make ten thousand
-    lines in the same file."""
-    log_lines_into(log_on_disk(lines_per_file=3), 2)
-    log = tmp_path / "logs" / "battle_log.log"
+def test_fifty_kilobytes_a_file_and_three_archives_behind():
+    """Both logs are opened on the same numbers: 200 KB apiece on disk, the oldest erased."""
+    assert (rotating_log.MAX_BYTES, rotating_log.FILES_KEPT) == (50 * 1024, 3)
+    for logger in (battle_log.LOG, movement_log.MOVEMENT_LOG):
+        handler = file_handler(logger)
+        assert (handler.maxBytes, handler.backupCount) == (50 * 1024, 3), logger.name
 
-    handler = log_on_disk(lines_per_file=3)
-    assert handler.lines_written == 2
-    log_lines_into(handler, 1, start=2)
-    assert log.read_text(encoding="utf-8").splitlines() == ["line 0", "line 1", "line 2"]
 
-    log_lines_into(handler, 1, start=3)
-    assert log.read_text(encoding="utf-8").splitlines() == ["line 3"]
+def test_both_logs_are_open_at_debug():
+    """The level is not a switch to be found: the lines are written, in their file."""
+    assert battle_log.LOG.level == logging.DEBUG
+    assert movement_log.MOVEMENT_LOG.level == logging.DEBUG
+
+
+def test_the_movement_trace_has_a_file_of_its_own():
+    """Beside the game log, and not in it."""
+    assert Path(file_handler(movement_log.MOVEMENT_LOG).baseFilename) \
+        == movement_log.MOVEMENT_LOG_PATH
+    assert movement_log.MOVEMENT_LOG_PATH.parent == battle_log.LOG_PATH.parent
+    assert movement_log.MOVEMENT_LOG_PATH != battle_log.LOG_PATH
+
+
+def test_the_movement_trace_says_nothing_in_the_players_column():
+    """The column is the game told to the player: a movement recomputed at every click would drown
+    it, which is the whole reason for the second file."""
+    before = len(battle_log.log_lines())
+    current_game.BOARD.moves(Hex(**PLAIN), CATALOGUE[DWARF])
+    assert len(battle_log.log_lines()) == before
+
+
+def test_wiring_the_movement_log_twice_does_not_double_its_lines():
+    """One application per test, and `create_app` wires it each time: a second handler would write
+    every line twice."""
+    handlers = len(movement_log.MOVEMENT_LOG.handlers)
+    movement_log.wire_the_movement_log()
+    assert len(movement_log.MOVEMENT_LOG.handlers) == handlers
 
 
 def test_the_applications_log_is_in_logs_at_the_root():
@@ -374,4 +368,4 @@ def test_the_applications_log_is_in_logs_at_the_root():
     assert battle_log.LOG_PATH.parent.name == "logs"
     assert battle_log.LOG_PATH.parent.parent == ROOT
     assert ROOT == Path(__file__).resolve().parents[2]
-    assert (battle_log.LINES_PER_FILE, battle_log.LOGS_KEPT) == (1000, 3)
+    assert battle_log.LOG_PATH.name == "battle_log.log"

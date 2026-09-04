@@ -143,6 +143,15 @@ body {
   visibility: hidden;
 }
 
+/* Nothing hovered, but a square under the pointer: the box shows that square's coordinates, and
+   nothing else. `visibility` is inherited, so bringing back the one line is enough - the card
+   stays hidden around it, keeps the width fixed at start-up, and nothing moves. The line is the
+   one a piece shows its own square on: the eye reads the square in the same place, standing on a
+   unit or on bare ground. */
+#card.empty.square #card-extra {
+  visibility: visible;
+}
+
 /* The counter as a thumbnail: enough to recognise the piece at a glance. Its numbers are spelled
    out beside it, but since the card is no longer held to the bar's height, the thumbnail can be
    large enough for the drawing to be recognised. */

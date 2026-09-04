@@ -215,6 +215,8 @@ function showTheCard(image) {
 
   hovered = image;
   card.classList.remove("empty");
+  // The piece owns that line now: it carries its own square (see "The square under the pointer").
+  card.classList.remove("square");
 }
 
 // The card's width is set **once**, at start-up, to the widest of the cards the pieces in play
@@ -254,6 +256,43 @@ function emptyTheCard() {
   cardRemarks.textContent = "";
   cardRemarks.hidden = true;
   card.classList.add("empty");
+}
+
+// --- The square under the pointer ---
+//
+// With no unit under it the card is an empty box, and the square one is aiming at is written
+// nowhere else in the page. Its coordinates go there, on the very line where a piece shows its
+// own: the eye finds the square in the same place whether or not something is standing on it.
+//
+// The rest of the card stays invisible and the box keeps the width fixed at start-up: nothing
+// moves under the pointer, which is what that reserved area is for (see `emptyTheCard`). It is
+// the geometry that answers and not the server - the same `hexagonOfPixel` a click goes through,
+// so what is read is the square a click would take.
+//
+// The state is the class and the line themselves, with no copy kept beside them: hovering fires at
+// every pointer movement, and a second record of it would only be one more thing to keep in step.
+
+function showTheSquareUnder(event) {
+  if (hovered) return; // a unit is hovered: the card is its own, square included
+  const { x, y } = pixelOfPointer(event, map);
+  // Off the scan - the board is wider than the image once the map is fitted to the window - there
+  // is no square to name: the line goes blank rather than count hexagons outside the map.
+  if (x < 0 || y < 0 || x > map.naturalWidth || y > map.naturalHeight) {
+    forgetTheSquareUnder();
+    return;
+  }
+  const square = key(hexagonOfPixel(x, y));
+  if (square === cardExtra.textContent) return; // still the same square: nothing to write
+  cardExtra.textContent = square;
+  card.classList.add("square");
+  trace.trace("the square under the pointer", { square });
+}
+
+function forgetTheSquareUnder() {
+  if (!card.classList.contains("square")) return;
+  trace.trace("the pointer has left the map");
+  card.classList.remove("square");
+  cardExtra.textContent = "";
 }
 
 function isAPlacedPiece(element) {
@@ -1231,6 +1270,9 @@ function start() {
   board.addEventListener("mouseout", (event) => {
     if (isAPlacedPiece(event.target)) emptyTheCard();
   });
+  // The square under the pointer, as long as no unit is: the card would otherwise show nothing.
+  board.addEventListener("mousemove", showTheSquareUnder);
+  board.addEventListener("mouseleave", forgetTheSquareUnder);
   trace.info("the board is ready");
 }
 

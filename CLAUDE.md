@@ -198,9 +198,10 @@ documented in its "Caveats" section; add new doubts there rather than settle the
 
 ## Versioning
 
-Everything is versioned, raw sources included. Excluded: `.env`, `logs/`, `.idea/`,
-`__pycache__/`, `.pytest_cache/` (`.gitignore`) and `/.python-version` (`.git/info/exclude`, which
-also holds three stale patterns that no longer match anything). `.DS_Store` is ignored nowhere.
+Everything is versioned, raw sources included. Excluded: `.env`, `/logs/` — anchored to the root,
+so that the application's own `logs/` package is versioned — `.idea/`, `__pycache__/`,
+`.pytest_cache/`, `.DS_Store` (`.gitignore`) and `/.python-version` (`.git/info/exclude`, which
+also holds three stale patterns that no longer match anything).
 
 ## Commits
 

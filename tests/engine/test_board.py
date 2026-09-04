@@ -1,8 +1,10 @@
 """The board: the placed pieces, their sides, and the moves it derives from them."""
 
+import logging
+
 import pytest
 
-from tenebrae.engine.board import MAXIMUM_TILT, Board
+from tenebrae.engine.board import LOG, MAXIMUM_TILT, Board
 from tenebrae.engine.hexagon import DEFAULT_MOVEMENT, MAP, Hex, zone_of_control
 from tenebrae.engine.piece import ALLIANCE, DARKNESS, NEUTRAL, piece
 from tests.engine.plains import ring_of, well_surrounded_plain
@@ -157,6 +159,108 @@ class TestMoves:
         a, c, *_ = ground
         board = Board([(c, piece(BAT)), (a, piece(ORC))])
         assert board.moves(c) == [h for h in c.moves(2) if h != a]
+
+
+class TestTheMovementTrace:
+    """What `moves` writes to the debug log: the whole computation, step by step.
+
+    It is the engine's own logger and not the game log: nothing of it reaches the browser's
+    column, and the application sends it to `logs/movement.log` alone.
+    """
+
+    @pytest.fixture
+    def figure(self, ground):
+        """An elf to move, a friend on one neighbour, an enemy two squares off."""
+        a, c, x1, further = ground
+        board = Board([(c, piece(ELF)), (a, piece(DWARF)), (further, piece(ORC))])
+        return board, c, a, further
+
+    def written(self, records):
+        """The lines as the log formats them."""
+        return [record.getMessage() for record in records]
+
+    def test_it_builds_nothing_when_the_level_is_off(self, figure, caplog):
+        """The engine holds no opinion on where the lines go, nor on whether they are wanted: with
+        the level off it writes none, and `moves` does not even compose them."""
+        board, origin, *_ = figure
+        with caplog.at_level(logging.WARNING, logger=LOG.name):
+            board.moves(origin)
+        assert caplog.records == []
+
+    def test_it_opens_on_the_piece_and_its_budget(self, figure, caplog):
+        board, origin, *_ = figure
+        with caplog.at_level(logging.DEBUG, logger=LOG.name):
+            board.moves(origin)
+        opening = self.written(caplog.records)[0]
+        assert opening == (f"moves from {origin.key}: {ELF} (alliance), "
+                           f"movement points: {piece(ELF).movement_points}")
+
+    def test_it_counts_what_the_walk_was_told_to_avoid(self, figure, caplog):
+        """The enemy's square, and the six it controls around it."""
+        board, origin, _, enemy = figure
+        with caplog.at_level(logging.DEBUG, logger=LOG.name):
+            board.moves(origin)
+        assert self.written(caplog.records)[1] == (
+            f"moves from {origin.key}: enemy squares refused: 1, "
+            "under an enemy zone of control: 6")
+
+    def test_it_tells_every_square_the_walk_reached(self, figure, caplog):
+        """One line per square, outwards from the origin, with its distance and its terrain - the
+        ring the budget stopped at is read off the last of them."""
+        board, origin, *_ = figure
+        with caplog.at_level(logging.DEBUG, logger=LOG.name):
+            reached = board.moves(origin)
+        squares = [line for line in self.written(caplog.records) if " at " in line]
+        assert len(squares) >= len(reached)
+        assert all(f"moves from {origin.key}:   " in line for line in squares)
+
+        distances = [int(line.split(" at ")[1].split(" ")[0]) for line in squares]
+        assert distances == sorted(distances), squares
+
+    def test_it_says_why_a_square_reached_is_not_offered(self, figure, caplog):
+        """The friend's square is crossed and not taken: the walk reached it, `moves` does not
+        offer it, and the line says which of the two it is."""
+        board, origin, friend, _ = figure
+        with caplog.at_level(logging.DEBUG, logger=LOG.name):
+            offered = board.moves(origin)
+        assert friend not in offered
+
+        line = next(line for line in self.written(caplog.records) if f"  {friend.key} at " in line)
+        assert line.endswith("- occupied by a friend: crossed, not taken"), line
+
+    def test_the_zone_of_control_wins_over_the_friend(self, ground, caplog):
+        """A friend standing under an enemy zone of control is not crossed either: the walk stops
+        there, and the line says the zone, which is what stops it, not the friend."""
+        a, c, *_ = ground
+        beyond = next(square for square in a.neighbours() if square.distance(c) == 2)
+        board = Board([(c, piece(ELF)), (a, piece(DWARF)), (beyond, piece(ORC))])
+        with caplog.at_level(logging.DEBUG, logger=LOG.name):
+            offered = board.moves(c)
+        assert a not in offered
+
+        line = next(line for line in self.written(caplog.records) if f"  {a.key} at " in line)
+        assert line.endswith("- under an enemy zone of control: entered, not left"), line
+
+    def test_a_square_one_may_enter_but_not_leave_is_marked(self, figure, caplog):
+        """A square under an enemy zone of control is a destination, and one the unit is stuck
+        on: the line says so rather than leave it looking like any other."""
+        board, origin, _, enemy = figure
+        with caplog.at_level(logging.DEBUG, logger=LOG.name):
+            offered = board.moves(origin)
+        held = [hexagon for hexagon in offered if hexagon.distance(enemy) == 1]
+        assert held, "the figure no longer puts a destination beside the enemy"
+
+        marked = [line for line in self.written(caplog.records)
+                  if line.endswith("- under an enemy zone of control: entered, not left")]
+        assert len(marked) == len(held), marked
+
+    def test_an_empty_square_is_traced_at_the_flat_rate(self, ground, caplog):
+        """Questioned with no piece at all, the trace says as much rather than name one."""
+        _, c, *_ = ground
+        with caplog.at_level(logging.DEBUG, logger=LOG.name):
+            Board().moves(c)
+        assert self.written(caplog.records)[0] == (
+            f"moves from {c.key}: no piece, flat rate, movement points: {DEFAULT_MOVEMENT}")
 
 
 class TestMoving:

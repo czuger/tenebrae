@@ -442,14 +442,11 @@ raises are written as a single number).
 
 - `logs/battle_log.log`, **the file**, at the repository root. It is the second place where the
   application writes to disk, after `/admin/map_fix`; the whole of `logs/` is ignored by git. It is
-  **rotating**: after `LINES_PER_FILE` lines (a thousand) it is set aside as `battle_log.log.1`,
-  the archives shifting behind it up to `LOGS_KEPT` (three) — that is at most four thousand lines
-  kept, the oldest archive being erased next. The threshold is counted in **lines** and not in
-  bytes (`RotatingLog`, `logs/rotating_log.py`, which redefines `RotatingFileHandler`'s
-  `shouldRollover`): it is in lines
-  that this log is read, one per game event. The counter picks up from what the file already
-  carries, so that a server restarted ten times in a day does not write ten times a thousand lines
-  into the same file;
+  **rotating**, by the standard handler and by size: at 50 KB it is set aside as
+  `battle_log.log.1`, the archives shifting behind it up to three — 200 KB kept, the oldest erased
+  next. `logs/rotating_log.py` holds the one thing `RotatingFileHandler` does not do, which is to
+  create the directory it writes into: `logs/` is not versioned, and a fresh clone has none. Both
+  logs are opened through it;
 - a **bounded in-memory queue** (`InMemoryLog`, `logs/in_memory_log.py`, `LINES_KEPT` lines),
   which the browser turns into
   its column. It is a *handler* plugged onto the same logger, and not a call added beside each
@@ -461,6 +458,23 @@ The lines kept leave with the game: `shared_snapshot` carries them, so the SSE s
 the routes follow: **log before marking the move**. `mark_a_move` photographs the game, log
 included; a route that logged after saving would push the browsers an account one move behind.
 `tests/application/test_log.py` checks it route by route.
+
+### `logs/movement.log` — the engine's trace, in a file of its own
+
+`Board.moves` writes its whole computation to its module logger, `tenebrae.engine.board`: the piece
+and its budget, what the walk was told to avoid, and every square it reached with its distance, its
+terrain and the reason it is not offered (`tenebrae/engine/README.md` shows the lines). The engine
+imports nothing from the application and chooses no path: `logs/movement_log.py` gives that logger
+its file, `create_app` wiring it beside persistence and authentication.
+
+**A second file, and not a second column.** The game log is what the player reads; a movement is
+recomputed at every click, and by the AI for every unit of its turn. Those lines would drown the
+column, so they never reach it — different logger, different handler, different file. Same
+rotation: 50 KB, three archives.
+
+The level is **DEBUG and it is on**: there is no switch to find. Read from an interpreter with no
+application around, the logger falls back to the root's level and says nothing, and `moves` does
+not even compose its lines — `logging.basicConfig(level=logging.DEBUG)` is enough to see them.
 
 ## The log column
 
@@ -548,6 +562,15 @@ on its left edge. Neither of them moves.
   clears its contents rather than removing the box (`emptyTheCard` in `map.js`, the `empty` class
   being what says which of the two states it is in). The area is the player's, and the log column
   under it no longer travels up and down as the pointer crosses the map.
+- **Empty is not blank: the box then names the square under the pointer.** Its coordinates
+  (`1,26,-27`) go on `#card-extra`, the very line a hovered piece shows its own square on, so that
+  the eye reads the square in the same place whether or not a unit is standing on it. Only that
+  line comes back into sight — `visibility` is inherited, and `#card.empty.square #card-extra`
+  overrides the hidden card around it — so the box neither grows nor moves. It is the geometry
+  that answers, through the `hexagonOfPixel` a click already goes through: what is read is the
+  square a click would take, and the server is asked nothing. Off the scan, where the board is
+  wider than the image at the fit scale, the line goes blank rather than count hexagons that are
+  not on the map.
 - **Its width is fixed once and for all**, at start-up, to the widest of the cards the pieces in
   play give: `fixTheCardWidth` fills the box with each of them in turn, measures, empties it again
   and pins the largest of those widths. Nothing of it is painted, and the width is never measured

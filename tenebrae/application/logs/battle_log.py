@@ -1,9 +1,11 @@
 """The game log: phase changes, combats declared, units out of range, results.
 
 It is written in two places at once, through one logger: `logs/battle_log.log` at the root of the
-repository - a rotating file of a thousand lines, kept in three archives behind it - and a bounded
-in-memory queue, which the browser turns into a column under the unit card. The lines the routes
-write are English; what the player reads in them (phase names, combat sentences) is French.
+repository - a rotating file of 50 KB, kept in three archives behind it - and a bounded in-memory
+queue, which the browser turns into a column under the unit card. The lines the routes write are
+English; what the player reads in them (phase names, combat sentences) is French.
+
+The engine's movement trace does **not** come here: it has a file of its own, `movement_log.py`.
 
 Configured once, at import: the logger is a module global, like the game state in
 `current_game.py`.
@@ -13,14 +15,9 @@ import logging
 
 from tenebrae.application.config import ROOT
 from tenebrae.application.logs.in_memory_log import InMemoryLog
-from tenebrae.application.logs.rotating_log import RotatingLog
+from tenebrae.application.logs.rotating_log import open_the_log
 
 LOG_PATH = ROOT / "logs" / "battle_log.log"
-
-# `battle_log.log` plus `.1` to `.3`: at most 4,000 lines of game on disk, the oldest archive erased
-# beyond that.
-LINES_PER_FILE = 1000
-LOGS_KEPT = 3
 
 # What the browser's column shows: the last lines, and no more. The file remains the archive.
 LINES_KEPT = 60
@@ -28,11 +25,9 @@ LINES_KEPT = 60
 LOG = logging.getLogger("tenebrae.log")
 LOG_MEMORY = InMemoryLog(LINES_KEPT)
 if not LOG.handlers:
-    _trace = RotatingLog(LOG_PATH, LINES_PER_FILE, LOGS_KEPT)
-    _trace.setFormatter(logging.Formatter("%(asctime)s  %(message)s", "%Y-%m-%d %H:%M:%S"))
-    LOG.addHandler(_trace)
+    LOG.addHandler(open_the_log(LOG_PATH))
     LOG.addHandler(LOG_MEMORY)
-    LOG.setLevel(logging.INFO)
+    LOG.setLevel(logging.DEBUG)
 
 
 def log_lines() -> list[dict[str, str]]:

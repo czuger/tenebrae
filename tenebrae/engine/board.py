@@ -12,14 +12,27 @@ degrees that make the counter look as though it had been dropped onto the map by
 at random when the piece is placed and belongs to the game state: saved with the positions, it only
 changes when the piece is picked up again, so that a reloaded page finds the counters lying as they
 were.
+
+`moves` traces its whole computation on the module's debug logger - the budget, what the walk was
+told to avoid, and every square it reached with its distance, its terrain and the reason it is not
+offered. It is not the game log, and the application gives it a file of its own (see `LOG`).
 """
 
+import logging
 import random
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from typing import Optional, Self
 
 from tenebrae.engine.hexagon import DEFAULT_MOVEMENT, Hex, zone_of_control
 from tenebrae.engine.piece import CATALOGUE, OPPONENTS, Piece
+
+# The engine's own trace, and not the game log: `tenebrae.log` is what the player reads in the
+# browser's column, and a movement recomputed at every click would drown it. Nothing is configured
+# here - the engine writes to no file it has chosen: the application opens this one on
+# `logs/movement.log` at DEBUG (`application/logs/movement_log.py`). Read from an interpreter with
+# no application around, the logger stays at the root's level, hence silent, and `moves` does not
+# even build its lines - `logging.basicConfig(level=logging.DEBUG)` is enough to see them.
+LOG = logging.getLogger(__name__)
 
 # The tilt runs between these two extremes, in degrees: beyond them the piece looks badly placed.
 MAXIMUM_TILT = 5.0
@@ -176,15 +189,75 @@ class Board:
             The reachable, unoccupied squares.
         """
         piece = self.piece_on(origin) or piece
+        enemies: frozenset[str] = frozenset()
+        controlled: frozenset[str] = frozenset()
         if piece is None:
             reachable = origin.moves()
         else:
-            reachable = origin.moves(
-                piece.movement_points,
-                enemies=self.opponents_of(piece.side),
-                under_control=self.zones_of_control_against(piece.side),
-            )
-        return [hexagon for hexagon in reachable if hexagon.key not in self._pieces]
+            enemies = self.opponents_of(piece.side)
+            controlled = self.zones_of_control_against(piece.side)
+            reachable = origin.moves(piece.movement_points, enemies=enemies,
+                                     under_control=controlled)
+        destinations = [hexagon for hexagon in reachable if hexagon.key not in self._pieces]
+        if LOG.isEnabledFor(logging.DEBUG):
+            self._trace_the_moves(origin, piece, enemies, controlled, reachable, destinations)
+        return destinations
+
+    def _trace_the_moves(self, origin: Hex, piece: Optional[Piece], enemies: Collection[str],
+                         controlled: Collection[str], reachable: list[Hex],
+                         destinations: list[Hex]) -> None:
+        """Writes a movement computation to the debug log, step by step.
+
+        What the returned list alone does not say: whose movement it is and out of how many points,
+        what the walk was told to avoid, and **why** a square the walk reached is not offered. The
+        squares are told outwards from the origin, each with its terrain and its distance, so that
+        the ring the budget stopped at can be read at a glance.
+
+        Called only when the debug level is on: everything here is built for the reading, and the
+        caller keeps `isEnabledFor` in front of it.
+
+        Args:
+            origin: The departure square.
+            piece: The piece that moves, or `None` for the flat rate.
+            enemies: The squares the walk refused to enter.
+            controlled: The squares under an opposing zone of control, entered but not left.
+            reachable: What the walk returned, occupied squares included.
+            destinations: What `moves` offers, which is what the caller will act on.
+        """
+        # The counts come after their label rather than before it: a number followed by a noun
+        # would read "1 squares" as often as not, and this is read by eye.
+        LOG.debug("moves from %s: %s, movement points: %s", origin.key,
+                  f"{piece.key} ({piece.side})" if piece else "no piece, flat rate",
+                  piece.movement_points if piece else DEFAULT_MOVEMENT)
+        LOG.debug("moves from %s: enemy squares refused: %s, under an enemy zone of control: %s",
+                  origin.key, len(enemies), len(controlled))
+        LOG.debug("moves from %s: squares reached by the walk: %s, free to be taken: %s",
+                  origin.key, len(reachable), len(destinations))
+        offered = {hexagon.key for hexagon in destinations}
+        for hexagon in sorted(reachable, key=lambda square: (origin.distance(square), square.key)):
+            LOG.debug("moves from %s:   %s at %s (%s)%s", origin.key, hexagon.key,
+                      origin.distance(hexagon), hexagon.terrain,
+                      self._why_not(hexagon, offered, controlled))
+
+    @staticmethod
+    def _why_not(hexagon: Hex, offered: Collection[str], controlled: Collection[str]) -> str:
+        """Says what keeps a square the walk reached from being an ordinary destination.
+
+        Args:
+            hexagon: The square reached.
+            offered: The keys `moves` is about to return.
+            controlled: The squares under an opposing zone of control.
+
+        Returns:
+            A clause to append to the square's line, empty when there is nothing to say. A
+            friend standing under an enemy zone of control reads as the zone: it is the zone that
+            stops the walk there, the friend only keeps the square from being taken.
+        """
+        if hexagon.key in controlled:
+            return " - under an enemy zone of control: entered, not left"
+        if hexagon.key not in offered:
+            return " - occupied by a friend: crossed, not taken"
+        return ""
 
     def movement_of(self, origin: Hex, piece: Optional[Piece] = None) -> int:
         """Reads the movement budget of the piece on `origin`.

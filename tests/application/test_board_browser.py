@@ -404,9 +404,111 @@ def hover(page, piece):
 
 
 def leave_the_piece(page):
-    """Moves the pointer away from any piece, and waits for the card to empty."""
-    page.mouse.move(1, 1)
+    """Moves the pointer off the map, and waits for the card to empty.
+
+    Onto the toolbar rather than into a corner of the window: an empty card is not a blank one -
+    over the map it carries the coordinates of the square under the pointer - and these tests are
+    about what is left of the piece, not about that line.
+    """
+    page.mouse.move(*centre_of_the_toolbar(page))
     page.wait_for_function("() => document.getElementById('card').classList.contains('empty')")
+
+
+def centre_of_the_toolbar(page):
+    """A point that is on the bar and therefore not on the map."""
+    return page.evaluate("""() => {
+        const box = document.getElementById('toolbar').getBoundingClientRect();
+        return [box.x + box.width / 2, box.y + box.height / 2];
+    }""")
+
+
+def a_bare_point_on_the_map(page):
+    """A square whose centre the pointer reaches on the scan itself, with nothing over it.
+
+    The candidates are computed here, from the grid the engine reads (`expected_centre`), and
+    tried in the page in one go: what the readout writes must be the square this test aimed at.
+    """
+    candidates = []
+    for square in MAP:
+        hexagon = Hex.from_key(square)
+        x, y = expected_centre(hexagon.q, hexagon.r)
+        candidates.append([square, x, y])
+    found = page.evaluate("""(candidates) => {
+        const map = document.getElementById('map');
+        const box = map.getBoundingClientRect();
+        const scale = box.width / map.naturalWidth;
+        for (const [square, x, y] of candidates) {
+            const point = [box.x + x * scale, box.y + y * scale];
+            const element = document.elementFromPoint(point[0], point[1]);
+            if (element && element.id === 'map') return { square, point };
+        }
+        return null;
+    }""", candidates)
+    if not found:
+        pytest.skip("no bare square of the map is reachable in this window")
+    return found
+
+
+def wait_for_the_square(page):
+    """Waits for the readout to have written a square, and returns it."""
+    page.wait_for_function("() => document.getElementById('card-extra').textContent !== ''")
+    return read_card(page)["extra"]
+
+
+# --- The square under the pointer
+# ---------------------------------------------------------------
+#
+# The card is empty as long as no unit is hovered, and that box is reserved: it is where the
+# coordinates of the square being aimed at go, on the line a piece shows its own on.
+
+def test_the_empty_card_shows_the_square_under_the_pointer(board):
+    """The square the page names is the one the test aimed at: the grid read the other way round.
+    """
+    bare = a_bare_point_on_the_map(board)
+    board.mouse.move(*bare["point"])
+    assert wait_for_the_square(board) == bare["square"]
+
+    shown = read_card(board)
+    assert shown["empty"] is True, shown  # the card is still the empty one
+    assert (shown["name"], shown["symbol"]) == ("", ""), shown
+    assert shown["values"] == {}, shown
+
+
+def test_the_square_is_the_only_line_that_comes_back_into_sight(board):
+    """`visibility` is inherited: the card stays hidden around the one line that is read."""
+    bare = a_bare_point_on_the_map(board)
+    board.mouse.move(*bare["point"])
+    wait_for_the_square(board)
+
+    seen = board.evaluate("""() => ['card-extra', 'card-name', 'card-image'].map(
+        (id) => getComputedStyle(document.getElementById(id)).visibility)""")
+    assert seen == ["visible", "hidden", "hidden"], seen
+
+
+def test_a_hovered_unit_takes_that_line_back(board):
+    """The piece carries its own square: the readout gives way to the card, and does not add
+    itself to it."""
+    bare = a_bare_point_on_the_map(board)
+    board.mouse.move(*bare["point"])
+    wait_for_the_square(board)
+
+    shown = hover(board, board.locator("img.piece:not(.ghost)").first)
+    assert shown["empty"] is False, shown
+    assert shown["extra"] != bare["square"], shown
+    assert board.evaluate(
+        "() => document.getElementById('card').classList.contains('square')") is False
+
+
+def test_the_line_goes_blank_off_the_map(board):
+    """The bar is not the map: there is no square under the pointer, and nothing is named."""
+    bare = a_bare_point_on_the_map(board)
+    board.mouse.move(*bare["point"])
+    wait_for_the_square(board)
+
+    board.mouse.move(*centre_of_the_toolbar(board))
+    board.wait_for_function(
+        "() => !document.getElementById('card').classList.contains('square')")
+    assert read_card(board)["extra"] == ""
 
 
 def card_box(page):

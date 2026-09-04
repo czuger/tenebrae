@@ -238,6 +238,45 @@ the side gives the opponents, the opponents give the zones of control.
   positions, and it only changes on a move, since `move` places the piece again. A board read back
   does not replay that draw — otherwise the pieces would spin at every page reload.
 
+### Reading a movement computation — the debug trace
+
+`moves` returns a list of squares and says nothing of how it got there. On the module's own logger
+it tells the whole of it, step by step: the piece and its budget, what the walk was told to avoid,
+and one line per square it reached — its distance from the origin, its terrain, and the reason it
+is **not** offered when it is not.
+
+```
+moves from 6,5,-11: elfes-01-5-infanteries (alliance), movement points: 4
+moves from 6,5,-11: enemy squares refused: 1, under an enemy zone of control: 6
+moves from 6,5,-11: squares reached by the walk: 41, free to be taken: 40
+moves from 6,5,-11:   5,5,-10 at 1 (plaine)
+moves from 6,5,-11:   5,6,-11 at 1 (plaine) - occupied by a friend: crossed, not taken
+moves from 6,5,-11:   6,4,-10 at 1 (plaine) - under an enemy zone of control: entered, not left
+```
+
+When both apply to a square — a friend standing in an enemy zone — the line says the zone: it is
+the zone that stops the walk there, the friend only keeps the square from being taken.
+
+It is **the engine's logger and not the game log**: `tenebrae.engine.board`, where the player's
+column reads `tenebrae.log` (`tenebrae/application/logs/battle_log.py`). Nothing of it reaches the
+browser, which is the point — a move is recomputed at every click, and by the AI for every unit of
+its turn.
+
+The engine chooses no path: it is the application that gives this logger its file,
+`logs/movement.log`, wired by `create_app` (`application/logs/movement_log.py`) and **open at
+DEBUG** — there is no switch to find. Read from an interpreter with no application around, the
+logger falls back to the root's level and says nothing, and `moves` does not even compose its lines
+— `LOG.isEnabledFor` guards them:
+
+```python
+import logging
+logging.basicConfig(level=logging.DEBUG)
+```
+
+What it does **not** give is the cost paid for each square: `Hex.moves` walks with them and keeps
+none — it returns the squares alone. The distance shown is the distance as the crow flies, which is
+what a road or a wood makes differ from the cost.
+
 ## The scenarios
 
 ```python

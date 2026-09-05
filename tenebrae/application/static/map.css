@@ -41,9 +41,11 @@ body {
   box-shadow: 0 0 12px rgba(212, 175, 55, 0.85);
 }
 
-/* Units that have already fought this phase: they will refuse the click, so we may as well say so
-   beforehand. The counter is dimmed - washed out and darkened - and ringed with the toolbar's
-   brown: dimming alone does not show on the Darkness counters, which are already pale grey.
+/* Units that have already had their turn this phase - fought, been fought, or spent their movement
+   points: they will refuse the click, so we may as well say so beforehand. The counter is dimmed -
+   washed out and darkened - and ringed with the toolbar's brown: dimming alone does not show on
+   the Darkness counters, which are already pale grey. The one that has run out of movement carries
+   a tooltip too, the map having no room for a sentence.
 
    The ghost is left as it is: two dimmings on top of each other would erase it altogether, and
    the two do not appear in the same phase anyway. */

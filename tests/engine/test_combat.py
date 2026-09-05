@@ -12,21 +12,35 @@ from tenebrae.engine.casualties import Casualties
 from tenebrae.engine.combat import AE, AR, DE, DR, EX
 from tenebrae.engine.combat_register import CombatRegister
 from tenebrae.engine.hexagon import MAP, UNINHABITABLE, Hex
-from tenebrae.engine.piece import piece
+from tenebrae.engine.piece import Piece, piece
 from tests.engine.plains import ring_of, well_surrounded_plain
 
 DWARF = "nains-01-5-infanteries"           # alliance, strength 12
 ORC = "orques-01-15-infanteries"           # darkness, strength 8
 ARCHER = "yzent-03-8-archers"              # darkness, strength 2, fire 4, range 3
 ELF = "elfes-01-5-infanteries"             # alliance, strength 7
+ELF_ARCHER = "elfes-02-4-archers"          # alliance, strength 8, fire 8, range 3
 CROSSBOWMAN = "nains-02-4-arbaletriers"    # alliance, strength 6, fire 4, range 2
-HEAVY_CROSSBOWMAN = "nains-03-4-arbaletriers-lourds"   # alliance, strength 8, fire 5
+HEAVY_CROSSBOWMAN = "nains-03-4-arbaletriers-lourds"   # alliance, strength 8, fire 5, range 2
 MARKER = "marqueurs-03-paralysie"          # a marker: no strength printed
 
 
 def hexagon_of_terrain(terrain):
     """A hexagon whose main terrain is `terrain`."""
     return next(Hex.from_key(key) for key, elements in MAP.items() if elements[0] == terrain)
+
+
+def a_counter(strength, fire, range):
+    """A counter of one's own, for values the box does not print together.
+
+    `piece()` hands out the catalogue's own objects, which the whole suite shares: a test that
+    wants a piece missing one of its values builds it here rather than blanking a field on the
+    shared one.
+    """
+    return Piece("essai", {"image": "essai.jpg", "faction": "10-nains",
+                           "force": strength, "mouvement": 3, "tir": fire, "portee": range,
+                           "mouvement_vol": None, "facultes_speciales": None,
+                           "symbole": None, "remarques": None})
 
 
 @pytest.fixture
@@ -98,6 +112,74 @@ class TestFiresMissiles:
         assert combat.combat_range(piece(DWARF)) == 1
 
 
+class TestEngagementStrength:
+    """Which of the counter's two strengths a combat weighs: the booklet prints them apart, at the
+    top left for combat and at the bottom left beside the range for missiles, and a unit that fires
+    attacks with the second."""
+
+    def test_the_shooter_attacks_with_the_value_printed_for_firing(self):
+        """The crossbowman closes at 6 and fires at 4: firing is what it does, so 4 is what it
+        brings."""
+        assert piece(CROSSBOWMAN).strength == 6
+        assert combat.engagement_strength(piece(CROSSBOWMAN)) == 4
+
+    def test_everybody_else_attacks_with_the_strength_at_the_top_left(self):
+        assert combat.engagement_strength(piece(DWARF)) == piece(DWARF).strength
+        assert combat.engagement_strength(piece(ELF)) == piece(ELF).strength
+
+    def test_a_counter_with_no_range_printed_is_no_shooter(self):
+        """The guard the booklet's own reading gives: fire without a range is not fire, and the
+        counter closes with its combat strength like anybody else. No counter of the box carries
+        one without the other - hence a piece built here rather than taken from the catalogue,
+        which is shared and must not be written on."""
+        no_range = a_counter(strength=8, fire=5, range=None)
+        assert not combat.fires_missiles(no_range)
+        assert combat.engagement_strength(no_range) == 8
+        assert combat.combat_range(no_range) == 1
+
+        no_fire = a_counter(strength=8, fire=None, range=2)
+        assert not combat.fires_missiles(no_fire)
+        assert combat.engagement_strength(no_fire) == 8
+
+    def test_an_illegible_counter_brings_nothing(self):
+        assert combat.engagement_strength(piece(MARKER)) is None
+        assert combat.engagement_strength(None) is None
+
+    def test_the_weighing_reads_fire_on_one_side_and_combat_on_the_other(self, corner):
+        """The two halves of the ratio are not read the same way: an archer **firing** brings its 4,
+        the same archer **defending** opposes its 2. Firing is something a unit does, not something
+        it suffers."""
+        a, c, _ = corner
+        board = Board([(a, piece(ARCHER)), (c, piece(CROSSBOWMAN))])
+
+        weighed = combat.weigh(board, a, [c])
+        assert weighed.strengths == [4]                 # the crossbowman's fire, not its 6
+        assert weighed.target_strength == 2             # the archer's combat strength
+        assert weighed.ratio == (2, 1)
+
+    def test_the_shooter_fires_from_the_far_end_of_its_range(self, corner):
+        """Two squares away, out of contact: the booklet's "one or two hexes apart for archery" -
+        the range printed on the counter, which the crossbowman carries as 2."""
+        a, _, further = corner
+        assert further.distance(a) == 2
+        assert combat.in_range(further, piece(CROSSBOWMAN), a)
+
+        board = Board([(a, piece(DWARF)), (further, piece(CROSSBOWMAN))])
+        assert combat.weigh(board, a, [further]).strengths == [4]
+
+    def test_what_the_exchange_asks_of_the_defender_is_its_printed_strength(self, corner):
+        """The total an exchange must reach is the defender's own counter value, not what the
+        attackers fired: the sentence trades units, and the fire only decided the column."""
+        a, c, _ = corner
+        _, _, second, *_ = ring_of(a)
+        board = Board([(a, piece(ARCHER)), (c, piece(DWARF)), (second, piece(ELF))])
+        # DWARF 12 + ELF 7 = 19 against ARCHER 2 -> 6-1; die 6 -> EX, and 12 alone tops the 2.
+        result = combat.fight(board, a, [c, second], roll=6)
+        assert result.outcome == EX
+        assert result.eliminated == [c, a]
+        assert board.piece_on(second) is not None
+
+
 class TestFight:
     @pytest.fixture
     def pair(self):
@@ -120,8 +202,8 @@ class TestFight:
     def test_attacker_eliminated_clears_its_square(self, pair):
         target, attacker = pair
         board = Board([(target, piece(DWARF)), (attacker, piece(ARCHER))])
-        # ARCHER 2 against DWARF 12 -> 1-5; die 2 -> AE.
-        result = combat.fight(board, target, [attacker], roll=2)
+        # ARCHER fires: 4 against DWARF 12 -> 1-3; die 5 -> AE.
+        result = combat.fight(board, target, [attacker], roll=5)
         assert result.outcome == AE
         assert board.piece_on(attacker) is None
         assert board.piece_on(target) is not None
@@ -155,8 +237,8 @@ class TestFight:
     def test_a_lone_shooter_comes_out_of_an_exchange_unharmed(self, pair):
         """The exchange then clears the target's square alone: the attacker leaves nothing there."""
         target, shooter = pair
-        board = Board([(target, piece(ARCHER)), (shooter, piece(HEAVY_CROSSBOWMAN))])
-        # HEAVY_CROSSBOWMAN 8 against ARCHER 2 -> 4-1; die 6 -> EX.
+        board = Board([(target, piece(ARCHER)), (shooter, piece(ELF_ARCHER))])
+        # ELF_ARCHER fires 8 against ARCHER, which defends with its 2 -> 4-1; die 6 -> EX.
         result = combat.fight(board, target, [shooter], roll=6)
         assert result.outcome == EX
         assert result.eliminated == [target]
@@ -225,13 +307,13 @@ class TestFight:
         assert board.piece_on(marker) is not None
 
     def test_a_total_out_of_reach_takes_everything_that_can_be_taken(self, pair):
-        """Four heavy crossbowmen carry the ratio and are exempt; the lone elf cannot total the
+        """Four elven archers carry the ratio and are exempt; the lone elf cannot total the
         orc's strength by itself, and goes all the same - as far as the sentence carries."""
         target, _ = pair
         elf, *shooters = target.neighbours()[:5]
         board = Board([(target, piece(ORC)), (elf, piece(ELF))]
-                      + [(square, piece(HEAVY_CROSSBOWMAN)) for square in shooters])
-        # ELF 7 + 4 x HEAVY_CROSSBOWMAN 8 = 39 against ORC 8 -> 4-1; die 6 -> EX.
+                      + [(square, piece(ELF_ARCHER)) for square in shooters])
+        # ELF 7 + 4 x ELF_ARCHER firing 8 = 39 against ORC 8 -> 4-1; die 6 -> EX.
         result = combat.fight(board, target, [elf, *shooters], roll=6)
 
         assert result.outcome == EX
@@ -254,21 +336,22 @@ class TestFight:
 
     def test_the_shooter_still_counts_in_the_ratio(self, pair):
         """Spared by the exchange, but not absent from the combat: its strength weighs on the
-        column."""
+        column - and the strength it weighs with is the one it fires, 4, not the 6 it would close
+        with."""
         target, foot_soldier = pair
         _, _, shooter, *_ = ring_of(target)
         board = Board([(target, piece(ARCHER)),
                        (foot_soldier, piece(DWARF)), (shooter, piece(CROSSBOWMAN))])
         breakdown = combat.fight(board, target, [foot_soldier, shooter], roll=6).breakdown
-        assert breakdown.strengths == [12, 6]
-        assert breakdown.attacking_strength == 18
+        assert breakdown.strengths == [12, 4]
+        assert breakdown.attacking_strength == 16
 
     def test_attacker_eliminated_does_not_spare_the_shooter(self, pair):
         """The booklet exempts missile troops from retreat and exchange only, not from `AE`."""
         target, shooter = pair
         board = Board([(target, piece(DWARF)), (shooter, piece(CROSSBOWMAN))])
-        # CROSSBOWMAN 6 against DWARF 12 -> 1-2; die 3 -> AR, which missile troops do not suffer:
-        # the shooter stays where it is, as does the target.
+        # CROSSBOWMAN fires 4 against DWARF 12 -> 1-3; die 3 -> AR, which missile troops do not
+        # suffer: the shooter stays where it is, as does the target.
         result = combat.fight(board, target, [shooter], roll=3)
         assert result.outcome == AR
         assert result.eliminated == []
@@ -276,8 +359,8 @@ class TestFight:
         assert board.piece_on(shooter) is not None
 
         board = Board([(target, piece(DWARF)), (shooter, piece(ARCHER))])
-        # ARCHER 2 against DWARF 12 -> 1-5; die 2 -> AE: the shooter is indeed removed.
-        result = combat.fight(board, target, [shooter], roll=2)
+        # ARCHER fires 4 against DWARF 12 -> 1-3; die 5 -> AE: the shooter is indeed removed.
+        result = combat.fight(board, target, [shooter], roll=5)
         assert result.outcome == AE
         assert board.piece_on(shooter) is None
 
@@ -577,8 +660,8 @@ class TestAdvanceAfterCombat:
         """`AE`: the attackers fall, the orc is still on its square, and nobody advances."""
         target, attacker = pair
         board = Board([(target, piece(DWARF)), (attacker, piece(ARCHER))])
-        # ARCHER 2 against DWARF 12 -> 1-5; die 2 -> AE.
-        result = combat.fight(board, target, [attacker], roll=2, advance=True)
+        # ARCHER fires 4 against DWARF 12 -> 1-3; die 5 -> AE.
+        result = combat.fight(board, target, [attacker], roll=5, advance=True)
 
         assert result.outcome == AE
         assert result.advance is None

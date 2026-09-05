@@ -1,0 +1,263 @@
+/* The help page: a page of text, read from top to bottom.
+ *
+ * No map on it, so nothing shared with the board's stylesheets; what it shares with the list is the
+ * look, written out here as home.css writes it out - same palette, same serif, same box, and no
+ * custom properties, there being none anywhere in this application.
+ *
+ *   background  #1b1713      text      #f6e7c1      secondary  #d9c9a5
+ *   receding    #9c8c6f      border    #6b5a44      button     #2a2320 (hover #3a3028)
+ *   panel       #241f1b      gold      #d4af37
+ */
+
+body {
+  margin: 0;
+  background: #1b1713;
+  color: #f6e7c1;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+/* Narrower than the list: this is prose, and a line of sixty to seventy characters is the one the
+   eye follows without losing its place. */
+#page {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+
+#head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid #6b5a44;
+  padding-bottom: 0.6rem;
+}
+
+#ways {
+  display: flex;
+  gap: 0.5rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: normal;
+  letter-spacing: 0.04em;
+}
+
+h2 {
+  margin: 2.4rem 0 0.6rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid #6b5a44;
+  font-size: 1.2rem;
+  font-weight: normal;
+  color: #d4af37;
+}
+
+h3 {
+  margin: 1.4rem 0 0.3rem;
+  font-size: 1rem;
+  font-weight: normal;
+  color: #d9c9a5;
+}
+
+p {
+  margin: 0.5rem 0;
+}
+
+a {
+  color: #d9c9a5;
+}
+
+a:hover {
+  color: #f6e7c1;
+}
+
+/* The same button as everywhere else in the application, on a link. */
+.button {
+  font: inherit;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid #6b5a44;
+  border-radius: 2px;
+  background: #2a2320;
+  color: #f6e7c1;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.button:hover {
+  background: #3a3028;
+}
+
+.lead {
+  margin: 1.2rem 0;
+  font-size: 1.05rem;
+  color: #d9c9a5;
+}
+
+/* The table of contents: one line of links, wrapping on a narrow window. */
+#contents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid #6b5a44;
+  border-radius: 3px;
+  background: #241f1b;
+}
+
+#contents a {
+  text-decoration: none;
+}
+
+#contents a:hover {
+  text-decoration: underline;
+}
+
+.note {
+  padding: 0.5rem 0.8rem;
+  border-left: 3px solid #6b5a44;
+  color: #d9c9a5;
+}
+
+/* What the bar shows, quoted as it shows it. */
+.example {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid #6b5a44;
+  border-radius: 2px;
+  background: #241f1b;
+  color: #d4af37;
+  font-size: 0.85rem;
+}
+
+/* The three fields of the new-game form, each one explained. */
+.fields dt {
+  margin-top: 0.6rem;
+  color: #d4af37;
+}
+
+.fields dd {
+  margin: 0.1rem 0 0 1.2rem;
+}
+
+ol, ul {
+  padding-left: 1.4rem;
+}
+
+li {
+  margin: 0.3rem 0;
+}
+
+/* The tables: a label column on the left, its meaning on the right, and no grid heavier than a
+   hairline. Wide ones - the results table - scroll inside their own box, the page never does. */
+table {
+  border-collapse: collapse;
+  margin: 0.6rem 0;
+  font-size: 0.9rem;
+}
+
+th, td {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid #6b5a44;
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  color: #d9c9a5;
+  font-weight: normal;
+  white-space: nowrap;
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+.results th,
+.results td {
+  text-align: center;
+  padding: 0.25rem 0.5rem;
+}
+
+.results td {
+  font-family: "Courier New", monospace;
+}
+
+.keys th {
+  text-align: center;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 1.4em;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid #9c8c6f;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: #2a2320;
+  font: inherit;
+  text-align: center;
+}
+
+/* The counter in both faces, side by side. */
+.faces {
+  display: flex;
+  gap: 1.5rem;
+  margin: 0.8rem 0;
+}
+
+.faces figure {
+  margin: 0;
+  text-align: center;
+  color: #9c8c6f;
+  font-size: 0.85rem;
+}
+
+.faces img {
+  display: block;
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 0.3rem;
+  border: 1px solid #6b5a44;
+  border-radius: 3px;
+  object-fit: cover;
+}
+
+/* The game-icons.net contributors: one row each, their drawing beside their name. */
+.authors {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 0.5rem;
+}
+
+.authors li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #6b5a44;
+  border-radius: 3px;
+  background: #241f1b;
+}
+
+.authors img {
+  width: 32px;
+  height: 32px;
+  border-radius: 2px;
+}
+
+.authors small {
+  display: block;
+  color: #9c8c6f;
+}
+
+footer {
+  margin-top: 2.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid #6b5a44;
+}

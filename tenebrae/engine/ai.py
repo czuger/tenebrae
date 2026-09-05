@@ -2,8 +2,9 @@
 
 The booklet assumes two players around the map; this module takes the place of the second. It
 knows nothing of the rules - it **chooses**, and lets the engine judge: every move goes through
-`Board.move`, every combat through `combat.fight`, every availability check through
-`CombatRegister`. An illegal decision is simply refused, as it would be for a human.
+`movement.move`, every combat through `combat.fight`, every availability check through
+`CombatRegister` and `MovementRegister`. An illegal decision is simply refused, as it would be for
+a human - a unit out of movement points included.
 
 The strategy is short and deliberate. Each unit picks its target - the nearest opponent, the
 weakest at equal distance - and marches until it has it within engagement range: adjacent for
@@ -26,12 +27,13 @@ the caller, one draw per combat.
 from collections.abc import Callable
 from typing import Optional
 
-from tenebrae.engine import combat
+from tenebrae.engine import combat, movement
 from tenebrae.engine.board import Board
 from tenebrae.engine.casualties import Casualties
 from tenebrae.engine.combat import CombatResult
 from tenebrae.engine.combat_register import CombatRegister
 from tenebrae.engine.hexagon import Hex
+from tenebrae.engine.movement_register import MovementRegister
 from tenebrae.engine.phase import MOVEMENT, Turn
 
 # The occupant of a seat held by the AI. No human can carry it: Discord identifiers are strings of
@@ -102,8 +104,8 @@ def choose_target(board: Board, origin: Hex, side: str) -> Optional[Hex]:
     return targets[0] if targets else None
 
 
-def play_movement(board: Board, side: str,
-                  watching: Optional[MoveWatcher] = None) -> list[Move]:
+def play_movement(board: Board, side: str, watching: Optional[MoveWatcher] = None,
+                  register: Optional[MovementRegister] = None) -> list[Move]:
     """Plays the side's movement phase: each unit marches towards its target.
 
     A unit already within engagement range of its target does not move. The others take, among
@@ -115,19 +117,28 @@ def play_movement(board: Board, side: str,
     square is never a destination, so every square in the list keeps its occupant until its own
     turn comes.
 
+    Every step goes through `movement.move`, the very entry point the server's route uses: the AI
+    spends from the same allowance a human spends from, and what it has left is written in the same
+    register - a saved game reopened mid-turn therefore reads the same for both players.
+
     Args:
         board: The board, modified in place.
         side: The side that plays.
         watching: Called with each move the moment it is played, if given.
+        register: The phase's allowances, charged as the units march. A fresh one when omitted,
+            which is a phase in which nobody has moved yet.
 
     Returns:
         The `(origin, destination)` pairs played, in order.
     """
+    register = MovementRegister() if register is None else register
     moves_played = []
     for key in sorted(board.squares_held_by(side)):
         origin = Hex.from_key(key)
         piece = board.piece_on(origin)
         if piece is None or not piece.is_a_unit or piece.movement_points == 0:
+            continue
+        if movement.is_exhausted(board, register, origin):
             continue
         target = choose_target(board, origin, side)
         if target is None:
@@ -142,13 +153,13 @@ def play_movement(board: Board, side: str,
             shortfall = max(0, hexagon.distance(target) - objective)
             return (shortfall, origin.distance(hexagon), hexagon.key)
 
-        candidates = board.moves(origin)
+        candidates = board.moves(origin, budget=movement.points_left(board, register, origin))
         if not candidates:
             continue
         destination = min(candidates, key=rank)
         if rank(destination) >= rank(origin):
             continue
-        if board.move(origin, destination):
+        if movement.move(board, register, origin, destination).allowed:
             moves_played.append((origin, destination))
             if watching is not None:
                 watching(origin, destination)
@@ -172,14 +183,19 @@ def available_attackers(board: Board, side: str, target: Hex,
     for key in sorted(board.squares_held_by(side)):
         hexagon = Hex.from_key(key)
         piece = board.piece_on(hexagon)
-        if (piece is not None and piece.is_a_unit and piece.strength is not None
+        if (piece is not None and piece.is_a_unit
+                and combat.engagement_strength(piece) is not None
                 and register.can_attack(key) and combat.in_range(hexagon, piece, target)):
             attackers.append(hexagon)
     return attackers
 
 
 def strength_on(board: Board, hexagon: Hex) -> int:
-    """Reads the strength printed on the counter standing on a square.
+    """Reads the strength the counter standing on a square would attack with.
+
+    The one the engine will weigh the combat on, and not simply the one at the top left: an archer
+    brings its missile strength (`combat.engagement_strength`). Reading anything else here would
+    make the AI decline combats it wins and take ones it loses.
 
     Args:
         board: The board.
@@ -188,8 +204,8 @@ def strength_on(board: Board, hexagon: Hex) -> int:
     Returns:
         The strength; 0 for an empty square or an illegible counter, which weigh nothing.
     """
-    piece = board.piece_on(hexagon)
-    return 0 if piece is None or piece.strength is None else piece.strength
+    strength = combat.engagement_strength(board.piece_on(hexagon))
+    return 0 if strength is None else strength
 
 
 def worth_attacking(board: Board, target: Hex, attackers: list[Hex]) -> bool:
@@ -238,7 +254,8 @@ def play_combat(board: Board, side: str, register: CombatRegister, roll: Callabl
         piece = board.piece_on(origin)
         if piece is None or piece.side != side:
             continue  # eliminated in an exchange earlier in the phase
-        if not piece.is_a_unit or piece.strength is None or not register.can_attack(key):
+        if (not piece.is_a_unit or combat.engagement_strength(piece) is None
+                or not register.can_attack(key)):
             continue
 
         target = next((candidate for candidate in target_priority(board, origin, side)
@@ -265,12 +282,13 @@ def play_combat(board: Board, side: str, register: CombatRegister, roll: Callabl
 def play_turn(board: Board, turn: Turn, register: CombatRegister, roll: Callable[[], int],
               casualties: Optional[Casualties] = None,
               moving: Optional[MoveWatcher] = None,
-              fighting: Optional[CombatWatcher] = None) -> tuple[list[Move], list[Combat]]:
+              fighting: Optional[CombatWatcher] = None,
+              allowances: Optional[MovementRegister] = None) -> tuple[list[Move], list[Combat]]:
     """Plays the active side's whole turn - movement then combat - and hands play back.
 
     On entry, the current phase must be the movement phase of the AI's side; on exit, it is the
     movement phase of the next side. The phase changes are those a human clicking "next phase"
-    makes: `Turn.advance()` and a combat register wiped clean.
+    makes: `Turn.advance()`, a combat register wiped clean and the movement allowances given back.
 
     Args:
         board: The board, modified in place.
@@ -280,6 +298,8 @@ def play_turn(board: Board, turn: Turn, register: CombatRegister, roll: Callable
         casualties: The game's register of units removed from play, filled as they fall.
         moving: Called with each move the moment it is played, if given.
         fighting: Called with each combat the moment it is fought, if given.
+        allowances: What each unit has left to move, reset when the AI hands play back so that the
+            next side opens its own movement phase with a full board.
 
     Returns:
         `(moves, combats)`, what the two phases played.
@@ -289,11 +309,13 @@ def play_turn(board: Board, turn: Turn, register: CombatRegister, roll: Callable
     """
     if turn.phase_type != MOVEMENT:
         raise ValueError("the AI comes into play at its movement phase, nowhere else")
+    allowances = MovementRegister() if allowances is None else allowances
     side = turn.active_side
-    moves = play_movement(board, side, moving)
+    moves = play_movement(board, side, moving, allowances)
     turn.advance()
     register.reset()
     combats = play_combat(board, side, register, roll, casualties, fighting)
     turn.advance()
     register.reset()
+    allowances.reset()
     return moves, combats

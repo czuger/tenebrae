@@ -21,6 +21,7 @@ offered. It is not the game log, and the application gives it a file of its own 
 import logging
 import random
 from collections.abc import Collection, Iterable, Mapping
+from fractions import Fraction
 from typing import Optional, Self
 
 from tenebrae.engine.hexagon import DEFAULT_MOVEMENT, Hex, zone_of_control
@@ -173,8 +174,9 @@ class Board:
                     if self._pieces[key].exerts_a_zone_of_control]
         return zone_of_control(exerting)
 
-    def moves(self, origin: Hex, piece: Optional[Piece] = None) -> list[Hex]:
-        """Finds the squares the piece on `origin` can reach, zones of control included.
+    def reach(self, origin: Hex, piece: Optional[Piece] = None,
+              budget: Optional[Fraction] = None) -> dict[str, Fraction]:
+        """Finds the squares the piece on `origin` can reach, and what each of them costs.
 
         A square occupied by a friend can be crossed but not taken: "it is not possible to place
         more than one unit in the same square". It is discarded from the destinations, not from
@@ -184,24 +186,58 @@ class Board:
             origin: The departure square.
             piece: Only serves to question an empty square: the **placed** piece prevails. With
                 neither, the flat movement rate applies and nobody is an opponent.
+            budget: The points to spend, where they are not the counter's full allowance - a unit
+                that has already moved this phase (`tenebrae/engine/movement_register.py`).
 
         Returns:
-            The reachable, unoccupied squares.
+            "q,r,s" -> the points the trip costs, for the unoccupied squares only.
         """
         piece = self.piece_on(origin) or piece
         enemies: frozenset[str] = frozenset()
         controlled: frozenset[str] = frozenset()
         if piece is None:
-            reachable = origin.moves()
+            reachable = origin.reach() if budget is None else origin.reach(budget)
         else:
             enemies = self.opponents_of(piece.side)
             controlled = self.zones_of_control_against(piece.side)
-            reachable = origin.moves(piece.movement_points, enemies=enemies,
-                                     under_control=controlled)
-        destinations = [hexagon for hexagon in reachable if hexagon.key not in self._pieces]
+            allowance = piece.movement_points if budget is None else budget
+            reachable = origin.reach(allowance, enemies=enemies, under_control=controlled)
+        costs = {key: cost for key, cost in reachable.items() if key not in self._pieces}
         if LOG.isEnabledFor(logging.DEBUG):
-            self._trace_the_moves(origin, piece, enemies, controlled, reachable, destinations)
-        return destinations
+            self._trace_the_moves(origin, piece, enemies, controlled,
+                                  [Hex.from_key(key) for key in reachable],
+                                  [Hex.from_key(key) for key in costs])
+        return costs
+
+    def moves(self, origin: Hex, piece: Optional[Piece] = None,
+              budget: Optional[Fraction] = None) -> list[Hex]:
+        """Finds the squares the piece on `origin` can reach, zones of control included.
+
+        Args:
+            origin: The departure square.
+            piece: Only serves to question an empty square: the **placed** piece prevails.
+            budget: The points to spend, where they are not the counter's full allowance.
+
+        Returns:
+            The reachable, unoccupied squares.
+        """
+        return [Hex.from_key(key) for key in self.reach(origin, piece, budget)]
+
+    def cost_of(self, origin: Hex, destination: Hex, piece: Optional[Piece] = None,
+                budget: Optional[Fraction] = None) -> Optional[Fraction]:
+        """Reads what one legal move would cost the unit that plays it.
+
+        Args:
+            origin: The departure square.
+            destination: The arrival square.
+            piece: The piece to assume if the origin is empty.
+            budget: The points to spend, where they are not the counter's full allowance.
+
+        Returns:
+            The points the trip costs, or `None` where the move is not one the rules allow -
+            which is the same answer `move` refuses on.
+        """
+        return self.reach(origin, piece, budget).get(destination.key)
 
     def _trace_the_moves(self, origin: Hex, piece: Optional[Piece], enemies: Collection[str],
                          controlled: Collection[str], reachable: list[Hex],
@@ -272,21 +308,27 @@ class Board:
         piece = self.piece_on(origin) or piece
         return piece.movement_points if piece else DEFAULT_MOVEMENT
 
-    def move(self, origin: Hex, destination: Hex, piece: Optional[Piece] = None) -> bool:
+    def move(self, origin: Hex, destination: Hex, piece: Optional[Piece] = None,
+             budget: Optional[Fraction] = None) -> bool:
         """Moves the piece from `origin` to `destination` if the rules allow.
 
         The move is recomputed here, never taken on trust. An empty origin square moves nothing
         but still answers: that is how the rules are questioned by hand.
 
+        What the phase has already consumed is **not** kept here: a board judges the trip, not the
+        allowance. `tenebrae.engine.movement.move` plays a move against both, and is what the
+        server and the AI go through.
+
         Args:
             origin: The departure square.
             destination: The arrival square.
             piece: The piece to assume if the origin is empty.
+            budget: The points to spend, where they are not the counter's full allowance.
 
         Returns:
             True if the move is legal; the board is then updated.
         """
-        if destination not in self.moves(origin, piece):
+        if self.cost_of(origin, destination, piece, budget) is None:
             return False
         placed = self.remove(origin)
         if placed is not None:

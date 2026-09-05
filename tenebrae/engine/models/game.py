@@ -1,9 +1,10 @@
 """The saved game: the only game state that changes while playing, and that must outlive the run.
 
-What goes into the base is what the board, the turn, the combat register and the seating table hold
-in memory - the positions, the phase, what the combat phase has already consumed, who sits at which
-side. The reference data is not there: the map, the piece catalogue and the scenarios live in files
-under `tenebrae/game_box/` and `tenebrae/scenarios/`, which are the repository's source of truth
+What goes into the base is what the board, the turn, the two phase registers and the seating table
+hold in memory - the positions, the phase, what the combat and movement phases have already
+consumed, who sits at which side. The reference data is not there: the map, the piece catalogue
+and the scenarios live in files under `tenebrae/game_box/` and `tenebrae/scenarios/`, which are the
+repository's source of truth
 (see the root `CLAUDE.md`). Copying them in would make two truths for one.
 
 A placed unit has no identity of its own: the engine designates it by its **square**, one counter
@@ -70,6 +71,14 @@ class Game(Document):
     # What the current combat phase has consumed: squares, not pieces.
     engaged_attackers = ListField(StringField(), db_field="attaquants_engages")
     engaged_targets = ListField(StringField(), db_field="cibles_engagees")
+
+    # What the current movement phase has consumed: "q,r,s" -> the points that unit has left,
+    # written as the exact fraction it is ("5/3") - a road costs a third of a point, and a float
+    # would drift. A square absent from the map is a unit that has not moved: it has its whole
+    # allowance, which is why a phase starts with this empty rather than with every counter in it.
+    # Not required: games saved before movement was counted carry none, and reopen with every unit
+    # free to move - which is what a movement phase begins with anyway, so no migration is owed.
+    movement_left = MapField(StringField(), db_field="mouvement_restant")
 
     # The units removed from play since the game began, oldest first. Not required: games saved
     # before the retreat rule existed have none, and must stay resumable.

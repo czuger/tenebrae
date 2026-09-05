@@ -3,14 +3,14 @@
 The server lays out a scenario's set-up, read from `tenebrae/scenarios/` - no. 4, "La guerre des
 nains", until a new game is opened on another one. The rules are not here: the possible moves and
 their validation come from `tenebrae.engine`; this module holds the state the routes expose
-(`SCENARIO`, `BOARD`, `TURN`, `REGISTER`, `CASUALTIES`, `SEATS`, `VERSION`), the snapshots the
-browsers receive of it, and the operations every move goes through. Only the die roll
+(`SCENARIO`, `BOARD`, `TURN`, `REGISTER`, `ALLOWANCES`, `CASUALTIES`, `SEATS`, `VERSION`), the
+snapshots the browsers receive of it, and the operations every move goes through. Only the die roll
 (`roll_the_die`) is here, so that the tests can fix it.
 
 Two ways of reaching the globals, and the difference matters:
 
-- `BOARD`, `TURN`, `REGISTER`, `CASUALTIES` and `SEATS` are bound once and changed in place:
-  import them by name;
+- `BOARD`, `TURN`, `REGISTER`, `ALLOWANCES`, `CASUALTIES` and `SEATS` are bound once and changed
+  in place: import them by name;
 - `VERSION` is rebound at every move, `GAME_ID` whenever another game is opened, `SCENARIO` and
   `SCENARIO_NUMBER` whenever a new game is opened on another set-up (`switch_to_the_scenario`), and
   `BROADCASTER` and `roll_the_die` are substituted by the tests: read all of them from the module -
@@ -44,8 +44,10 @@ from tenebrae.engine.casualties import Casualties
 from tenebrae.engine.combat import CombatResult
 from tenebrae.engine.combat_register import CombatRegister
 from tenebrae.engine.hexagon import Hex
+from tenebrae.engine.movement import exhausted_squares
+from tenebrae.engine.movement_register import MovementRegister
 from tenebrae.engine.models.seats import Seats
-from tenebrae.engine.phase import Turn
+from tenebrae.engine.phase import MOVEMENT, Turn
 from tenebrae.engine.piece import CATALOGUE
 from tenebrae.engine.repositories.game import GameState
 from tenebrae.engine.scenario import Scenario, available_scenarios, read, scenario
@@ -67,6 +69,11 @@ TURN = Turn(SCENARIO.sides, {army["camp"]: army["armee"] for army in SCENARIO.ar
 
 # What the current combat phase has already consumed. Emptied at every phase change.
 REGISTER = CombatRegister()
+
+# What the current movement phase has already consumed: the points each unit has left of its
+# allowance (`tenebrae/engine/movement_register.py`). Emptied at every phase change, like the
+# combat register - the booklet gives each unit its points back at its next movement phase.
+ALLOWANCES = MovementRegister()
 
 # The units removed from play since the game began: the booklet counts them at the end
 # (`tenebrae/engine/casualties.py`). Emptied only when a new game is laid out.
@@ -229,6 +236,7 @@ def lay_out_the_set_up() -> None:
     BOARD.clear()
     TURN.restart()
     REGISTER.reset()
+    ALLOWANCES.reset()
     CASUALTIES.reset()
     for square, key in SCENARIO.placement.items():
         BOARD.place(Hex.from_key(square), CATALOGUE[key])
@@ -260,19 +268,27 @@ def put_the_game_away() -> None:
 
 
 def unavailable_units() -> dict[str, list[dict[str, Optional[int] | Optional[str]]]]:
-    """Lists the squares of units that can no longer attack, or be attacked, this phase.
+    """Lists the squares of units that can no longer act this phase, whichever phase it is.
 
     Squares cleared by combat are discarded: the browser no longer has a piece there to grey out.
 
+    `movers` is the movement phase's own list - the units that have spent their allowance
+    (`tenebrae/engine/movement.py`) - and only the active side's is given: a counter of the side
+    that is not playing is not refusing anything, it is simply waiting its turn. Outside a movement
+    phase the list is empty, the greying then belonging to the combat register.
+
     Returns:
-        `attackers` and `targets`, each a list of serialised hexagons.
+        `attackers`, `targets` and `movers`, each a list of serialised hexagons.
     """
     placed = BOARD.pieces
+    spent = (exhausted_squares(BOARD, ALLOWANCES, [TURN.active_side])
+             if TURN.phase_type == MOVEMENT else [])
     return {
         "attackers": [Hex.from_key(key).to_dict()
                       for key in sorted(REGISTER.engaged_attackers) if key in placed],
         "targets": [Hex.from_key(key).to_dict()
                     for key in sorted(REGISTER.engaged_targets) if key in placed],
+        "movers": [Hex.from_key(key).to_dict() for key in spent],
     }
 
 
@@ -350,7 +366,7 @@ def snapshot_the_game() -> GameState:
     """Takes the server's whole game state, in the form the repository writes.
 
     Returns:
-        The scenario number, the board, the turn, the combat register, the fallen and the seats.
+        The scenario number, the board, the turn, the two phase registers, the fallen and the seats.
     """
     register = REGISTER.to_dict()
     return {"scenario": SCENARIO_NUMBER,
@@ -361,6 +377,7 @@ def snapshot_the_game() -> GameState:
             "turn_number": TURN.number,
             "engaged_attackers": register["engaged_attackers"],
             "engaged_targets": register["engaged_targets"],
+            "movement_left": ALLOWANCES.to_dict()["remaining"],
             "casualties": CASUALTIES.to_dict()["casualties"],
             "seats": SEATS.to_dict()["seats"],
             "over": GAME_IS_OVER,
@@ -377,9 +394,10 @@ def restore_the_game(identifier: str, state: GameState) -> None:
 
     Args:
         identifier: The game being opened; every save from now on writes into it.
-        state: The saved state. `tilts`, `casualties`, `seats`, `over` and `winner` are read with
-            `.get`: games saved before they existed must stay resumable, and a game saved before
-            an end was recorded resumes as one still being played.
+        state: The saved state. `tilts`, `movement_left`, `casualties`, `seats`, `over` and
+            `winner` are read with `.get`: games saved before they existed must stay resumable, a
+            game saved before movement was counted reopens with every unit free to move, and a game
+            saved before an end was recorded resumes as one still being played.
     """
     global A_GAME_IS_ON, GAME_IS_OVER, WINNER, GAME_ID
     another_game = identifier != GAME_ID
@@ -391,6 +409,7 @@ def restore_the_game(identifier: str, state: GameState) -> None:
     BOARD.restore(state["placement"], state.get("tilts"))
     TURN.restore(state["active_side"], state["phase_type"], state["turn_number"])
     REGISTER.restore(state["engaged_attackers"], state["engaged_targets"])
+    ALLOWANCES.restore(state.get("movement_left") or {})
     CASUALTIES.restore(state.get("casualties"))
     SEATS.restore(state.get("seats"))
     GAME_ID = identifier
@@ -489,7 +508,7 @@ def let_the_ai_play() -> None:
     global AI_HAS_ACTED
     AI_HAS_ACTED = False
     ai.play_turn(BOARD, TURN, REGISTER, roll_the_die, CASUALTIES,
-                 moving=the_ai_moves, fighting=the_ai_fights)
+                 moving=the_ai_moves, fighting=the_ai_fights, allowances=ALLOWANCES)
     LOG.info("AI: turn played — %s (turn %s)", TURN.label, TURN.number)
     # Its combats may have taken the last unit of the other side, and its turn is then its last.
     close_the_game_if_a_side_is_wiped_out()

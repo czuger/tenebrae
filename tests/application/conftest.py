@@ -9,7 +9,8 @@ from werkzeug.serving import make_server
 from tenebrae.application.app import create_app
 from tenebrae.application.config import TestingConfig
 from tenebrae.application import current_game
-from tenebrae.application.current_game import BOARD, CASUALTIES, REGISTER, SEATS, TURN
+from tenebrae.application.current_game import (ALLOWANCES, BOARD, CASUALTIES, REGISTER, SEATS,
+                                               TURN)
 from tenebrae.application.discord_client import DEFAULT_IDENTITY
 from tenebrae.application.models.view import View
 from tenebrae.engine.models.game import Game
@@ -125,8 +126,9 @@ def deserted_map():
 
     The layout is grouped: without that, a sector falling near a movement test's reference hexagon
     would place opponents there, and the result would depend on chance. The turn is shared too - a
-    test that advanced it would leave it advanced for the next one, and the phase's combat register
-    with it, and the register of the fallen, which no phase change empties.
+    test that advanced it would leave it advanced for the next one, and the phase's two registers
+    with it - what has fought and what has moved - and the register of the fallen, which no phase
+    change empties.
 
     The game goes with the board: what a test lays out afterwards is two counters put there to look
     at one rule, and a combat that leaves one of them alone on the map ends nothing
@@ -135,12 +137,14 @@ def deserted_map():
     BOARD.clear()
     TURN.restart()
     REGISTER.reset()
+    ALLOWANCES.reset()
     CASUALTIES.reset()
     current_game.put_the_game_away()
     yield BOARD
     BOARD.clear()
     TURN.restart()
     REGISTER.reset()
+    ALLOWANCES.reset()
     CASUALTIES.reset()
     current_game.put_the_game_away()
 

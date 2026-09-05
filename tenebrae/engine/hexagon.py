@@ -233,25 +233,30 @@ class Hex:
 
         return COSTS.get(terrain, ORDINARY_COST)
 
-    def moves(self, movement: int = DEFAULT_MOVEMENT, enemies: Collection[str] = (),
-              under_control: Collection[str] = ()) -> list["Hex"]:
-        """Finds the hexagons reachable with `movement` points, this hexagon excepted.
+    def reach(self, movement: Fraction | int = DEFAULT_MOVEMENT,
+              enemies: Collection[str] = (),
+              under_control: Collection[str] = ()) -> dict[str, Fraction]:
+        """Walks the map within `movement` points and says what each hexagon reached costs.
 
         A Dijkstra walk over terrain costs, in exact fractions: a road is worth a third of a point,
         and five thirds must not drift. A unit standing on terrain it cannot occupy goes nowhere.
 
+        The cost is what the walk found to be the cheapest way there, and it is what a unit
+        spending from a budget must be charged: `moves` is this, its keys only.
+
         Args:
-            movement: The movement budget, in points.
+            movement: The movement budget, in points. A fraction where a unit has already spent
+                part of its allowance this phase (`tenebrae/engine/movement_register.py`).
             enemies: "q,r,s" keys of the squares held by the opponent, which are not entered.
             under_control: "q,r,s" keys covered by the opposing zones of control, entered at the
                 terrain's rate but where the unit must stop.
 
         Returns:
-            The reachable hexagons, in no particular order.
+            "q,r,s" -> the points spent getting there, this hexagon excepted.
         """
         q, r, _ = self._position()
         if not self.is_on_map or self.terrain in UNINHABITABLE:
-            return []
+            return {}
 
         budget = Fraction(movement)
         spent = {self.key: Fraction(0)}
@@ -281,7 +286,24 @@ class Hex:
                     heapq.heappush(pending, (total, neighbour_q, neighbour_r, neighbour))
 
         del spent[self.key]
-        return [Hex.from_key(key) for key in spent]
+        return spent
+
+    def moves(self, movement: Fraction | int = DEFAULT_MOVEMENT,
+              enemies: Collection[str] = (),
+              under_control: Collection[str] = ()) -> list["Hex"]:
+        """Finds the hexagons reachable with `movement` points, this hexagon excepted.
+
+        Args:
+            movement: The movement budget, in points.
+            enemies: "q,r,s" keys of the squares held by the opponent, which are not entered.
+            under_control: "q,r,s" keys covered by the opposing zones of control, entered at the
+                terrain's rate but where the unit must stop.
+
+        Returns:
+            The reachable hexagons, in no particular order.
+        """
+        return [Hex.from_key(key)
+                for key in self.reach(movement, enemies, under_control)]
 
     def to_dict(self) -> dict[str, Optional[int] | Optional[str]]:
         """Serialises the hexagon for the browser's JSON.

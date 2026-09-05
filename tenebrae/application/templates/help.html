@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ave Tenebrae — aide</title>
+  <!-- A page of text, like the list: no map, so neither zoom.css nor pieces.css. -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='help.css') }}">
+</head>
+<body>
+  <div id="page">
+    <header id="head">
+      <h1>Ave Tenebrae — aide</h1>
+      <nav id="ways">
+        <a class="button" href="/">Les parties</a>
+        <a class="button" href="#credits">Crédits</a>
+      </nav>
+    </header>
+
+    <p class="lead">
+      <em>Ave Tenebrae</em> est un jeu de guerre de François Marcela-Froideval, publié par Jeux
+      Descartes en 1986 : deux armées s'affrontent sur une carte à hexagones, tour après tour, au
+      mouvement puis au combat. Cette page dit comment ouvrir une partie, ce que le plateau montre
+      et comment on y joue. Les règles jouées ici sont celles du livret ; ce que le jeu ne joue pas
+      encore est dit <a href="#not-played">à la fin</a>.
+    </p>
+
+    <nav id="contents" aria-label="Sommaire">
+      <a href="#start">Commencer</a>
+      <a href="#board">Le plateau</a>
+      <a href="#turn">Le tour de jeu</a>
+      <a href="#movement">Se déplacer</a>
+      <a href="#combat">Combattre</a>
+      <a href="#end">La fin de la partie</a>
+      <a href="#keys">Le clavier</a>
+      <a href="#not-played">Ce qui n'est pas joué</a>
+      <a href="#credits">Crédits</a>
+    </nav>
+
+    <!-- ============================================================================ -->
+    <section id="start">
+      <h2>Commencer</h2>
+
+      <h3>Se connecter</h3>
+      <p>
+        On joue avec son compte Discord : le bouton <b>Se connecter</b>, en haut à droite de la
+        liste des parties, envoie chez Discord, qui demande seulement l'autorisation de lire votre
+        pseudonyme et votre avatar. Rien d'autre n'est lu, et le jeu ne garde que votre identifiant.
+        Sans compte on peut tout regarder, la liste comme les parties en cours, mais on ne peut ni
+        en ouvrir ni y jouer.
+      </p>
+
+      <h3>La liste des parties</h3>
+      <p>
+        La première page est la liste des parties enregistrées, la dernière jouée en tête. Chaque
+        carte dit le scénario, où en est la partie (le tour, la phase, le camp qui joue, le nombre
+        de pions encore en jeu), qui tient chaque camp — <i>libre</i> quand personne ne s'y est
+        assis — et quand le dernier coup a été joué. Une carte au fond clair est une partie où vous
+        tenez un camp. Cliquer une carte ouvre la partie.
+      </p>
+
+      <h3>Ouvrir une nouvelle partie</h3>
+      <p>Le cadre <b>Nouvelle partie</b> demande trois choses, puis <b>Commencer</b> :</p>
+      <dl class="fields">
+        <dt>Scénario</dt>
+        <dd>
+          La mise en place : quelles armées, et où chacune se déploie sur la carte. Les scénarios
+          sont ceux du livret et quelques-uns composés en plus — le n° 4, <i>La guerre des
+          nains</i>, oppose 18 pions nains à 30 pions orques. Changer de scénario change les camps
+          proposés au-dessous.
+        </dd>
+        <dt>Votre camp</dt>
+        <dd>
+          L'armée que vous jouerez. Vous y êtes assis dès l'ouverture ; l'autre camp reste libre
+          jusqu'à ce qu'un second joueur vienne s'y asseoir.
+        </dd>
+        <dt>Jouer contre l'IA</dt>
+        <dd>
+          Cochée, la case confie l'autre camp à la machine : elle joue son tour entier chaque fois
+          que vous lui passez la main, coup par coup sous vos yeux. Une place tenue par l'IA ne peut
+          pas être prise.
+        </dd>
+      </dl>
+      <p>
+        La partie est enregistrée à chaque coup : on peut fermer la page et la retrouver dans la
+        liste plus tard, telle qu'on l'a laissée.
+      </p>
+
+      <h3>Rejoindre une partie</h3>
+      <p>
+        Ouvrez la partie depuis la liste, puis cliquez le bouton tout à droite de la barre d'outils
+        — il porte votre pseudonyme. Le dialogue de la table montre les deux camps : <b>Prendre ce
+        camp</b> à côté d'un camp libre vous y assied. On ne tient qu'un camp par partie, et
+        personne ne peut prendre le vôtre. <b>Quitter ma place</b> le rend ; la partie, elle, ne
+        bouge pas. Le même dialogue ramène à la liste et à cette aide.
+      </p>
+      <p class="note">
+        Le serveur joue une partie à la fois. Si quelqu'un ouvre une autre partie pendant que la
+        vôtre est affichée, votre page le dit et cesse de suivre : repassez par la liste pour
+        retrouver la vôtre.
+      </p>
+    </section>
+
+    <!-- ============================================================================ -->
+    <section id="board">
+      <h2>Le plateau</h2>
+
+      <h3>La carte</h3>
+      <p>
+        La carte est celle de la boîte, photographiée, avec sa grille d'hexagones. Elle s'ouvre
+        ajustée à la fenêtre. La <b>molette</b> approche ou recule autour du pointeur ; les boutons
+        <b>−</b> et <b>+</b> de la barre font de même par crans, le pourcentage entre eux dit
+        l'échelle, <b>ajuster</b> remet la carte entière dans la fenêtre. Quand on a approché, la
+        carte se fait glisser avec les barres de défilement. <b>localiser</b> recentre la fenêtre
+        sur le dernier pion cliqué. Si vous êtes connecté, votre échelle et le point que vous
+        regardiez sont retenus : la partie se rouvre où vous l'aviez laissée.
+      </p>
+
+      <h3>La barre d'outils et le panneau</h3>
+      <p>
+        La barre d'outils se lit en groupes séparés d'un trait : l'affichage, la vue, le tour, le
+        combat en cours de composition quand il y en a un, et votre compte. Sous elle viennent la
+        fiche du pion survolé puis le journal de la partie. L'ensemble est posé sur la carte mais
+        <b>ne la cache pas au clic</b> : un pion sous le panneau se clique à travers lui. Le premier
+        bouton, <b>→</b>, envoie tout le panneau au bord droit de la fenêtre, et <b>←</b> le
+        ramène, pour dégager la carte là où le scénario a mis ses unités.
+      </p>
+
+      <h3>Les deux faces des pions</h3>
+      <div class="faces">
+        <figure>
+          <img src="/pieces/{{ example.photograph }}" alt="{{ example.name }}, photographie">
+          <figcaption>Le pion photographié</figcaption>
+        </figure>
+        {% if example.icon %}
+        <figure>
+          <img src="/static/icons/000000/ffffff/1x1/{{ example.icon }}.svg"
+               alt="{{ example.name }}, icône">
+          <figcaption>Son icône, aux couleurs de l'armée</figcaption>
+        </figure>
+        {% endif %}
+      </div>
+      <p>
+        Les pions sont les pions de la boîte, photographiés ; sur la carte ajustée à la fenêtre ils
+        font une quinzaine de pixels et deux carrés gris se ressemblent. Le bouton <b>♟</b> remplace
+        chaque pion par un dessin de son type d'unité, peint aux deux couleurs de son armée — les
+        nains en noir et brun, les orques en vert — et le rend à sa photographie au second clic. Un
+        pion qui n'a pas de dessin garde sa photographie. Ce choix vaut pour votre navigateur, il
+        ne change rien pour l'adversaire.
+      </p>
+
+      <h3>La fiche d'un pion</h3>
+      <p>
+        Survoler un pion remplit la fiche sous la barre : sa photographie agrandie, son nom, son
+        camp et la case qu'il occupe, son symbole, puis ce que le pion porte :
+      </p>
+      <table>
+        <tr><th>Force</th><td>ses points d'attaque et de défense, la seule valeur que le combat consomme</td></tr>
+        <tr><th>Mouvement</th><td>ses points de mouvement, ce qu'il dépense à traverser les terrains</td></tr>
+        <tr><th>Tir</th><td>sa force de tir, et la marque d'une unité qui tire</td></tr>
+        <tr><th>Portée</th><td>à combien d'hexagones elle tire</td></tr>
+        <tr><th>Vol</th><td>son mouvement en vol, quand le pion en porte un</td></tr>
+        <tr><th>Facultés</th><td>la lettre de sa faculté spéciale, quand il en a une</td></tr>
+      </table>
+      <p>
+        Un tiret est une valeur que le pion ne porte pas : une unité sans tir ne tire pas. Quand
+        aucun pion n'est survolé, la fiche donne les coordonnées de la case sous le pointeur.
+      </p>
+    </section>
+
+    <!-- ============================================================================ -->
+    <section id="turn">
+      <h2>Le tour de jeu</h2>
+      <p>
+        Chaque tour donne la main à chaque camp à son tour, et chaque camp joue deux phases : sa
+        <b>phase de mouvement</b>, puis sa <b>phase de combat</b>. La barre dit où l'on en est —
+        <i>Phase de combat — Nains</i> — et <b>Phase suivante</b> passe à la phase d'après ; c'est
+        le seul bouton qui fasse avancer la partie, et seul le camp dont c'est le tour peut le
+        presser. Personne ne joue en dehors de son tour : un coup tenté hors de sa phase est refusé,
+        et le refus s'écrit sous la barre.
+      </p>
+      <p>
+        Le <b>journal</b>, sous la fiche, raconte la partie : les changements de phase, les places
+        prises, les combats déclarés et leur issue, les coups de l'IA. La ligne la plus récente est
+        en haut. Son bouton <b>−</b> le réduit à lui-même quand il gêne, <b>+</b> le rouvre.
+      </p>
+    </section>
+
+    <!-- ============================================================================ -->
+    <section id="movement">
+      <h2>Se déplacer</h2>
+      <p>
+        Pendant votre phase de mouvement, <b>cliquez un de vos pions</b> : les cases qu'il peut
+        atteindre apparaissent en <b>fantômes</b>, des copies pâles du pion. Cliquez un fantôme et
+        le pion s'y rend. Un second clic sur le pion, ou un clic ailleurs, annule. On déplace autant
+        de pions qu'on veut, chacun dans la limite de ses points de mouvement.
+      </p>
+
+      <h3>Ce que coûte le terrain</h3>
+      <p>
+        Entrer dans un hexagone coûte ce que son terrain demande. Les fantômes tiennent déjà compte
+        de tout cela : ils montrent exactement où le pion peut aller.
+      </p>
+      <table>
+        <tr><th>Plaine, village, ville, île, tour</th><td>1 point</td></tr>
+        <tr><th>Bois, collines, ruines</th><td>2 points</td></tr>
+        <tr><th>Route</th><td>⅓ de point, en la suivant d'une case à la suivante</td></tr>
+        <tr><th>Chemin</th><td>½ point, en le suivant de même</td></tr>
+        <tr><th>Montagne</th><td>infranchissable, sauf depuis une colline, une autre montagne ou par une voie qui la traverse</td></tr>
+        <tr><th>Lac, rivière, faille</th><td>infranchissables — les ponts ne sont pas relevés, aucune rivière ne se traverse</td></tr>
+        <tr><th>Fort, château</th><td>on n'y entre pas ; une unité qui y est placée peut en sortir</td></tr>
+      </table>
+
+      <h3>Les zones de contrôle</h3>
+      <p>
+        Chaque unité contrôle les six hexagones qui l'entourent. On entre dans une case contrôlée
+        par l'ennemi sans surcoût, mais <b>on s'y arrête</b> : on ne passe pas d'une case
+        contrôlée à une autre sans être ressorti de la zone. Une unité qui commence son mouvement
+        au contact peut donc s'éloigner, mais par une case libre. On ne traverse jamais une case
+        occupée par un ennemi ; on traverse librement une case occupée par un ami, sans pouvoir s'y
+        arrêter : un hexagone ne porte qu'un pion.
+      </p>
+    </section>
+
+    <!-- ============================================================================ -->
+    <section id="combat">
+      <h2>Combattre</h2>
+
+      <h3>Composer une attaque</h3>
+      <ol>
+        <li>
+          Pendant votre phase de combat, <b>cliquez un pion ennemi</b> : il devient la cible,
+          cerclée de <b>rouge</b>.
+        </li>
+        <li>
+          <b>Cliquez vos pions</b> qui l'attaqueront : chacun se cercle d'<b>or</b>. Il faut être
+          au contact — sur une case voisine — ou, pour une unité qui tire, à portée. Un pion trop
+          loin ou qui a déjà combattu ne s'ajoute pas, et le journal dit pourquoi.
+        </li>
+        <li>
+          Dès qu'il y a une cible et un attaquant, la barre pèse l'attaque et propose
+          <b>Attaquer</b>, <b>Attaquer et avancer</b> et <b>Annuler</b>. Un nouveau clic sur la
+          cible annule aussi.
+        </li>
+      </ol>
+      <p>
+        Plusieurs pions attaquent ensemble une même cible en un seul combat, avec un seul dé. Chaque
+        pion n'attaque qu'une fois par phase, et chaque cible n'est attaquée qu'une fois par phase :
+        les pions qui ont eu leur combat sont grisés jusqu'à la phase suivante.
+      </p>
+
+      <h3>Ce que la barre annonce</h3>
+      <p class="example">Ratio : 3/1 (36/12) — DR,DR,DR,DR,DR;AR</p>
+      <p>
+        <b>3/1</b> est le rapport de forces, la colonne de la table des résultats ; entre
+        parenthèses, les points additionnés des attaquants et ceux du défenseur, son terrain compté.
+        Le rapport est toujours arrondi en faveur du défenseur : 10 contre 4 se lit 2 contre 1.
+        Ensuite viennent <b>les six faces du dé</b>, dans l'ordre où il peut tomber : une virgule
+        entre deux faces qui donnent la même chose, un point-virgule là où l'issue change. Ici cinq
+        chances de faire reculer le défenseur, une de reculer soi-même.
+      </p>
+
+      <h3>La table des résultats</h3>
+      <p>Le dé du livret, croisé avec le rapport de forces (Table I) :</p>
+      <div class="scroll">
+        <table class="results">
+          <tr><th>Dé \ Rapport</th><th>1-5</th><th>1-4</th><th>1-3</th><th>1-2</th><th>1-1</th><th>2-1</th><th>3-1</th><th>4-1</th><th>5-1</th><th>6-1</th></tr>
+          <tr><th>1</th><td>AR</td><td>AR</td><td>DR</td><td>DR</td><td>DR</td><td>DR</td><td>DR</td><td>DE</td><td>DE</td><td>DE</td></tr>
+          <tr><th>2</th><td>AE</td><td>AR</td><td>AR</td><td>DR</td><td>DR</td><td>DR</td><td>DR</td><td>DR</td><td>DE</td><td>DE</td></tr>
+          <tr><th>3</th><td>AE</td><td>AE</td><td>AR</td><td>AR</td><td>DR</td><td>DR</td><td>DR</td><td>DR</td><td>DE</td><td>DE</td></tr>
+          <tr><th>4</th><td>AE</td><td>AE</td><td>AR</td><td>AR</td><td>AR</td><td>DR</td><td>DR</td><td>DR</td><td>DR</td><td>DE</td></tr>
+          <tr><th>5</th><td>AE</td><td>AE</td><td>AE</td><td>AR</td><td>AR</td><td>AR</td><td>DR</td><td>DR</td><td>DR</td><td>EX</td></tr>
+          <tr><th>6</th><td>AE</td><td>AE</td><td>AE</td><td>AR</td><td>AR</td><td>AR</td><td>AR</td><td>EX</td><td>EX</td><td>EX</td></tr>
+        </table>
+      </div>
+      <table>
+        <tr><th>AE</th><td><b>Attaquant Éliminé</b> : les attaquants sont retirés du jeu</td></tr>
+        <tr><th>AR</th><td><b>Attaquant Recule</b> : les attaquants reculent d'un hexagone</td></tr>
+        <tr><th>DE</th><td><b>Défenseur Éliminé</b> : la cible est retirée du jeu</td></tr>
+        <tr><th>DR</th><td><b>Défenseur Recule</b> : la cible recule d'un hexagone</td></tr>
+        <tr><th>EX</th><td><b>Échange</b> : la cible est éliminée, avec juste assez d'attaquants pour égaler sa force</td></tr>
+      </table>
+
+      <h3>Le terrain du défenseur</h3>
+      <table>
+        <tr><th>Village, ruines</th><td>défense × 2</td></tr>
+        <tr><th>Montagne, fort, château</th><td>défense × 3</td></tr>
+        <tr><th>Bois</th><td>+ 2 au dé de l'attaquant ; défense × 2 pour les elfes</td></tr>
+        <tr><th>Collines</th><td>+ 2 au dé de l'attaquant</td></tr>
+      </table>
+      <p>
+        Le + 2 s'ajoute au dé, il ne change pas de colonne : c'est pourquoi les six faces annoncées
+        sur une colline ne sont pas celles de la plaine pour un même rapport.
+      </p>
+
+      <h3>Reculer, avancer</h3>
+      <p>
+        Une unité qui recule cherche une case libre où aucun ennemi n'exerce sa zone de contrôle.
+        Si elle n'en trouve pas, elle pousse un ami et prend sa place ; si rien n'est possible, elle
+        est éliminée. Les reculs se jouent sous vos yeux, un pion après l'autre. Une unité qui tire
+        ne recule ni n'échange jamais ; une unité qui défend un fort ou un château ne recule pas.
+      </p>
+      <p>
+        <b>Attaquer et avancer</b> annonce, comme le livret le demande, que l'attaquant occupera la
+        case que le défenseur abandonne — s'il l'abandonne — sans égard aux zones de contrôle ni à
+        ses points de mouvement. Le premier attaquant que vous avez désigné avance, s'il est encore
+        là et au contact ; un tireur à distance n'avance pas. On choisit donc l'unité qui avance par
+        l'ordre de ses clics.
+      </p>
+    </section>
+
+    <!-- ============================================================================ -->
+    <section id="end">
+      <h2>La fin de la partie</h2>
+      <p>
+        La partie est gagnée par le camp qui <b>anéantit l'autre</b> : dès qu'un combat laisse un
+        camp sans une seule unité, la barre l'annonce en lettres d'or à la place de la phase —
+        <i>Partie terminée — Nains l'emporte</i> —, plus rien ne se joue et la carte de la partie le
+        dit dans la liste. Les autres conditions de victoire des scénarios ne sont pas comptées.
+      </p>
+    </section>
+
+    <!-- ============================================================================ -->
+    <section id="keys">
+      <h2>Le clavier</h2>
+      <p>
+        Six touches, sous la main gauche d'un clavier AZERTY, pendant que la droite tient la souris.
+        Chacune presse son bouton et rien d'autre : un bouton absent ou éteint ne répond pas.
+      </p>
+      <table class="keys">
+        <tr><th><kbd>A</kbd></th><td>Attaquer</td><th><kbd>Q</kbd></th><td>Localiser le dernier pion cliqué</td></tr>
+        <tr><th><kbd>Z</kbd></th><td>Attaquer et avancer</td><th><kbd>S</kbd></th><td>Changer la face des pions</td></tr>
+        <tr><th><kbd>E</kbd></th><td>Annuler l'attaque</td><th><kbd>D</kbd></th><td>Phase suivante</td></tr>
+      </table>
+    </section>
+
+    <!-- ============================================================================ -->
+    <section id="not-played">
+      <h2>Ce que le jeu ne joue pas encore</h2>
+      <ul>
+        <li>La <b>magie</b> : la phase de magie du livret est sautée, les sorts, les jeteurs de sorts et les facultés spéciales — peur, paralysie — attendent.</li>
+        <li>Les <b>points déjà dépensés</b> : le livret donne à chaque unité ses points de mouvement pour la phase — « dans la limite des points de mouvement attribués à chaque unité » —, mais le jeu ne retient pas ce qu'un pion a déjà dépensé. Un pion déplacé peut donc l'être à nouveau dans la même phase, avec tous ses points ; c'est aux joueurs de ne bouger chaque pion qu'une fois.</li>
+        <li>L'<b>empilement</b> : un hexagone porte un pion, là où le livret en accepte trois dans une ville, un village ou une citadelle.</li>
+        <li>Les <b>modificateurs de combat</b> hors terrain : ni la charge de cavalerie, ni la phalange, ni le jour et la nuit. La force du pion et le terrain du défenseur sont les seuls facteurs.</li>
+        <li>La <b>force de tir</b> : le pion porte deux forces, celle de combat en haut à gauche et celle de tir en bas à gauche, avec sa portée. Le jeu laisse bien l'archer attaquer à une ou deux cases, comme le livret le veut, et lui épargne recul et échange, mais il additionne sa force de combat et non sa force de tir : un archer orque (force 4, tir 8) attaque à 4, de loin comme au contact, sur la même table qu'un corps à corps.</li>
+        <li>Le <b>vol</b> : les unités volantes se déplacent au sol.</li>
+        <li>Les <b>renforts</b> et les <b>conditions de victoire</b> propres à chaque scénario : seul l'anéantissement termine la partie.</li>
+        <li>Les <b>ponts</b> et les <b>remparts</b> : les rivières ne se traversent pas, et l'on n'entre pas dans un fort ou un château.</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================================ -->
+    <section id="credits">
+      <h2>Crédits</h2>
+
+      <h3>François Marcela-Froideval</h3>
+      <p>
+        <em>Ave Tenebrae</em> est l'œuvre de <b>François Marcela-Froideval</b> (1958 – 2025).
+        Cofondateur de <em>Casus Belli</em>, il a fait connaître le jeu de rôle en France avant de
+        travailler auprès de Gary Gygax chez TSR, puis a donné à la bande dessinée les
+        <em>Chroniques de la Lune noire</em>, dont ce jeu de 1986 est la première terre : Wismerhill
+        et la Faille de Tsaroth sont déjà sur cette carte. Cette application est un hommage à son
+        travail : elle transcrit le livret et la boîte tels qu'ils sont, sans rien inventer, pour
+        qu'on puisse encore y jouer. Merci à lui.
+      </p>
+
+      <h3>Le blog <em>IRL board games</em></h3>
+      <p>
+        Les photographies de la carte et des pions viennent de l'article
+        <a href="https://irlboardgames.blogspot.com/2017/07/vintageboard-1-ave-tenebrae.html">Vintageboard
+        1 : Ave Tenebrae</a>, publié en juillet 2017 sur le blog <em>IRL board games</em>, qui
+        redécouvre les anciens jeux de plateau. Merci à son auteur d'avoir ouvert sa boîte,
+        photographié chaque planche de pions et donné à lire les règles : sans ce travail, rien de ce
+        que vous voyez ici n'existerait.
+      </p>
+
+      <h3>Les icônes</h3>
+      <p>
+        Les dessins que les pions portent sur leur seconde face viennent de
+        <a href="https://game-icons.net/">game-icons.net</a>, sous licence
+        <a href="https://creativecommons.org/licenses/by/3.0/">Creative Commons BY 3.0</a>. Merci
+        à leurs auteurs :
+      </p>
+      <ul class="authors">
+        {% for author in credits %}
+        <li data-author="{{ author.slug }}">
+          <img src="/static/icons/000000/ffffff/1x1/{{ author.example }}.svg" alt="">
+          <span>
+            {% if author.url %}<a href="{{ author.url }}">{{ author.name }}</a>{% else %}{{ author.name }}{% endif %}
+            <small>{{ author.drawings }} dessin{{ 's' if author.drawings > 1 else '' }}</small>
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <footer>
+      <a class="button" href="/">Retour aux parties</a>
+    </footer>
+  </div>
+
+  <!-- First and only script: the page asks the server nothing, but the console log every page
+       speaks through is still there for whoever turns it on. -->
+  <script src="{{ url_for('static', filename='debug.js') }}"></script>
+</body>
+</html>

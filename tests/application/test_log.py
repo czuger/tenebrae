@@ -264,14 +264,14 @@ def test_the_combat_that_pushes_the_defender_back_tells_the_three_of_it(client, 
     where it used to say `sans effet`.
     """
     monkeypatch.setattr(current_game, "roll_the_die", lambda: 4)
-    place(PLAIN, CROSSBOWMAN)  # strength 6
-    place(NEIGHBOUR, ARCHER)   # strength 2, on the plain -> ratio 3-1, die 4 -> DR
+    place(PLAIN, CROSSBOWMAN)  # fires 4, its missile strength and not the 6 it closes with
+    place(NEIGHBOUR, ARCHER)   # strength 2, on the plain -> ratio 2-1, die 4 -> DR
     client.post("/phase/next")  # the Dwarves' combat phase
     assert client.post("/combat",
                        json={"target": NEIGHBOUR, "attackers": [PLAIN]}).json["outcome"] == "DR"
 
     written = texts(last_published(subscriber)["log"])[-3:]
-    assert written[0] == "Rapport 3-1 : attaque 6 contre défense 2 (plaine) — dé 4"
+    assert written[0] == "Rapport 2-1 : attaque 4 contre défense 2 (plaine) — dé 4"
     assert written[1].startswith("Recul : 2,26,-28 → ")
     assert written[2] == "Combat résolu : Défenseur Recule"
 

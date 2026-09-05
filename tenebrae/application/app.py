@@ -24,14 +24,14 @@ from tenebrae.application.logs.movement_log import wire_the_movement_log
 from tenebrae.application.logs.request_trace import wire_the_request_trace
 from tenebrae.application.persistence import wire_persistence
 from tenebrae.application.players import wire_authentication
-from tenebrae.application.routes import (authentication, combat, game, home, images, map_fix,
-                                         movement, phase, scenarios, seats, stream, view)
+from tenebrae.application.routes import (authentication, combat, game, help, home, images,
+                                         map_fix, movement, phase, scenarios, seats, stream, view)
 
 # Every blueprint of `routes/`; the order is that of the README, it changes nothing.
 BLUEPRINTS: tuple[Blueprint, ...] = (
-    home.blueprint, authentication.blueprint, seats.blueprint, view.blueprint, game.blueprint,
-    stream.blueprint, movement.blueprint, phase.blueprint, combat.blueprint, map_fix.blueprint,
-    scenarios.blueprint, images.blueprint)
+    home.blueprint, help.blueprint, authentication.blueprint, seats.blueprint, view.blueprint,
+    game.blueprint, stream.blueprint, movement.blueprint, phase.blueprint, combat.blueprint,
+    map_fix.blueprint, scenarios.blueprint, images.blueprint)
 
 
 def where_the_base_is(uri: str) -> str:

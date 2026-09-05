@@ -6,6 +6,11 @@ battle: attacker eliminated, defender eliminated, exchange, or one of the two re
 transcribes that table, computes the strength ratio ("always rounded in the defender's favour") and
 applies the terrain modifiers from the *Terrain table*.
 
+An attacker is weighed on **the strength it engages with**, which is not always the one at the top
+left of the counter: a unit that fires attacks with its missile strength, printed at the bottom left
+beside its range (`engagement_strength`). A defender is weighed on its combat strength whatever
+comes at it - firing is something a unit does, not something it suffers.
+
 `AR` and `DR` make the units fall back, and the fall-back is a rule of its own -
 `tenebrae.engine.retreat`, which this module calls and which alone knows what to do when there is
 nowhere to fall back to. `EX` takes the defender and, with it, "attacking units totalling a
@@ -132,6 +137,29 @@ def fires_missiles(piece: Optional[Piece]) -> bool:
     if piece is None:
         return False
     return bool(piece.fire and piece.range)
+
+
+def engagement_strength(piece: Optional[Piece]) -> Optional[int]:
+    """Reads the strength a piece attacks with: the one printed for the way it engages.
+
+    The counter carries two, and the booklet's own reading of it ("Presentation of the counters")
+    puts them on two corners: *combat strength* at the top left, *missile combat strength* at the
+    bottom left, beside the range. A unit that fires attacks with the second - that is what the
+    number is printed for - and one that closes with the first.
+
+    Defence is not read here: whatever comes at it, a unit defends with its combat strength. A
+    missile value is a value **fired**, and a unit under attack in its own square is not firing.
+
+    Args:
+        piece: The attacker, or `None` for an empty square.
+
+    Returns:
+        The fire strength for a missile unit, the combat strength otherwise; `None` where the
+        photograph left the value illegible, in which case the unit weighs nothing.
+    """
+    if piece is None:
+        return None
+    return piece.fire if fires_missiles(piece) else piece.strength
 
 
 def combat_range(piece: Piece) -> int:
@@ -314,6 +342,9 @@ def weigh(board: Board, target_hexagon: Hex,
     strength is no combat at all. The forecast the browser shows during the combat phase is
     therefore the very weighing the resolution will use, and the two cannot come to disagree.
 
+    Each attacker brings the strength it engages with - fire for a missile unit, combat for the
+    rest (`engagement_strength`); the defender opposes its combat strength, terrain multiplied.
+
     The attackers are held to be valid - in range, on the right side: it is up to the caller to
     have filtered them, as for `fight`.
 
@@ -326,9 +357,8 @@ def weigh(board: Board, target_hexagon: Hex,
         The weighing, or `None` where there is nothing to weigh.
     """
     target_piece = board.piece_on(target_hexagon)
-    attacking_pieces = [board.piece_on(hexagon) for hexagon in attacker_hexagons]
-    strengths = [piece.strength for piece in attacking_pieces
-                 if piece is not None and piece.strength is not None]
+    strengths = [strength for hexagon in attacker_hexagons
+                 if (strength := engagement_strength(board.piece_on(hexagon))) is not None]
     if target_piece is None or target_piece.strength is None or not strengths:
         return None
     return StrengthRatio(strengths, target_piece.strength, target_hexagon.terrain,

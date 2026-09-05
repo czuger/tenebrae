@@ -15,6 +15,8 @@ French, as they are in `tenebrae/game_box/`.
 | `phase.py` | the state machine of a turn: which side plays, and at what (`Turn`) |
 | `combat.py` | combat resolution after the booklet's Table I |
 | `combat_register.py` | the register of one combat per unit and per target, per phase (`CombatRegister`) |
+| `movement.py` | playing a move against both the map and the allowance: the entry point the server and the AI use |
+| `movement_register.py` | the points each unit has left of its movement allowance, per phase (`MovementRegister`) |
 | `retreat.py` | what becomes of a unit a combat forces to fall back: the chain of pushes, or its elimination |
 | `casualties.py` | the units removed from play, kept for the count at the end of the game (`Casualties`) |
 | `victory.py` | who has been annihilated: the booklet's first victory condition, counted |
@@ -218,9 +220,12 @@ board.tilt_on(hexagon)  # the angle it lies at, in degrees
 board.squares_held_by("alliance")  # the "q,r,s" keys of that side
 board.opponents_of("alliance")  # those of the opposing side
 board.zones_of_control_against("alliance")
-board.movement_of(hexagon)  # the points of the placed piece
-board.moves(hexagon)  # its destination squares, zones of control included
+board.movement_of(hexagon)  # the points printed on the placed piece
+board.reach(hexagon)  # "q,r,s" -> what the trip there costs, zones of control included
+board.moves(hexagon)  # the same squares, without their costs
+board.cost_of(origin, destination)  # what one move would cost, or None if it is not allowed
 board.move(origin, destination)  # recomputes, applies, and says whether it happened
+board.moves(hexagon, budget=Fraction(2))  # what is left of an allowance, not what is printed
 ```
 
 It is the board that brings the three together: the placed piece gives its movement and its side,
@@ -274,9 +279,10 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 ```
 
-What it does **not** give is the cost paid for each square: `Hex.moves` walks with them and keeps
-none — it returns the squares alone. The distance shown is the distance as the crow flies, which is
-what a road or a wood makes differ from the cost.
+The distance shown is the distance as the crow flies, which is what a road or a wood makes differ
+from the cost. The costs themselves are not in the trace but in the return: `Hex.reach` and
+`Board.reach` give "q,r,s" → the points the walk found the trip to cost, and `moves` is those keys
+alone. That is what a unit spending from an allowance is charged (`movement.py`).
 
 ## The scenarios
 
@@ -351,6 +357,46 @@ commonest value, carried by 35 pieces. What that gives on the plain, in squares 
 
 In the heart of a wood, where each square costs 2 points, count three to four times fewer.
 
+## The movement allowance — `movement_register.py` and `movement.py`
+
+The booklet gives each unit a **capital** of points for the phase — "each player moves as many units
+as they wish, within the limit of the movement points allotted to each unit" — and not a rate per
+click: a unit with three points may walk three squares of plain one after another, and a fourth is
+refused. `Board` knows nothing of that: it weighs a trip against the map. The count lives beside it.
+
+```python
+from fractions import Fraction
+from tenebrae.engine import movement
+from tenebrae.engine.movement_register import MovementRegister
+
+allowances = MovementRegister()
+allowances.points_left("1,26,-27", 3)        # Fraction(3) — it has not moved
+outcome = movement.move(board, allowances, origin, destination)
+outcome.allowed, outcome.cost, outcome.remaining
+outcome.refusal                              # None, movement.EXHAUSTED or movement.ILLEGAL
+movement.points_left(board, allowances, origin)
+movement.exhausted_squares(board, allowances, ["alliance"])   # what the browser greys out
+allowances.reset()                           # at each phase change, as the combat register is
+```
+
+- **Everything that moves a unit as a player would goes through `movement.move`** — the server's
+  route and the AI both. `Board.move` stays a trip weighed against the map alone, and is what a
+  fall-back, an advance after combat or a rule questioned by hand uses: none of those spends an
+  allowance, the booklet putting the advance "without regard to […] its own movement limits".
+- **The walk is done on what is left**, not on what is printed: a unit with one point is offered
+  the squares one point reaches, so a click asking for more is refused by the board like any other
+  move too far — there is no second rule to keep in step with the first.
+- **The register keeps squares, not units**, as the combat register does: the engine gives a placed
+  unit no identity. A move therefore *carries* the remainder — written on the square arrived at,
+  cleared from the one left — or the next counter to take that square would inherit a walk it never
+  made.
+- **The points are exact fractions.** A road costs a third of a point; a float would drift. They
+  are serialised as the fractions they are (`"5/3"`), so a saved game reopens on the very budget it
+  was left with. A game saved before this existed carries none and reopens with every unit free to
+  move, which is what a movement phase begins with anyway: no migration is owed.
+- **A phase change gives everything back**, and only a phase change: `reset()` is called where
+  `CombatRegister.reset()` is (`routes/phase.py`, `ai.play_turn`, a set-up laid out).
+
 ## The game phases
 
 ```python
@@ -392,8 +438,15 @@ ratio in columns (from 1-5 to 6-1), the die roll in rows. The attackers' `streng
 set against the defender's — **rounded in the defender's favour**, bounded — the die is rolled, and
 the cell is read.
 
-`strength` is **the only counter value combat consumes**; it serves both for attack and for
-defence, as on the counter. The *Tableau des terrains* adds two modifiers, applied from the
+**Which strength is added up depends on how the unit engages.** The counter carries two — combat
+strength at the top left, missile strength at the bottom left beside the range — and
+`engagement_strength` reads the one the unit attacks with: its fire if it fires
+(`fires_missiles`: a fire value **and** a range), its combat strength otherwise. The **defender**
+always opposes its combat strength, whatever comes at it: firing is something a unit does, not
+something it suffers. So an archer printed 2 / 4 attacks at 4 and defends at 2, and the exchange
+still asks the attackers to total the defender's printed 2.
+
+The *Tableau des terrains* adds two modifiers, applied from the
 **defender's** terrain: its strength is multiplied (× 2 in a village, ruins, a river, a lake; × 3
 in mountains, a fort, a castle; × 2 in woods for Elves only), and the attacker gains **+ 2 on the
 die** if the defender holds a hill or a wood.
@@ -667,9 +720,17 @@ As for the map and the counter inventory, doubts are kept, not settled.
 - **A fix bears only on the main terrain.** A road wrongly detected under a wood survives that
   wood's fix and stays practicable at ⅓ of a point: `map_fix.json` cannot remove a secondary
   element. That is settled in `tenebrae/game_box/extract_map.py`.
-- **Combat reads only the strength.** `pions.json` also carries fire and range: `combat.py` uses
-  them only for an archer's engagement range, never for fire resolved separately. A missile attack
-  follows the same Table I as a melee.
+- **A missile attack follows the same Table I as a melee**, and the only thing that distinguishes
+  it is the two values it reads off the counter: the attacker's **fire** in place of its combat
+  strength (`engagement_strength`), and its **range** in place of contact (`combat_range`). There
+  is no separate fire resolution, no line of sight, no cover.
+- **A unit that fires is held to fire in every combat it declares**, and that reading is ours. The
+  engine offers no choice between closing and shooting: a counter carrying a fire value **and** a
+  range brings its fire strength whatever the distance, adjacent included — which is also what
+  makes the exemption from retreat and exchange apply to exactly the same units. The booklet gives
+  "adjacent hexes for infantry and cavalry, one or two hexes apart for archery"; the counters
+  themselves print ranges up to 10, and it is the **printed** range the engine obeys, the counter
+  being the source of truth.
 - **Flight is not a rule**, only a number. Flying units move on the ground, with their ground
   movement; the bat, whose ground movement could not be read on the photograph, moves by its flight
   (2 points) under the same terrain rules. Flying over a lake or a mountain remains impossible.
@@ -723,6 +784,16 @@ As for the map and the counter inventory, doubts are kept, not settled.
 - **The fallen are kept, the victory is not counted.** `casualties.py` registers every unit removed
   from play and totals the strengths, for the eliminator as for the army that lost them; no
   scenario declares a winner on that total, and nothing reads it back yet.
+- **A unit's movement allowance is counted by square too, for the same want of a unit identity**,
+  and it is therefore *carried* by a move: the remainder is written on the square arrived at and
+  cleared from the one left behind (`movement_register.py`). Within a movement phase that is exact
+  — one counter, one square, and no two units end a move on the same one. It would fall the day
+  two units could stack, as the combat register would.
+- **What a retreat or an advance after combat walks costs nothing.** Neither goes through
+  `movement.move`: the booklet puts the advance "without regard to zones of control or to its own
+  movement limits", and a fall-back is suffered rather than played. A unit pushed during a combat
+  phase therefore opens its next movement phase with its full allowance — which it would anyway,
+  the register being emptied at every phase change.
 - **One combat per unit and per phase, counted by square.** The rule is kept (see `CombatRegister`
   above), but the register designates units by their **square**, for want of a unit identity in the
   engine: one counter stands for all the units it represents — `orques-01-15-infanteries` is placed

@@ -423,7 +423,7 @@ def test_the_page_carries_the_current_phase(client):
     phase = read_hidden_field(the_board(client).get_data(as_text=True), "phase")
     assert phase == {"side": ALLIANCE, "type": "mouvement", "army": "Nains",
                      "label": "Phase de mouvement — Nains", "number": 1,
-                     "unavailable": {"attackers": [], "targets": []},
+                     "unavailable": {"attackers": [], "targets": [], "movers": []},
                      "over": False, "winner": None}
 
 
@@ -875,7 +875,7 @@ def test_the_unavailable_are_told_to_the_browser(combat_phase):
 
     # The next phase frees them, and the page sees it in the same place.
     following = combat_phase.post("/phase/next").json
-    assert following["unavailable"] == {"attackers": [], "targets": []}
+    assert following["unavailable"] == {"attackers": [], "targets": [], "movers": []}
 
 
 # --- Following the game ---------------------------------------------------------------------------

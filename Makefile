@@ -44,7 +44,8 @@ test-browser: mongo
 		tests/application/test_ai_browser.py \
 		tests/application/test_stream_browser.py \
 		tests/application/test_view_browser.py \
-		tests/application/test_log_browser.py $(ARGS)
+		tests/application/test_log_browser.py \
+		tests/application/test_help_browser.py $(ARGS)
 
 # The static checks alone: the style (flake8, `.flake8`) then the types (mypy, `pyproject.toml`).
 # The suite runs both as tests (tests/test_static_checks.py); this is the quick pass while

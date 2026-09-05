@@ -115,7 +115,8 @@ let view = null; // the zoom, mounted once the map has loaded
 
 // The current phase, as the server gives it: { side, type, army, label, number, unavailable }.
 // The type is never "magie" - the server skips it. `unavailable` gives the squares of the units
-// that have already had their turn this phase: { attackers: [...], targets: [...] }.
+// that have already had their turn this phase: { attackers, targets, movers } - the first two
+// filled during a combat phase, the last during a movement phase.
 let phase = JSON.parse(document.getElementById("phase").value);
 trace.info("opening phase", phase);
 
@@ -366,7 +367,8 @@ async function showTheMoves(image) {
                { piece: image.piece.key });
     return;
   }
-  const { hexagons } = await answer.json();
+  const { hexagons, message } = await answer.json();
+  if (message) trace.info("the unit is offered no square", { piece: image.piece.key, message });
   // The selection may have changed while the answer was awaited.
   if (selection !== image) {
     trace.warn("showTheMoves: answer dropped, the selection changed while it was awaited",
@@ -401,7 +403,7 @@ async function movePiece(image, hexagon) {
     if (wasMarked) markedSquare = squareLeft;
     return;
   }
-  const { allowed, destination, tilt } = await answer.json();
+  const { allowed, destination, tilt, cost, remaining, exhausted } = await answer.json();
   if (!allowed) {
     trace.warn("movePiece: the server refuses the move, the marker goes back",
                { piece: image.piece.key, to: key(hexagon), squareLeft });
@@ -413,7 +415,14 @@ async function movePiece(image, hexagon) {
   // The piece has been picked up: it lies down askew again, differently from last time. It is the
   // server that drew this new angle, and that keeps it - the piece will stay lying that way.
   place(image, destination, tilt);
-  trace.exit("movePiece", { piece: image.piece.key, destination: key(destination), tilt });
+  // What the trip cost is charged to the unit's allowance by the server; a unit that has spent it
+  // all is greyed out here rather than at the next refresh, so that the counter stops inviting the
+  // click the moment it stops accepting it.
+  image.classList.toggle("unavailable", Boolean(exhausted));
+  if (exhausted) image.title = EXHAUSTED_TOOLTIP;
+  else image.removeAttribute("title");
+  trace.exit("movePiece", { piece: image.piece.key, destination: key(destination), tilt,
+                            cost, remaining, exhausted });
   // If the pointer had stayed on this piece, its card must say the square it has just reached.
   if (hovered === image) showTheCard(image);
 }
@@ -614,14 +623,26 @@ async function onCombatClick(hexagon) {
 }
 
 // Units that have already had their turn are greyed out: without that, nothing on the map would
-// distinguish a unit one can still engage from one that will refuse the click.
+// distinguish a unit one can still engage from one that will refuse the click. Three lists, one
+// per way of having had one's turn - attacked, been attacked, spent one's movement points -, and
+// the server only ever fills those the current phase can fill.
+//
+// The greyed counter also says so in as many words: the map has no room for a sentence, and a
+// tooltip is what one gets by leaving the pointer on the piece that will not budge.
+const EXHAUSTED_TOOLTIP = "Points de mouvement épuisés pour cette phase.";
+
 function markTheUnavailable(unavailable) {
+  const spent = new Set((unavailable?.movers ?? []).map(key));
   const squares = new Set([...(unavailable?.attackers ?? []),
-                           ...(unavailable?.targets ?? [])].map(key));
+                           ...(unavailable?.targets ?? []),
+                           ...(unavailable?.movers ?? [])].map(key));
   for (const image of placedPieces) {
-    image.classList.toggle("unavailable", squares.has(key(image.dataset)));
+    const square = key(image.dataset);
+    image.classList.toggle("unavailable", squares.has(square));
+    if (spent.has(square)) image.title = EXHAUSTED_TOOLTIP;
+    else image.removeAttribute("title");
   }
-  trace.info("units already engaged, greyed out", { squares: [...squares] });
+  trace.info("units already engaged, greyed out", { squares: [...squares], spent: [...spent] });
 }
 
 // `advance` is the booklet's advance after combat, announced by the button pressed: "Attaquer et
@@ -1391,6 +1412,10 @@ function start() {
   gamesButton.addEventListener("click", () => {
     trace.info("\"les parties\" clicked");
     location.href = "/";
+  });
+  document.getElementById("table-help").addEventListener("click", () => {
+    trace.info("\"aide\" clicked");
+    location.href = "/aide";
   });
   document.getElementById("table-logout").addEventListener("click", logOut);
   document.getElementById("table-close").addEventListener("click", () => {

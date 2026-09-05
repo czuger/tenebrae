@@ -39,6 +39,10 @@ with a click, and saved as a **new file in `tenebrae/scenarios/`** — or, opene
 `/admin/scenarios/<number>/edit`, rewrites an existing one —, the only place where the
 application writes there. Reserved to the same accounts.
 
+A fifth, `/aide`, is the player's help: how a game is opened and played, what the board shows, what
+the game does not play yet, and the credits — the author of the game, the blog the photographs come
+from, the authors of the icons (see "The help").
+
 The code is English; everything the player reads on screen is French, and so is the game data the
 application serves.
 
@@ -48,7 +52,7 @@ application serves.
 | --- | --- |
 | `app.py` | the factory `create_app`: the configuration, persistence, authentication, then the blueprints |
 | `config.py` | the configuration classes, read from `.env` |
-| `current_game.py` | the game being played — `GAME_ID`, `BOARD`, `TURN`, `REGISTER`, `CASUALTIES`, `SEATS`, `VERSION` —, its snapshots, saving and restoring it, the AI's turn |
+| `current_game.py` | the game being played — `GAME_ID`, `BOARD`, `TURN`, `REGISTER`, `ALLOWANCES`, `CASUALTIES`, `SEATS`, `VERSION` —, its snapshots, saving and restoring it, the AI's turn |
 | `players.py` | the session's player, the table, the identity client |
 | `persistence.py` | the repositories hooked onto the application, and how the routes reach them |
 | `routes/` | the routes, one blueprint per subject, with the guards (`authorization.py`) and the request readers (`reading.py`) |
@@ -56,7 +60,7 @@ application serves.
 | `stream.py` | the broadcaster behind `/stream` |
 | `discord_client.py` | the OAuth2 flow, and the fake client of the tests |
 | `pieces.py`, `grid.py` | the pieces and the grid alignment, as the browser receives them |
-| `static/`, `templates/` | the four pages — the list of games, the board, the map-fixing page, the scenario page — and what they share: `debug.js` everywhere, and, for the three that carry a map, `geometry.js`, `zoom.js`, `pieces.js`, `pawns.js` (with `pawn_icons.json`, `faction_colours.json` and `pawn_colours.json`, the three data files it reads) |
+| `static/`, `templates/` | the five pages — the list of games, the board, the help, the map-fixing page, the scenario page — and what they share: `debug.js` everywhere, and, for the three that carry a map, `geometry.js`, `zoom.js`, `pieces.js`, `pawns.js` (with `pawn_icons.json`, `faction_colours.json` and `pawn_colours.json`, the three data files it reads) |
 | `extensions.py` | the MongoDB extension |
 | `models/`, `repositories/` | what is not the game: the connection and the map view (see "The models") |
 
@@ -88,8 +92,8 @@ the two calls to Discord on `urllib` from the standard library.
 
 The game is recorded in **MongoDB** at every move played — a move, a combat, a phase change — and
 `GET /game/<id>` resumes it. Only the game state goes there: the positions, the angle each counter lies at,
-the current phase, what the combat phase has already consumed, the units removed from play, and
-**who holds which side** —
+the current phase, what the combat and movement phases have already consumed, the units removed
+from play, and **who holds which side** —
 knowing who plays the Alliance is part of the game, and a restart must not empty the table. Beside
 it, two other collections: the known **players** (`joueurs`), and each one's **map view** (`vues`,
 see "Finding one's map view again") — the only one that is not part of the game. The map, the piece
@@ -105,7 +109,10 @@ every save. A game recorded before players existed has no `places` field: it sta
 table is simply empty. The same holds for the `inclinaisons` field, which came later: the pieces of
 an old save lie down once when it is resumed, and the first move played freezes their angles; and
 for `pertes`, the units removed from play, which came later still: a game saved before the retreat
-rule existed resumes with nobody fallen.
+rule existed resumes with nobody fallen; and for `mouvement_restant`, the movement points each unit
+has left of its allowance, latest of all: a game saved before movement was counted reopens with
+every unit free to move, which is what a movement phase begins with anyway. **No migration is owed
+for any of them** — an absent field is read as the empty value, which is the right one.
 
 **Running a local MongoDB**, through Docker:
 
@@ -337,8 +344,8 @@ round trip with the server.
 
 | Route | Response |
 | --- | --- |
-| `GET /moves?q=&r=&s=&piece=` | `{"origin": {…}, "piece": "key", "side": "alliance", "movement": 8, "hexagons": [{q, r, s, terrain}, …]}` |
-| `POST /move` — body `{"origin": {…}, "destination": {…}, "piece": "key"}` | `{"allowed": bool, "origin": {…}, "destination": {…}, "tilt": -3.52, "piece": "key", "side": "alliance", "movement": 8}` |
+| `GET /moves?q=&r=&s=&piece=` | `{"origin": {…}, "piece": "key", "side": "alliance", "movement": 8, "remaining": 5.0, "exhausted": false, "hexagons": [{q, r, s, terrain}, …], "message": str\|null}` |
+| `POST /move` — body `{"origin": {…}, "destination": {…}, "piece": "key"}` | `{"allowed": bool, "origin": {…}, "destination": {…}, "tilt": -3.52, "piece": "key", "side": "alliance", "movement": 8, "cost": 1.0, "remaining": 4.0, "exhausted": false, "message": str\|null}` |
 
 Unreadable coordinates or a non-zero sum → 400; a hexagon off the map → 404; a piece unknown to the
 catalogue → 400.
@@ -346,6 +353,28 @@ catalogue → 400.
 `/moves` stays read-only and is never blocked. `/move`, on the other hand, **refuses
 (`allowed: false`, without touching the board) any move outside the movement phase of the piece's
 side**: that is the only place where the turn weighs on movement.
+
+### The movement allowance
+
+`movement` is what the counter is printed with; **`remaining` is what this phase has left of it**.
+The booklet allots each unit a capital of points for its movement phase, not a rate per click, and
+the server keeps that count in `ALLOWANCES` (`tenebrae.engine.movement_register.MovementRegister`),
+beside the combat phase's `REGISTER` and emptied at the same moments — every phase change.
+
+- `/moves` walks on **what is left**, so a unit that has already moved is offered fewer squares;
+  with nothing left it is offered none, `exhausted: true`, and the French refusal comes back in
+  `message` and goes to the log.
+- `/move` goes through `tenebrae.engine.movement.move`, which weighs the trip against the map *and*
+  charges it to the allowance. It answers with the trip's `cost`, what is `remaining` after it, and
+  whether the unit is now `exhausted`. A refusal charges nothing: neither one out of phase, nor one
+  the map refuses, nor one for want of points.
+- **The browser does not keep the count.** It greys the counter out — the same `.piece.unavailable`
+  the combat register uses, plus a `title` saying why — and the greyed squares are named by the
+  server, in `unavailable.movers` (see "Phases and combat"). A click that lands on a greyed counter
+  is refused by the server all the same.
+- The count travels with the saved game, in the `mouvement_restant` field, as exact fractions
+  (`"5/3"`): a road costs a third of a point. A game saved before it existed carries none and
+  reopens with every unit free to move — no migration is owed.
 
 **It is the server's board that says which piece stands on the origin square**, on which side, and
 which opponents oppose their zones of control to it. The `piece` parameter — the key from
@@ -477,8 +506,9 @@ by different attackers. The count is kept **on the server side** by the module g
 (`tenebrae.engine.combat_register.CombatRegister`), beside `BOARD` and `TURN`:
 
 - it is **emptied at every phase change** (`POST /phase/next`) — so between the Dwarves' combat
-  phase and the Orcs', and at the next turn. Opening a game resumes it from the save; opening a new
-  one empties it with the rest;
+  phase and the Orcs', and at the next turn — along with `ALLOWANCES`, the movement phase's own
+  register. Opening a game resumes both from the save; opening a new one empties them with the
+  rest;
 - a combat **fought** enters all its attackers and its target in it, **whatever its outcome**: a
   retreat has engaged its units all the same. The squares entered are those the units hold **after**
   the combat (`CombatResult.square_after`): a unit that has fought and then fallen back must stay
@@ -486,9 +516,23 @@ by different attackers. The count is kept **on the server side** by the module g
 - a combat **refused** (no valid attacker) enters nothing.
 
 `unavailable` — carried by `#phase`, `GET`/`POST /phase…` and the response of `POST /combat` — gives
-the **squares** of that register that still carry a piece, so that the page can grey those units out
-(`.piece.unavailable`). The register designates units by their square and not by their counter: see
-`tenebrae/engine/README.md` § "One combat per unit and per phase" for what that assumes.
+the **squares** whose unit can no longer act this phase, so that the page can grey them out
+(`.piece.unavailable`). Three lists, one per way of having had one's turn, and the server only ever
+fills those the current phase can fill:
+
+| Key | Filled during | What it names |
+| --- | --- | --- |
+| `attackers` | a combat phase | the squares of `REGISTER` that have attacked and still carry a piece |
+| `targets` | a combat phase | those that have been attacked and still carry a piece |
+| `movers` | a movement phase | the **active side's** squares whose unit has spent its whole allowance (`movement.exhausted_squares`) |
+
+`movers` is the active side's alone: a counter of the side that is not playing refuses nothing, it
+is waiting its turn. The greyed counter also carries a `title` saying why it will not budge — the
+map has no room for a sentence, and the refusal's own line goes to the log.
+
+Both registers designate units by their square and not by their counter: see
+`tenebrae/engine/README.md` § "One combat per unit and per phase" and § "The movement allowance"
+for what that assumes.
 
 **The log is written in two places at once** (`logs/battle_log.py`, which configures the logger
 once, at import) — one line per event: a phase change, a seat taken, a unit out of range, a combat result
@@ -1402,6 +1446,37 @@ refused. The way in itself is not repeated there: it is up in the header, where 
 
 The board carries the way back: **`Les parties`**, first in the table dialog.
 
+## The help — `/aide`
+
+A page of text for the player, and for nobody else: nothing of the server is on it. It says how a
+game is opened and joined — the three choices of the new-game form, the table dialog —, what the
+board shows — the zoom, the panel, the two faces of the pawns, the card —, how a turn goes, how one
+moves and fights — the terrain costs, the zones of control, the weighing the bar shows, Table I, the
+five outcomes, the retreat and the advance —, how a game ends, the six keys, and **what the game
+does not play yet**, taken from the engine's caveats so that a player is not left to discover a
+rule by being refused. It is **public**, like the list and the board, and it is reached from two
+places: the `Aide` link in the list's header, first in the account corner so that the connection
+control stays last, and the `Aide` button of the board's table dialog, where everything that does
+not fit in the bar goes.
+
+It closes on the **credits**: François Marcela-Froideval, the author of the game (no photograph —
+none under a free licence could be found, and the French Wikipedia article asks for one); the blog
+*IRL board games*, whose article "Vintageboard 1 : Ave Tenebrae" (July 2017) the photographs of the
+map and the counters come from, its author being unnamed there; and the game-icons.net
+contributors whose drawings the pawns wear, under CC BY 3.0.
+
+**That last list is read, not written.** `routes/help.py` reads `static/pawn_icons.json` and
+credits every contributor a counter uses, the most used first, each with one drawing of theirs
+beside their name and how many are in use: a counter given a new drawing credits its author the
+moment the file is saved. What the hand keeps is `ICON_AUTHORS` — the name a contributor signs with
+and where they publish, taken from the set's `license.txt` and from game-icons.net — and
+`tests/application/test_help.py` holds that every contributor used has a row there; one that has
+none would be credited under their directory name, with no link, rather than left out. The same
+tests hold that the page is served to an anonymous visitor, that its summary points to sections
+that exist, that the two other pages lead to it, and that the example counter's photograph and
+every icon on the page lie where the page fetches them; `test_help_browser.py` follows the link and
+the button in Chromium.
+
 ## Logging in through Discord
 
 The OAuth2 flow comes in four steps, and everything that speaks to Discord is in
@@ -1690,7 +1765,15 @@ coordinates, the files served, the set-up served square by square — it must be
 the same from one load to the next — and the two movement routes, including the check that they add
 nothing to the engine's rules, that the reach follows the placed piece's counter, that an opponent
 in contact reduces it, that a friend does not, and that an accepted move really changes the server's
-board. It also covers the **turn**: `#phase` in the page, `/phase/next` which skips magic and
+board. The **movement allowance** has a file of its own, `tests/application/test_movement_points.py`:
+each move charged to the unit that played it, the click refused once the points are gone and its
+line in the log, the reach shrinking with what is left, the `movers` list served to the browser, the
+points given back at the phase change, a refusal charging nothing, and the count surviving a saved
+game — including one saved before the count existed. `test_movement_points_browser.py` is the same
+seen from Chromium: the counter dimmed the moment its last point is spent, its tooltip, the click
+that is offered no square, and the greying lifted when the phase turns.
+
+It also covers the **turn**: `#phase` in the page, `/phase/next` which skips magic and
 alternates the players, `/move` refused outside the movement phase, `/combat/range` by distance, and
 `/combat` which removes the right piece on a `DE` (die fixed by `monkeypatch` of `app.roll_the_die`),
 falls the defender back on a `DR`, eliminates it when it has nowhere to go, and enters the fallen in
@@ -1699,7 +1782,7 @@ attacker and a target refused at the second combat, a whole group of attackers m
 units of the same counter tracked apart, the `unavailable` lists served to the browser, and the
 reset from one combat phase to the next then to the following turn. Every test there starts from a
 **deserted map** — the `deserted_map` fixture clears the board, brings the turn back to its first
-phase and empties the combat register, all three being shared from one request to the next. What the
+phase and empties both phase registers, all of them being shared from one request to the next. What the
 scenario itself contains is exercised separately, in `tests/engine/test_scenario.py`; combat
 resolution, in `tests/engine/test_combat.py` and `test_phase.py`.
 

@@ -26,8 +26,8 @@ from tenebrae.engine.models.game import Casualty, Game
 
 
 class GameState(TypedDict):
-    """The whole game state, as the repositories exchange it: the board, the turn, the combat
-    register, the units removed from play and the seats, in their serialised forms."""
+    """The whole game state, as the repositories exchange it: the board, the turn, the two phase
+    registers, the units removed from play and the seats, in their serialised forms."""
 
     scenario: int
     placement: dict[str, str]
@@ -37,6 +37,7 @@ class GameState(TypedDict):
     turn_number: int
     engaged_attackers: list[str]
     engaged_targets: list[str]
+    movement_left: dict[str, str]
     casualties: list[CasualtyEntry]
     seats: dict[str, str]
     over: bool
@@ -139,6 +140,7 @@ class MongoGameRepository:
                 "turn_number": game.turn_number,
                 "engaged_attackers": list(game.engaged_attackers),
                 "engaged_targets": list(game.engaged_targets),
+                "movement_left": dict(game.movement_left),
                 "casualties": [_entry_of(loss) for loss in game.casualties],
                 "seats": dict(game.seats),
                 "over": bool(game.over),
@@ -216,6 +218,7 @@ class MongoGameRepository:
         game.turn_number = state["turn_number"]
         game.engaged_attackers = state["engaged_attackers"]
         game.engaged_targets = state["engaged_targets"]
+        game.movement_left = state.get("movement_left") or {}
         game.casualties = [Casualty(**loss) for loss in state.get("casualties") or []]
         game.seats = state.get("seats") or {}
         game.over = bool(state.get("over"))

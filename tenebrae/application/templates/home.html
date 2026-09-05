@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ave Tenebrae — les parties</title>
+  <!-- Neither zoom.css nor pieces.css: this is the first page of the application that carries no
+       map, and neither the zoom nor the counters mean anything without one. -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='home.css') }}">
+</head>
+<body>
+  <!-- The saved games, the set-ups a new one may be opened on, and who is looking. All of it goes
+       out at once, as on the other pages: the list was composed a moment ago, and the page asks
+       the server nothing until a game is opened. -->
+  <input type="hidden" id="games" value="{{ games }}">
+  <input type="hidden" id="scenarios" value="{{ scenarios }}">
+  <input type="hidden" id="visitor" value="{{ visitor }}">
+
+  <div id="page">
+    <header id="head">
+      <h1>Ave Tenebrae</h1>
+      <!-- Who is looking, and the one control that goes with it: the way in for a visitor, the way
+           out for a player. One or the other, never both, and always this corner - the script only
+           chooses which of the two it shows, from #visitor. -->
+      <div id="account">
+        <img id="account-avatar" alt="" hidden>
+        <span id="account-nickname"></span>
+        <a id="new-game-login" class="button" href="/login" hidden>Se connecter</a>
+        <button type="button" id="account-logout" hidden>Se déconnecter</button>
+      </div>
+    </header>
+
+    <!-- Opening a game: the set-up, the side one takes, and whether the other one is the machine.
+         A visitor with no account gets a line saying why there is no form rather than controls
+         whose every use would be refused; the way in itself is up in the header, where the way out
+         is for a player. -->
+    <section id="opening">
+      <h2>Nouvelle partie</h2>
+      <form id="new-game" hidden>
+        <div class="field">
+          <label for="new-scenario">Scénario</label>
+          <select id="new-scenario"></select>
+        </div>
+        <div class="field">
+          <label for="new-side">Votre camp</label>
+          <select id="new-side"></select>
+        </div>
+        <label class="tick">
+          <input type="checkbox" id="new-against-ai"> Jouer contre l'IA
+        </label>
+        <button type="submit" id="new-game-submit">Commencer</button>
+      </form>
+      <!-- What the server refused: a set-up disabled in its file since this page was served. -->
+      <p id="new-game-error" hidden></p>
+      <p id="no-account" hidden>Connectez-vous pour créer une partie.</p>
+      <p id="no-scenario" hidden>Aucun scénario n'est proposé pour l'instant.</p>
+    </section>
+
+    <section id="saved">
+      <h2>Les parties enregistrées</h2>
+      <!-- One card per game, most recently played first; each one a link to its own address. -->
+      <div id="game-list"></div>
+      <p id="no-game" hidden>Aucune partie enregistrée.</p>
+    </section>
+  </div>
+
+  <!-- First, before every other script: the others take a logger of their own from it as they
+       load. Silent unless it is turned on - "?debug=1", or `tenebraeDebug.on()`. -->
+  <script src="{{ url_for('static', filename='debug.js') }}"></script>
+  <script src="{{ url_for('static', filename='home.js') }}"></script>
+</body>
+</html>

@@ -34,7 +34,7 @@ def board(page, server, application, seat_the_player, deserted_map):
     page.set_viewport_size({"width": 1400, "height": 900})
     page.goto(f"{server}/login")
     battle_log.LOG_MEMORY.lines.clear()
-    page.goto(f"{server}/")
+    page.goto(f"{server}/game")
     page.wait_for_function("document.getElementById('scale').textContent !== '—'")
     yield page
     battle_log.LOG_MEMORY.lines.clear()

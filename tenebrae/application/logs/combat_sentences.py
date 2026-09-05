@@ -7,6 +7,8 @@ and a terrain name, and this module puts them into French - what the player read
 on screen.
 """
 
+from typing import Optional
+
 from tenebrae.engine.combat import CombatResult
 from tenebrae.engine.hexagon import Hex
 from tenebrae.engine.retreat import RetreatOutcome
@@ -30,6 +32,42 @@ NO_RETREAT_NOTES = {
 
 # Kept for the combat that could not be resolved: an absent target, an illegible strength.
 NO_EFFECT_MESSAGE = "Combat résolu : sans effet"
+
+# The end of a game won by annihilation ("Object of the game": "to crush the opponent by
+# annihilating their troops"), and the one nobody won - the last units of both sides fallen in the
+# same combat, which an exchange can do.
+VICTORY_MESSAGE = "Partie terminée : {army} l'emporte, l'adversaire n'a plus une seule unité."
+MUTUAL_DESTRUCTION_MESSAGE = ("Partie terminée : les deux camps sont anéantis, "
+                              "personne ne l'emporte.")
+
+
+# The same thing in the toolbar's width: the log carries the sentence, the phase label carries this.
+VICTORY_LABEL = "Partie terminée — {army} l'emporte"
+MUTUAL_DESTRUCTION_LABEL = "Partie terminée — personne ne l'emporte"
+
+
+def label_the_end(army: Optional[str]) -> str:
+    """The end of the game where the phase was displayed.
+
+    Args:
+        army: The winning army's name, or `None` where no side is left standing.
+
+    Returns:
+        The short French label the toolbar shows in place of the phase.
+    """
+    return MUTUAL_DESTRUCTION_LABEL if army is None else VICTORY_LABEL.format(army=army)
+
+
+def announce_the_end(army: Optional[str]) -> str:
+    """The sentence that closes a game.
+
+    Args:
+        army: The winning army's name, or `None` where no side is left standing.
+
+    Returns:
+        The French sentence the log carries and the browser repeats.
+    """
+    return MUTUAL_DESTRUCTION_MESSAGE if army is None else VICTORY_MESSAGE.format(army=army)
 
 
 def describe_the_ratio(result: CombatResult) -> str:

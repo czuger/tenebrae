@@ -81,7 +81,7 @@ def open_the_board(page, server, logged_in=True):
     page.set_viewport_size({"width": 1400, "height": 900})
     if logged_in and not page.context.cookies():
         page.goto(f"{server}/login")
-    page.goto(server)
+    page.goto(f"{server}/game")
     page.wait_for_function(
         "document.querySelectorAll('img.piece').length === %d" % len(current_game.SCENARIO))
     page.wait_for_function("document.getElementById('scale').textContent !== '—'")
@@ -245,7 +245,7 @@ def test_the_fallback_to_polling_when_the_stream_does_not_get_through(page, serv
     page.route("**/stream*", lambda route: route.abort())
     page.set_viewport_size({"width": 1400, "height": 900})
     page.goto(f"{server}/login")
-    page.goto(server)
+    page.goto(f"{server}/game")
     page.wait_for_function(
         "document.querySelectorAll('img.piece').length === %d" % len(current_game.SCENARIO))
 

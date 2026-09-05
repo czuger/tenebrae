@@ -35,12 +35,18 @@ def empty_base(application):
     """Starts every test from an empty base: no saved game, no player, no view.
 
     The base outlives the tests as the application does, and a game saved by one test would be
-    resumed by the next one's load of "/". Emptied on the way in rather than on the way out, so
+    resumed by the next one's load of "/game". Emptied on the way in rather than on the way out, so
     that the first test of a run does not inherit what a previous run left behind either.
+
+    The game being played goes with it: `GAME_ID` is a module global, and one left pointing at a
+    document just deleted would have the next test saving into a game that is not there. The
+    repository heals that by itself - a save with no document opens one - but leaving it would be
+    saying the process is playing something it is not.
     """
     Game.objects.delete()
     Player.objects.delete()
     View.objects.delete()
+    current_game.GAME_ID = None
 
 
 @pytest.fixture(autouse=True)
@@ -121,16 +127,22 @@ def deserted_map():
     would place opponents there, and the result would depend on chance. The turn is shared too - a
     test that advanced it would leave it advanced for the next one, and the phase's combat register
     with it, and the register of the fallen, which no phase change empties.
+
+    The game goes with the board: what a test lays out afterwards is two counters put there to look
+    at one rule, and a combat that leaves one of them alone on the map ends nothing
+    (`put_the_game_away`).
     """
     BOARD.clear()
     TURN.restart()
     REGISTER.reset()
     CASUALTIES.reset()
+    current_game.put_the_game_away()
     yield BOARD
     BOARD.clear()
     TURN.restart()
     REGISTER.reset()
     CASUALTIES.reset()
+    current_game.put_the_game_away()
 
 
 @pytest.fixture(scope="session")

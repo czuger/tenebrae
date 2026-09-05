@@ -162,7 +162,9 @@ Without `SECRET_KEY`, the application refuses to start, and without a MongoDB to
 python3 -m tenebrae.application.app
 ```
 
-Then <http://127.0.0.1:5000/> for the board, <http://127.0.0.1:5000/admin/map_fix> to fix the map.
+Then <http://127.0.0.1:5000/> for the list of saved games — a game is picked up or opened there —
+<http://127.0.0.1:5000/game> for the one most recently played, and <http://127.0.0.1:5000/admin/map_fix>
+to fix the map.
 
 ## Checking
 

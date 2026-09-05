@@ -5,6 +5,11 @@ A Flask application that serves `tenebrae/game_box/map.jpg`, **lays a scenario o
 a piece shows as **ghosts** the squares it can go to; clicking a ghost moves it there. Hovering it
 opens its **card**: its photograph enlarged and everything its counter carries.
 
+**One arrives on the list of the games saved so far** (`/`), not on the map: one picks up a game
+that was left, or opens a new one — the set-up, the side one takes, and whether the opponent is the
+machine. The board is at `/game/<id>`, one address per game, and `/game` is the game most recently
+played (see "The list of games").
+
 The game follows a **turn**: movement then combat, for the Dwarves then for the Orcs, round and
 round (magic is skipped). The "Phase suivante" button advances; the toolbar's label says where one
 stands. In the **combat phase**, a click on an opposing unit takes it as the target (red), a click
@@ -24,12 +29,12 @@ advance without reloading anything — through an **event stream** the server pu
 changes, and no longer by asking again every three seconds. The map itself stays visible without an
 account (see "Two players, two sides" and "Logging in through Discord").
 
-A second page, `/admin/map_fix`, serves to fix the map transcription: it is the only place where the
+A third page, `/admin/map_fix`, serves to fix the map transcription: it is the only place where the
 application writes into `tenebrae/game_box/`, and only into a file of its own. The engine applies
 those fixes at start-up — so the board is played on the fixed map. It is reserved to the accounts
 declared in `ADMIN_DISCORD_IDS`.
 
-A third page, `/admin/scenarios`, composes a scenario on the map: pieces taken from a palette, laid
+A fourth page, `/admin/scenarios`, composes a scenario on the map: pieces taken from a palette, laid
 with a click, and saved as a **new file in `tenebrae/scenarios/`** — or, opened on
 `/admin/scenarios/<number>/edit`, rewrites an existing one —, the only place where the
 application writes there. Reserved to the same accounts.
@@ -43,7 +48,7 @@ application serves.
 | --- | --- |
 | `app.py` | the factory `create_app`: the configuration, persistence, authentication, then the blueprints |
 | `config.py` | the configuration classes, read from `.env` |
-| `current_game.py` | the current game — `BOARD`, `TURN`, `REGISTER`, `CASUALTIES`, `SEATS`, `VERSION` —, its snapshots, saving and restoring it, the AI's turn |
+| `current_game.py` | the game being played — `GAME_ID`, `BOARD`, `TURN`, `REGISTER`, `CASUALTIES`, `SEATS`, `VERSION` —, its snapshots, saving and restoring it, the AI's turn |
 | `players.py` | the session's player, the table, the identity client |
 | `persistence.py` | the repositories hooked onto the application, and how the routes reach them |
 | `routes/` | the routes, one blueprint per subject, with the guards (`authorization.py`) and the request readers (`reading.py`) |
@@ -51,7 +56,7 @@ application serves.
 | `stream.py` | the broadcaster behind `/stream` |
 | `discord_client.py` | the OAuth2 flow, and the fake client of the tests |
 | `pieces.py`, `grid.py` | the pieces and the grid alignment, as the browser receives them |
-| `static/`, `templates/` | the three pages — the board, the map-fixing page, the scenario page — and what they share: `geometry.js`, `zoom.js`, `pieces.js`, `debug.js`, `pawns.js` (with `pawn_icons.json`, `faction_colours.json` and `pawn_colours.json`, the three data files it reads) |
+| `static/`, `templates/` | the four pages — the list of games, the board, the map-fixing page, the scenario page — and what they share: `debug.js` everywhere, and, for the three that carry a map, `geometry.js`, `zoom.js`, `pieces.js`, `pawns.js` (with `pawn_icons.json`, `faction_colours.json` and `pawn_colours.json`, the three data files it reads) |
 | `extensions.py` | the MongoDB extension |
 | `models/`, `repositories/` | what is not the game: the connection and the map view (see "The models") |
 
@@ -63,10 +68,14 @@ From the root of the repository, with the pyenv virtualenv `tenebrae`:
 python3 -m tenebrae.application.app
 ```
 
-then <http://127.0.0.1:5000/> for the board, <http://127.0.0.1:5000/admin/map_fix> to fix the map,
+then <http://127.0.0.1:5000/> for the list of the games saved so far,
+<http://127.0.0.1:5000/game> for the one most recently played,
+<http://127.0.0.1:5000/admin/map_fix> to fix the map, and
 <http://127.0.0.1:5000/admin/scenarios> to compose a scenario.
-The board **resumes the game where it was left** (see "Game persistence"); `POST /game/new` starts
-it over.
+
+`/game` **resumes the game where it was left** and lays a set-up out where there is nothing to
+resume (see "Game persistence"); it redirects to that game's own address, `/game/<id>`, which is
+what the list links to. `POST /game/new` opens one more.
 
 A `.env` at the repository root is required (see `.env.example`): without `SECRET_KEY`, the
 application refuses to start, and without the Discord credentials nobody can log in.
@@ -78,7 +87,7 @@ the two calls to Discord on `urllib` from the standard library.
 ## Game persistence
 
 The game is recorded in **MongoDB** at every move played — a move, a combat, a phase change — and
-`GET /` resumes it. Only the game state goes there: the positions, the angle each counter lies at,
+`GET /game/<id>` resumes it. Only the game state goes there: the positions, the angle each counter lies at,
 the current phase, what the combat phase has already consumed, the units removed from play, and
 **who holds which side** —
 knowing who plays the Alliance is part of the game, and a restart must not empty the table. Beside
@@ -122,13 +131,42 @@ brings up (`MONGODB_URI_TEST`, see "Tests"), emptied before each test.
 
 | Route | Effect |
 | --- | --- |
-| `GET /` | resumes the last game, on the scenario it was played on; failing that — an empty base, or a saved scenario whose file has gone — lays the current set-up out again and opens one |
-| `GET /game/scenarios` | the set-ups a new game may be opened on — `number`, `name`, `max_turns`, `units` — and the `current` number; read from the files at every request, public like the map |
-| `POST /game/new` | lays a scenario out again and opens a new game, **without lifting the table**; with `{"scenario": N}`, on that set-up rather than the one being played; with `{"against_ai": true}`, entrusts the opposing side to the AI (see "Playing against the AI"); returns `{"pieces": […], "phase": {…}}` and the table, 409 for a scenario not on offer |
+| `GET /` | the list of the saved games, and the form that opens one more; public, and it **creates nothing** (see "The list of games") |
+| `GET /game/<id>` | that game: the process takes it up — board, turn and table — and serves the map on it; 404 in French for an identifier no game carries, one that is not an identifier at all, or a game whose scenario has left the disk |
+| `GET /game` | the game most recently played, or, where there is none to resume — an empty base, a saved scenario whose file has gone — the current set-up laid out as a new one; **redirects** to `/game/<id>`, query string and all |
+| `GET /game/scenarios` | the set-ups a new game may be opened on — `number`, `name`, `max_turns`, `units`, `armies` — and the `current` number; read from the files at every request, public like the map |
+| `POST /game/new` | opens a game and answers `{"id": …, "url": …}`, which the browser follows; `{"scenario": N}` for the set-up, `{"side": "alliance"}` for the side its creator takes, `{"against_ai": true}` to give the rest to the machine (see "Playing against the AI"); **an account is enough, a seat is not required** — the game is created before anybody sits at it; 409 for a scenario not on offer or a side the scenario has not |
 | `POST /view` — body `{scale, x, y, fitted}` | keeps where this player is on the map, and returns it as it stands; **login required, a seat not**; it is not a move played (see "Finding one's map view again") |
 
-The previous games stay in base: `POST /game/new` erases nothing, it opens one more document, and
-it is the most recent that `/` resumes.
+The previous games stay in base: `POST /game/new` erases nothing, it opens one more document. They
+are no longer a history nobody reads — the list at `/` is made of them, and each one can be opened
+again by its own address.
+
+### Which document the process is playing
+
+`save` used to write into the most recent document, and that was true as long as the server only
+ever played that one. As soon as an older game can be opened, writing into "the most recent" lands
+one game's moves in another's. So the process **remembers which game it is playing**:
+`current_game.GAME_ID`, the identifier of its document, bound by `restore_the_game` when a game is
+opened and by `open_a_new_game` when one is created, and cleared by `put_the_game_away`.
+
+The repository's whole surface, in state dicts as before — a `GameSummary` is what a list shows, a
+`GameState` what a board is played from, and neither carries a `Document`:
+
+| Method | What it gives |
+| --- | --- |
+| `games()` | one `GameSummary` per document, most recently played first |
+| `most_recent()` | the identifier **and** the state of the last game played, in one query, or `None` |
+| `load(identifier=None)` | that game's state, or the most recent one's; `None` for an identifier no game carries **and for one that is not an identifier at all** — a badly typed address is a game that is not there, not a 500 |
+| `save(identifier, state)` | writes into that document and returns the identifier written; with no identifier, or one whose document has gone, it opens a new game, which is what an empty base did before |
+| `new_game(state)` | opens one, and returns its identifier |
+
+`GameState` deliberately carries no identifier: a state dict is what a game *is*, not which row
+holds it. `GameSummary` carries one, because naming the game is the whole point of a list.
+
+The times come back from MongoDB **naive**, and a naive time serialised for a browser reads as that
+browser's own: `_in_utc` puts the offset back where the fact that it is UTC is known, rather than
+leaving it to be guessed at the far end.
 
 **The routes do not know MongoDB.** They go through a *repository* (`tenebrae/engine/repositories/`)
 that the `create_app` factory hooks onto the application, and exchange only state dicts with it; the
@@ -201,10 +239,7 @@ scrolling — in `static/zoom.js` and `static/zoom.css`.
 | `#grid` | `origin`, `matrix` and `piece_size`: the alignment of the grid on `map.jpg` |
 | `#phase` | the current phase: `{side, type, army, label, number, unavailable}` (see "Phases and combat") |
 | `#table` | who is watching and who holds which side: `{connected, nickname, avatar, administrator, sides, armies, seats}` (see "Two players, two sides") |
-
-The table dialog's scenario chooser is **not** among them: it is fetched from `/game/scenarios`
-each time the dialog opens, so that a scenario disabled since the tab was loaded leaves the list
-without a reload (see "The set-up").
+| `#game` | which saved game this page was served for, so that it can tell that another has been opened under it (see "One game per process, several URLs") |
 | `#version` | the game's version number, by which the browser sees that the opponent has played |
 | `#view` | where this player was on the map: `{scale, x, y, fitted}`, or `null` (see "Finding one's map view again") |
 | `#initial-log` | the game log when the page opens: `[{time, text}, …]`, from the oldest line to the most recent (see "The log column") |
@@ -212,18 +247,20 @@ without a reload (see "The set-up").
 ## The server's board
 
 Zones of control require knowing **who occupies which square and on which side**: the server
-therefore holds an `tenebrae.engine.board.Board`, rebuilt at every load of `/` and updated by
-`/move`. Without it, the zones would be computed on stale positions from the first move on.
+therefore holds an `tenebrae.engine.board.Board`, rebuilt at every load of `/game/<id>` and updated
+by `/move`. Without it, the zones would be computed on stale positions from the first move on.
 
 Beside the board, the server holds an `tenebrae.engine.phase.Turn` — the module global `TURN`: which
-side plays, and at what. Board and turn are **resumed from the saved game** at every load of `/`, or
-rebuilt from the scenario if there is none (see "Game persistence"). There is only **one current
-game per process**: two tabs open on `/` share the same board and the same turn — which suits,
-since both players play the same game.
+side plays, and at what. Board and turn are **resumed from the saved game** each time one is opened,
+or laid out from the scenario when a new one is (see "Game persistence"). There is only **one
+current game per process**: two tabs open on the same game share the same board and the same turn —
+which suits, since both players play the same game. Two tabs on **different** games do not, and
+that is what "One game per process, several URLs" is about.
 
 Beside them, the module global `SEATS` (`tenebrae/engine/models/seats.py`) keeps who holds which
-side. Unlike the board and the turn, it is **not** rebuilt at every load of `/`: starting a game
-over sends nobody away from their seat.
+side — the table of the game `GAME_ID` names, and no other. It travels in that game's `places`
+field: opening a game seats the people that game seated, and a new game opens with the table its
+creator asked for.
 
 The JavaScript converts each hexagon into pixels with the formula recorded in
 `tenebrae/game_box/map.md`:
@@ -340,12 +377,12 @@ implemented, `Turn.advance()` skips it — it is never the current one.
 | Route | Response |
 | --- | --- |
 | `GET /phase` | `{side, type, army, label, number, unavailable}` — to refresh the browser |
-| `POST /phase/next` | the next phase, same shape; logged |
+| `POST /phase/next` | the next phase, same shape; logged. 403 `La partie est terminée.` once a side has been annihilated, like `/move` and `/combat` (see "The end of a game") |
 | `GET /combat/range?cq=&cr=&cs=&aq=&ar=&as=` | `{"in_range": bool, "available": bool, "message": str\|null}`; a refusal goes to the log |
 | `GET /combat/target?cq=&cr=&cs=` | `{"available": bool, "message": str\|null}`; a refusal goes to the log |
 | `POST /combat` — body `{"target": {q,r,s}, "attackers": [{q,r,s}, …]}` | see below |
 
-`GET /` carries `#phase`; the JavaScript takes from it the toolbar's label and **what a click
+`GET /game/<id>` carries `#phase`; the JavaScript takes from it the toolbar's label and **what a click
 does**: in the movement phase, only the active side shows its ghosts; in the combat phase,
 
 1. a click on an **opposing** unit → the server (`/combat/target`) says whether it can still be
@@ -397,8 +434,8 @@ by different attackers. The count is kept **on the server side** by the module g
 (`tenebrae.engine.combat_register.CombatRegister`), beside `BOARD` and `TURN`:
 
 - it is **emptied at every phase change** (`POST /phase/next`) — so between the Dwarves' combat
-  phase and the Orcs', and at the next turn. `GET /` resumes it from the save, or empties it if it
-  lays the scenario out again;
+  phase and the Orcs', and at the next turn. Opening a game resumes it from the save; opening a new
+  one empties it with the rest;
 - a combat **fought** enters all its attackers and its target in it, **whatever its outcome**: a
   retreat has engaged its units all the same. The squares entered are those the units hold **after**
   the combat (`CombatResult.square_after`): a unit that has fought and then fallen back must stay
@@ -461,7 +498,7 @@ raises are written as a single number).
   file.
 
 The lines kept leave with the game: `shared_snapshot` carries them, so the SSE stream and
-`GET /game/state` do too, and `GET /` gives them straight away in `#initial-log`. Hence the rule
+`GET /game/state` do too, and `GET /game/<id>` gives them straight away in `#initial-log`. Hence the rule
 the routes follow: **log before marking the move**. `mark_a_move` photographs the game, log
 included; a route that logged after saving would push the browsers an account one move behind.
 `tests/application/test_log.py` checks it route by route.
@@ -482,6 +519,69 @@ rotation: 50 KB, three archives.
 The level is **DEBUG and it is on**: there is no switch to find. Read from an interpreter with no
 application around, the logger falls back to the root's level and says nothing, and `moves` does
 not even compose its lines — `logging.basicConfig(level=logging.DEBUG)` is enough to see them.
+
+### `logs/general.log` — everything that is neither a combat nor a movement
+
+The third log, and the one nobody reads while things go well: **the server's own trace**. The game
+log is the game told to the player and shows in their column; the movement log is the engine's
+walk; this one is what the server did — every request with its answer, the whole of the connection
+flow, the games opened, saved and left. `logs/general_log.py` configures it at import, as the game
+log configures itself, and `logs/request_trace.py` is what `create_app` hooks onto the application.
+
+**DEBUG, and on.** The level is DEBUG unless `LOG_LEVEL` says otherwise in `.env` — a trace one
+must first go and turn on is a trace one does not have on the day it is needed. `INFO` leaves the
+steps out and keeps what happened (`event`), `WARNING` only what went wrong. Its file rotates like
+the others, larger because its lines are: 512 KB and five archives.
+
+Two ways of writing to it, and one rule for both — **name every variable and write its content**:
+
+```python
+note("Login: back from Discord", host=request.host, arguments=sorted(request.args.keys()))
+event("New game opened", game=GAME_ID, scenario=SCENARIO_NUMBER, units=len(BOARD))
+```
+
+```
+Login: back from Discord — host='127.0.0.1:5000', arguments=["code", "state"]
+New game opened — game='68bb…', scenario=4, name='Le siège de Morgenstern', units=87
+```
+
+**Every request, and its answer.** `request_trace.py` is wired onto the application and not onto a
+blueprint, so nothing is outside it — a page, an image, a refusal, an address matching no route.
+The answer goes out **in full**, which is what one comes to this log for: what the page was given,
+not what it was meant to be. Three exceptions: a **streamed** answer is named and left untouched
+(`/stream` is a generator held open for the life of a tab, `send_file` hands the file over as it
+is, and reading either to log it would consume the one and load the other into memory); anything
+**not JSON** is described rather than copied, *unless it is a refusal* — from 400 up the body
+carries the sentence that explains it; and a value longer than `LOG_VALUE_LIMIT` characters (2000
+by default, `0` for no cut at all) is cut and says how long it really was. A board snapshot is some
+twenty kilobytes: written whole, one afternoon of play would be the only thing left in the file.
+A redirect adds where it sends, its `Location` being the whole of what it says.
+
+**The connection, step by step.** It is the flow the game log has almost nothing to say about — one
+`Login:` line — and the one that breaks for reasons outside the game: a cookie that did not come
+back, a redirect URI off by a hostname, an application secret changed in the Developer Portal. Each
+step is therefore written: the departure and the authorization URL, the state drawn and put in the
+session, the return and what it carried, the two exchanges with Discord (`discord_client.py` writes
+its calls and their answers), the account read, the session opened, the session closed. `/logout`
+too, with who was there.
+
+**The two ends of a stream, and not its middle.** A tab that opens `/stream` writes one line, and
+another when it stops following, with how many were following at the time; a heartbeat every twenty
+seconds per open tab would say nothing and fill the file. Between the two, `mark_a_move` writes
+every move published, with the version it gives it — which is the other half of the answer to "the
+other board is not refreshing".
+
+**A secret is never written.** A field whose name says token, secret, password, authorization,
+cookie, state or code is replaced by its length — `state=<hidden, 43 characters>` — at the top
+level and **inside** anything logged: the `code` and the `state` of the return from Discord are
+fields of `request.args`, not variables of their own. URLs go through the same scrubbing, the
+`Location` of a redirect included, which is where the state travels to Discord. The MongoDB URI
+loses its credentials before the start-up line is written. It is the discipline
+`routes/authentication.py` already followed for the OAuth state — the keys a session carries, never
+their values — applied to everything.
+
+`tests/application/test_general_log.py` checks all three: what is written, what is never written,
+and what stays elsewhere — none of these lines reaches the browser's column.
 
 ## The log column
 
@@ -972,12 +1072,17 @@ sides to play a game by itself.
 | `/game/state` | GET | where the game stands — the stream's fallback, see below | everyone |
 | `/stream` | GET | the event stream: the game pushed when it changes | everyone |
 
-What is **public**: `/`, the map, the piece images, `/moves`, `/phase`, `/combat/range`,
-`/combat/target`, `/game/state` and `/stream`. A passing visitor therefore sees the game — and
-follows it live — and can consult what would be reachable, as before. What requires **a seat at the
-active side**: `/move`, `/combat`, `/phase/next`. `POST /game/new` only requires being seated:
-starting over is not a move, and **the seats are kept** — they are the same two people, and
-emptying them would lock out the very person who has just clicked.
+What is **public**: `/`, `/game`, `/game/<id>`, the map, the piece images, `/moves`, `/phase`,
+`/combat/range`, `/combat/target`, `/game/scenarios`, `/game/state` and `/stream`. A passing visitor
+therefore sees the list, opens a game, follows it live, and can consult what would be reachable, as
+before. What requires **a seat at the active side**: `/move`, `/combat`, `/phase/next`.
+
+`POST /game/new` requires **an account and nothing more**. It used to require a seat, and that made
+sense while a game was started from the board by someone already at the table; it is started from
+the list now, before the game exists to sit at, so the side comes from the form instead — and the
+seats are **not** kept. A new game's table is its own: carrying over the table of the game the
+process happened to be on would seat two strangers at a game nobody offered them (see "The list of
+games").
 
 The refusals return **401** when nobody is logged in, **403** when somebody is but does not hold
 what is needed, with a `message` in French that the page displays under the toolbar. The rest of
@@ -985,15 +1090,51 @@ the failures keep the silence they had, their refusals going to the log.
 
 Logging out does not give up one's seat: one comes back to sit in it.
 
+### The end of a game
+
+**A combat that leaves a side without a single unit closes the game.** That is the booklet's first
+victory condition — "to crush the opponent by annihilating their troops" — and the only one
+transcribed; the engine counts (`tenebrae/engine/victory.py`), the application decides. The check
+runs where units are removed, a combat resolved by `/combat` and the AI's turn, **before the move
+is marked**, so that the browsers receive the sentence with the position it speaks of.
+
+Two module globals hold it, beside `VERSION`: `GAME_IS_OVER`, and `WINNER` — the side left
+standing, `None` where the last units of both fell in the same combat, which an exchange can do.
+Both go into the saved game (`over`, `winner`, read back with `.get`: a game saved before they
+existed resumes as one still being played), so a browser coming back to a won game finds it won.
+
+**Nothing is played on a game that is over.** `while_the_game_lasts` guards the three routes that
+play — `/move`, `/combat`, `/phase/next` — and answers 403 with `La partie est terminée.`. The way
+out is a new game, opened from the list; the guard is not in `POST /game/new`'s way. A finished game
+stays in the list, saying who won.
+
+**The board says so where it says the phase.** A game that is over has no phase worth showing, so
+`current_phase` puts the end in `label` — `Partie terminée — Nains l'emporte`, or
+`… — personne ne l'emporte` — and adds `over` and `winner`. `map.js` shows that label in gold and
+disables the two buttons that play, rather than let the player find out by being refused.
+
+**A board is not a game.** `A_GAME_IS_ON` says whether the server has a game of its own on the
+board — a set-up laid out, or a saved game resumed. A board somebody has placed counters on by
+hand is a board: nothing on it is won, whoever is left standing. In production every board comes
+from a set-up, so the flag is only ever down in the tests, which desert the map to look at one
+rule on two counters (`put_the_game_away`, called by the `deserted_map` fixture).
+
+`tests/application/test_victory.py` holds all of it, `tests/engine/test_victory.py` the counting.
+
 ### Playing against the AI
 
-The second account can be a machine. The **"Nouvelle partie contre l'IA"** button in the table
-dialog — visible when one is seated and the other side is there to give: free, or already held by
-the AI — sends `POST /game/new` with the body `{"against_ai": true}` and the number the scenario
-chooser beside it shows: the scenario is laid out again, and the side the requester does not hold
-is entrusted to the AI. A side held by another human is not there to give — 409, nobody is thrown
-out, and the set-up is not rebuilt. A scenario no longer on offer is refused the same way, and
-before any seat is given away: the request is read in full before anything moves.
+The second account can be a machine. The **"Jouer contre l'IA"** tick on the list's new-game form
+sends `POST /game/new` with `{"against_ai": true}`, the number the scenario chooser shows and the
+side the side chooser shows: the set-up is laid out, the creator is seated at the side they asked
+for, and **every other side of that scenario goes to the AI**.
+
+The side is asked for because there is no longer a seat to read it off. The button used to sit in
+the board's table dialog, where the requester was already seated and the AI took what was left; a
+game is opened from the list now, by someone holding nothing, so the form asks. What went with that
+change: the two refusals those seats justified — "Aucun camp à confier à l'IA" and "Ce camp est
+déjà tenu" — have nothing left to refuse, since a new game's table is empty until this request
+fills it. A scenario no longer on offer is still refused, with 409, and before anything moves: the
+request is read in full first.
 
 The AI has neither a session nor a Discord account: it occupies its seat under the `ai.AI_PLAYER`
 sentinel (`"ia"`, which no Discord identifier — strings of digits — can carry), which travels in
@@ -1005,8 +1146,8 @@ Its turn is played **on the server side, within the request that hands it play**
 `let_the_ai_play()`, called at the end of `POST /phase/next` — and at the creation of the game, in
 case the scenario opens on its side. The strategy lives in the engine (`tenebrae/engine/ai.py`, see
 `tenebrae/engine/README.md`); the application only passes it the die (`roll_the_die`), saves and
-logs. A single save at the end of the turn, so a save never lands on a phase held by the AI — "/"
-never has to make it play.
+logs. A single save at the end of the turn, so a save never lands on a phase held by the AI —
+opening a game never has to make it play.
 
 **Its turn is pushed as it is played, not when it is over.** The whole turn happens inside one
 request, and one push at the end would land the board the AI left behind on every browser at once,
@@ -1087,6 +1228,81 @@ again destroys every image and recreates them, and the button would go off at ev
 What all this will require the day it goes into production — a WSGI server, Nginx, timeouts, and
 why a single worker — is in `DEPLOYMENT.md`, at the root. The places in the code concerned carry
 the `TODO: PRODUCTION` marker.
+
+### One game per process, several URLs
+
+There is **one board, one turn and one table per process**, and that has not changed: `current_game`
+holds them in module globals, and two tabs on the same game share them, which suits — both players
+play the same game. What has changed is that there are now several games in base and each has an
+address, so `GET /game/<id>` is **not a reading**: it takes the process onto that game, and takes it
+off the one it was on. Anybody may do it — the board is public, as it always was.
+
+A tab left on the game just left would otherwise go on showing a board that is no longer its own,
+and the version says nothing about it: it counts the moves of the **process**, not of one game, so
+even the `changed: false` answer of `/game/state` would be a lie. Hence:
+
+- `shared_snapshot()` carries `game`, so it rides every SSE message, and `/game/state` carries it in
+  **both** answers, the unchanged one included;
+- `map.html` carries the game it was served for in `#game`, and `map.js` compares
+  (`checkTheGame`): on a mismatch it closes the stream, stops the polling, stops applying anything,
+  and shows `#displaced` — *"Une autre partie a été ouverte sur ce serveur…"*. That box does not
+  fade like `#message`: what it says does not stop being true.
+
+**It tells, it does not fight.** Reloading onto its own game would take the table back from whoever
+has just opened theirs, and the two tabs would pull at it forever. So the displaced tab stops, and
+the way back is the list.
+
+Playing several games at once is a different feature and not this one: it means one board, one turn
+and one table **per game**, and a broadcaster per game with them.
+
+## The list of games — `/`
+
+The first page one sees, and the first in the application with **no map on it**: no `zoom.css`, no
+`pieces.css`, no `geometry.js`. It lists what `parties` holds — one card per game, most recently
+played first — and carries the form that opens one more.
+
+**It creates nothing.** As long as `/` was the map it laid a set-up out on an empty base, so every
+arrival, an anonymous visitor's included, left a game behind them. A listing that did that would
+fill the base with games nobody plays, so the creating stays where it is asked for: `GET /game`,
+which wants a game to play, and `POST /game/new`, which wants a new one.
+
+| Hidden field | Contents |
+| --- | --- |
+| `#games` | one entry per saved game: `id`, `scenario` and `scenario_name`, `turn`, `phase`, `army`, `units`, `over` and `end`, `sides` (each with its `army`, its `occupant` and whether it is `mine`), `mine`, and `played_at` |
+| `#scenarios` | what `/game/scenarios` serves — the set-ups a new game may be opened on, each with its `armies`, which is what the side chooser is filled from |
+| `#visitor` | who is looking: `connected`, `nickname`, `avatar`, `administrator`. **Not** the table: that is composed from the set-up being played, which is the business of a page showing a game and not of one listing them |
+
+**No sentence is composed here.** The phase reads through `LABELS` (`tenebrae/engine/phase.py`), the
+table `Turn.label` itself uses, and a finished game through `label_the_end`
+(`logs/combat_sentences.py`), the sentence the board's own toolbar shows. `TURN` is never touched —
+it holds the game in play, not the ones being listed — so the army names come from each card's
+scenario, read from its file.
+
+The scenarios are read here through `available_scenarios()` and not `enabled_scenarios()`: a game
+under way on a set-up withdrawn since must still be able to say what it is being played on. A game
+whose **file has gone altogether** is listed, greyed, with its number and no name, and it is not a
+link: it cannot be laid out, and a link leading to a refusal is worse than none.
+
+A card the visitor holds a side in carries `mine`, styled as the board's own table styles the side
+one holds (`#4a3d30` on a pale border) — the eye already reads that pair as "this one is mine".
+
+**The form**: the set-up, the side one takes, `Jouer contre l'IA`, and `Commencer`, which posts
+`/game/new` and follows the `url` it gets back. The list is laid **in the page** and not fetched,
+unlike the chooser that used to sit in the board's dialog: that dialog could be hours old, this page
+was served a moment ago. The guard is the one that always did the work — `POST /game/new` reads the
+files again and refuses a set-up disabled since, and the refusal is shown under the form.
+
+**One connection control, one place.** The header's right-hand corner carries `Se connecter` for a
+visitor (`#new-game-login`) and, for a player, their avatar, their nickname and `Se déconnecter`
+(`#account-logout`) — one of the two, never both. The buttons therefore carry a `[hidden]` guard in
+`home.css`: `hidden` is a rule of the lowest specificity there is, and the `display: inline-block`
+of `button, .button` used to leave the way in on screen for a player already connected.
+
+An **anonymous visitor** sees the list and can open any game to watch it; in place of the form they
+get the line `Connectez-vous pour créer une partie`, rather than controls whose every use would be
+refused. The way in itself is not repeated there: it is up in the header, where the way out is.
+
+The board carries the way back: **`Les parties`**, first in the table dialog.
 
 ## Logging in through Discord
 
@@ -1188,22 +1404,25 @@ The portal asks for **no scope to tick**: it is claimed by the authorization URL
 ## The set-up
 
 The server no longer draws anything at random: it reads a set-up from `tenebrae/scenarios/` through
-`tenebrae.engine.scenario` — no. 4 at start-up (`DEFAULT_SCENARIO`) — and lays it out again at the
-first load of `/` — or at each, if persistence is unplugged.
+`tenebrae.engine.scenario` — no. 4 at start-up (`DEFAULT_SCENARIO`) — and lays it out when a game is
+opened on it (`open_a_new_game`).
 
 **Which scenario is played is part of the state**: `current_game.SCENARIO` and `SCENARIO_NUMBER` are
-rebound by `switch_to_the_scenario()` when a new game is opened on another set-up, and `/` puts the
-server back on the scenario the saved game names (`resume_the_scenario()`). They are therefore read
-through the module — `current_game.SCENARIO` — and never imported by name. The turn follows: it is
-set up again on the new scenario's sides and army names. The table does not: changing scenario
-sends nobody away from their seat.
+rebound by `switch_to_the_scenario()` when a new game is opened on another set-up, and opening a
+saved game puts the server back on the scenario that game names (`resume_the_scenario()`). They are
+therefore read through the module — `current_game.SCENARIO` — and never imported by name. The turn
+follows: it is set up again on the new scenario's sides and army names.
 
-**Choosing it.** The table dialog carries a chooser, filled from `GET /game/scenarios` when the
-dialog opens rather than from the page, so that a scenario disabled in its file leaves the list
-without a reload; `POST /game/new` reads the files again and refuses a number that is not among
-them (409, a French `message` under the toolbar). A scenario is offered unless its file carries
-`"enabled": false`, written there by hand — see `tenebrae/scenarios/README.md`. Disabling one
-withdraws it from the **new** games only: a game under way on it is resumed as it stood.
+**Choosing it.** The chooser is on the list of games (`/`), filled from the page it was served
+with; `POST /game/new` reads the files again and refuses a number that is not among them (409, a
+French `message` under the form). A scenario is offered unless its file carries `"enabled": false`,
+written there by hand — see `tenebrae/scenarios/README.md`. Disabling one withdraws it from the
+**new** games only: a game under way on it is resumed as it stood, and named as it stands on its
+card.
+
+`GET /game/scenarios` keeps its place though no page fetches it any more: it is the list of what a
+new game may be opened on, as the server holds it now, and `tests/application/test_scenario_choice.py`
+exercises it.
 
 - - **The placement comes from the file, not from the server.**
   `tenebrae/scenarios/scenario-04-la-guerre-des-nains.json` gives "square → piece key"; the
@@ -1212,7 +1431,7 @@ withdraws it from the **new** games only: a game under way on it is resumed as i
   deployment and its caveats are in `tenebrae/scenarios/README.md`.
 - **The starting position is reproducible.** A fresh game always puts the 48 units back on the same
   squares: that is what makes it possible to exercise a move twice in a row and get the same
-  result. `POST /game/new` brings it back.
+  result. `POST /game/new` opens one.
 - - **The movement is the counter's**: each piece carries its points, read off the photograph and
   stored in `tenebrae/game_box/pions/pions.json`. The **strength** now serves in combat; fire and
   range serve only for an archer's engagement distance.
@@ -1232,14 +1451,14 @@ move, a card that stays open, a stream that no longer delivers. `static/debug.js
 scripts a console log one can follow a whole game with, and **nobody sees it unless they ask for
 it**: turned off, not a line is written and not a byte more is read from the network.
 
-The three templates load it **first**, before every other script, and it hangs everything off
+The four templates load it **first**, before every other script, and it hangs everything off
 `window.tenebraeDebug`. Each file takes a logger of its own at load — `const trace =
 debugScope("map.js")` — and speaks through it.
 
 | Turning it on | |
 | --- | --- |
-| `/?debug=1` | in the address bar; the choice is remembered in `localStorage` for the next loads |
-| `/?debug=0` | turns it off again, and forgets it |
+| `/game?debug=1` | in the address bar; the choice is remembered in `localStorage` for the next loads. `/game` carries the query string through its redirect for exactly this — swallowed there, the parameter would say nothing |
+| `/game?debug=0` | turns it off again, and forgets it |
 | `tenebraeDebug.on()`, `.off()` | from the console, without reloading |
 | `window.TENEBRAE_DEBUG = true` | set before the script, from a page that wants it on |
 | `tenebraeDebug.level("info")` | the minimum level shown; "trace", "info", "warn", "error" |
@@ -1339,10 +1558,33 @@ the files at every request, the number `POST /game/new` accepts and the 409 it a
 or unknown one with — including one disabled between the chooser being filled and the click, which
 is the whole point of the second reading — the board, the turn and the table that follow the new
 set-up, the refusal that leaves the game exactly where it was and gives away no seat, and the saved
-game resumed on its own scenario, disabled or not. In Chromium: the chooser filled when the table
-dialog opens, absent to a player with no seat, a scenario leaving it without a reload once its file
-disables it, and the set-up chosen being the one laid out. Both work on a temporary **copy** of the
+game resumed on its own scenario, disabled or not. In Chromium: the chooser on the list of games — what
+it offers, the sides that follow the set-up chosen, a scenario leaving it at the next load once its
+file disables it, the refusal shown under the form when the file is disabled after the page was
+served, and the set-up chosen being the one laid out. Both work on a temporary **copy** of the
 scenarios directory: no test writes into `tenebrae/scenarios/` here either.
+
+`tests/application/test_games_list.py` and `tests/application/test_games_browser.py` cover the
+**list of games** and what having several addresses for one process forces. The first without a
+browser: the list is public and **opens no game** — the regression the landing page exists to avoid,
+since `/` used to lay a set-up out on an empty base and so had every passer-by leave a game behind
+them — every saved game listed most recently first, a card carrying its scenario, its turn, its
+phase and its units, the occupants named and the free side and the machine each said as they are, a
+finished game saying how it ended, a game whose scenario has left the disk listed without a name and
+refusing to open, the date carrying its UTC offset — a naive one would read as the browser's own —
+the games one holds a side in marked and no other, `/game/<id>` taking the server onto that game,
+the same French 404 for an unknown identifier and for an address that is not one at all, the static
+routes under `/game/` keeping their own rules against the dynamic one, `/game` sending to the last
+game played and carrying its query string through the redirect, and — the one that is the point of
+the whole change — **a move written into the game being played and into no other**, an older game
+opened and played leaving the newer document exactly as it was.
+
+The second, in Chromium: the empty base saying so, the cards on screen with their scenario, a card
+opening its own game, only one's own games marked, the form opening a game and seating its creator
+at the side they chose, the way back to the list in the table dialog, the dialog carrying neither
+scenario chooser nor "contre l'IA" any more — and **two tabs**: one opens another game, and the
+first says so and stops following, rather than reloading onto its own game and pulling the table
+back and forth forever.
 
 `tests/application/test_server.py` queries Flask without a browser: the contents of the hidden
 fields — including the counter values the hover card reads there — the consistency of the
@@ -1404,8 +1646,8 @@ that stays resumable — a save whose scenario has no file discarded, `POST /gam
 document without erasing the first — including when both share the same date, the identifier
 breaking the tie — the repository's round trip alone, and what only a real base shows: the placement
 keys admitted as document keys, the dates that come back readable. Every other test file runs on
-the same base, emptied before each test, and `GET /` there lays the set-up out again on the empty
-base as before.
+the same base, emptied before each test, and `GET /game` there lays the set-up out on the empty base
+as `GET /` used to.
 
 `tests/application/test_resume_browser.py` exercises resumption **as seen from the screen**, in
 Chromium: move a piece then reload the page and find it at its new square, the phase likewise found
@@ -1428,8 +1670,8 @@ without a code, the player's refusal on Discord's page, Discord's error coming b
 player created then updated, and the access token that never enters the session. Then what the
 server refuses: the anonymous visitor who sees the map but moves nothing, the player who does not
 hold the active side, the one who has taken no seat, the second side refused to whoever holds one,
-the seat that is not taken over, the two players each sitting at their own, the seats kept by `POST
-/game/new`, and map fixing reserved to the declared accounts.
+the seat that is not taken over, the two players each sitting at their own, the table of its own a
+new game opens with, and map fixing reserved to the declared accounts.
 
 `tests/application/test_discord_client.py` exercises `DiscordClient` alone, `urlopen` replaced in
 the module: the token read from the answer, the HTTP error that carries over the status, the URL
@@ -1444,14 +1686,18 @@ refused move displays, and above all **two browsers open at the same time**: one
 takes a seat, the other learns of it without reloading anything.
 
 `tests/application/test_ai.py` exercises the game against the AI on the server side: creation
-refused to the anonymous visitor, to the player with no seat and when the other side is held by a
-human, the AI seated and shown as "IA" at the table, its opening turn played straight away when it
-holds the Alliance, its turn triggered by the `POST /phase/next` that hands it play — the die fixed
-by `monkeypatch`, as everywhere — and its seat that nobody can take. The strategy itself is
-exercised in the engine (`tests/engine/test_artificial_opponent.py`); the persistence of its seat,
-in `tests/application/test_persistence.py`. `tests/application/test_ai_browser.py` goes round again
-on screen: the button hidden from whoever is not seated, the opposing side entrusted to the AI with
-one click, and the opening of the scenario played by it before play comes back to the player.
+refused to the anonymous visitor, **allowed to a player holding no side** — one opens a game before
+sitting down at it — the table of its own the new game opens with, the side the scenario has not,
+the AI seated at what is left and shown as "IA" at the table, its opening turn played straight away
+when it holds the Alliance, its turn triggered by the `POST /phase/next` that hands it play — the
+die fixed by `monkeypatch`, as everywhere — and its seat that nobody can take. Two of those tests
+were **turned round** rather than deleted when the game moved to the list: what a seat used to
+justify refusing has nothing left to refuse. The strategy itself is exercised in the engine
+(`tests/engine/test_artificial_opponent.py`); the persistence of its seat, in
+`tests/application/test_persistence.py`. `tests/application/test_ai_browser.py` goes round again on
+screen: the form's tick seating the machine at the side left over, the opening of the scenario
+played by it before play comes back to the player, and the anonymous visitor offered the way in to
+Discord in place of the form.
 
 `tests/application/test_view.py` and `tests/application/test_view_browser.py` cover the **map
 view**. The first without a browser: `#view` at `null` for the anonymous visitor as for whoever has

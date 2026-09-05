@@ -19,12 +19,13 @@ def board(page, server, application, seat_the_player):
 
     The first `goto` is the browser equivalent of `session_transaction`: rather than fabricate a
     cookie, we unroll the real login flow, which the fake Discord client closes on our own return
-    route. The browser leaves from there for "/", and the game page is loaded and logged in in a
-    single movement.
+    route. It lands on the list of games, so the board is asked for by name: "/game", the game
+    played most recently, which on an empty base is the set-up laid out.
     """
     seat_the_player(application)
     page.set_viewport_size({"width": 1400, "height": 900})
     page.goto(f"{server}/login")
+    page.goto(f"{server}/game")
     page.wait_for_function(
         "document.querySelectorAll('img.piece').length === %d" % len(current_game.SCENARIO)
     )

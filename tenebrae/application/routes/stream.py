@@ -16,6 +16,7 @@ from werkzeug.local import LocalProxy
 
 from tenebrae.application import current_game
 from tenebrae.application.current_game import shared_snapshot
+from tenebrae.application.logs.general_log import note
 from tenebrae.application.players import table_for, the_connection
 from tenebrae.engine.repositories.player import PlayerRecord
 
@@ -70,14 +71,25 @@ def game_stream(application: Flask, identifier: Optional[str],
             return sse_message(state, player)
 
     with current_game.BROADCASTER.subscription() as subscriber:
-        # An up-to-date browser gets a comment, enough to open the stream; a stale one - the
-        # opponent played during the outage, or the server restarted - catches up at once.
-        yield ": game followed\n\n" if known_version == current_game.VERSION \
-            else compose(shared_snapshot())
+        # The general log holds the two ends of a stream and not its middle: a heartbeat every
+        # twenty seconds per open tab would say nothing and fill the file. What is read there is
+        # "who is following, and since when" - the first question a board that does not refresh
+        # itself asks.
+        note("Stream: a browser is following the game", visitor=identifier,
+             known_version=known_version, version=current_game.VERSION,
+             followers=len(current_game.BROADCASTER))
+        try:
+            # An up-to-date browser gets a comment, enough to open the stream; a stale one - the
+            # opponent played during the outage, or the server restarted - catches up at once.
+            yield ": game followed\n\n" if known_version == current_game.VERSION \
+                else compose(shared_snapshot())
 
-        while True:
-            state = subscriber.wait(HEARTBEAT)
-            yield ": heartbeat\n\n" if state is None else compose(state)
+            while True:
+                state = subscriber.wait(HEARTBEAT)
+                yield ": heartbeat\n\n" if state is None else compose(state)
+        finally:
+            note("Stream: a browser has stopped following", visitor=identifier,
+                 version=current_game.VERSION)
 
 
 @blueprint.route("/stream")

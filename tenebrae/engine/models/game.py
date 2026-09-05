@@ -14,8 +14,9 @@ The MongoDB field names stay as they were, pinned by `db_field`: renaming a stor
 orphan the games already saved, and the `parties` collection is not renamed either.
 """
 
-from mongoengine import (DateTimeField, Document, EmbeddedDocument, EmbeddedDocumentListField,
-                         FloatField, IntField, ListField, MapField, StringField)
+from mongoengine import (BooleanField, DateTimeField, Document, EmbeddedDocument,
+                         EmbeddedDocumentListField, FloatField, IntField, ListField, MapField,
+                         StringField)
 
 from tenebrae.engine.phase import COMBAT, MOVEMENT
 
@@ -78,6 +79,13 @@ class Game(Document):
     # `ReferenceField`: the repositories exchange state dicts, and the game stays readable on its
     # own. Not required: games saved before players existed must stay resumable.
     seats = MapField(StringField(), db_field="places")
+
+    # How the game ended, if it has: "to crush the opponent by annihilating their troops". Not
+    # required: games saved before an end could be recorded have neither, and resume as games still
+    # being played. `winner` is absent from a game nobody won - the last units of both sides fallen
+    # in the same combat.
+    over = BooleanField(default=False, db_field="terminee")
+    winner = StringField(db_field="vainqueur")
 
     created_at = DateTimeField(required=True, db_field="creee_le")
     updated_at = DateTimeField(required=True, db_field="modifiee_le")

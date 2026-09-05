@@ -12,7 +12,7 @@ import pytest
 
 from tenebrae.application import current_game
 
-from tests.application.test_server import read_hidden_field
+from tests.application.test_server import read_hidden_field, the_board
 
 # A second account, to exercise that a view belongs to one pair of eyes only.
 OTHER_IDENTITY = {"discord_id": "100000000000000002", "nickname": "Adversaire", "avatar": None,
@@ -22,7 +22,7 @@ A_VIEW = {"scale": 0.42, "x": 1234.5, "y": 678.25, "fitted": False}
 
 
 def page_view(client):
-    return read_hidden_field(client.get("/").get_data(as_text=True), "view")
+    return read_hidden_field(the_board(client).get_data(as_text=True), "view")
 
 
 # --- What the page carries -----------------------------------------------------------------------
@@ -108,7 +108,7 @@ def test_adjusting_twice_overwrites_the_previous_one(client):
 def test_adjusting_ones_view_is_not_a_move_played(client):
     """Neither does the version rise, nor is anything pushed to the streams: one player's view must
     not make the other's map jump."""
-    client.get("/")
+    the_board(client)
     subscriber = current_game.BROADCASTER.subscribe()
     try:
         version = current_game.VERSION

@@ -44,7 +44,7 @@ def board(page, server, application, seat_the_player, deserted_map, monkeypatch)
     page.route("**/stream*", lambda route: route.abort())
     page.set_viewport_size({"width": 1400, "height": 900})
     page.goto(f"{server}/login")
-    page.goto(server)
+    page.goto(f"{server}/game")
     wait_for_the_scene(page, len(current_game.SCENARIO))
     return page
 

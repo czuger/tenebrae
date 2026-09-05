@@ -2,7 +2,7 @@
 
 It touches neither the board nor the version, and **publishes nothing** - pushing a view to the
 stream would make the other player's map jump. The view is kept per player (`models/view.py`,
-`repositories/view.py`), and given back to "/" at the next visit.
+`repositories/view.py`), and given back to the board at the next visit.
 """
 
 import math

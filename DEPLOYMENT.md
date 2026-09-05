@@ -141,3 +141,8 @@ As long as those two are not done: **a single worker**.
   the game down, it does not break it.
 - **The secrets and the session.** Nothing new: `.env`, `SECRET_KEY`, and `SECURE_COOKIE=yes`
   behind HTTPS (see `.env.example`).
+- **The logs.** They rotate by themselves and take a bounded place on disk: 200 KB for the game
+  log, as much for the engine's movement trace, and about 3 MB for the general log — which writes
+  every request with its answer, at DEBUG, on purpose (`tenebrae/application/README.md`
+  § "`logs/general.log`"). `LOG_LEVEL=INFO` in `.env` leaves the steps out and keeps what happened,
+  should that be too much for a small disk.

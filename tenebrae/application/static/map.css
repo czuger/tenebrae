@@ -18,6 +18,13 @@ body {
   z-index: 0;
 }
 
+/* The end of a game where the phase was: the sentence is the server's, and it is the only thing
+   the bar ever has to shout. Gold on the bar's own brown, as the selection is on the map. */
+#phase-label.over {
+  font-weight: bold;
+  color: #f6e7c1;
+}
+
 /* A combat's target, highlighted in red; the designated attackers, in gold. */
 .piece.target {
   outline: 2px solid #d64545;
@@ -355,6 +362,19 @@ body {
   white-space: nowrap;
 }
 
+/* Said once and left there: another game has been opened on the server, and this page no longer
+   follows its own (see `checkTheGame` in map.js). The refusal message's make, without the fade -
+   what it says does not stop being true, and the board under it is somebody else's. */
+#displaced {
+  padding: 0.4rem 0.7rem;
+  border: 1px solid #8a5a44;
+  border-radius: 3px;
+  background: rgba(60, 30, 22, 0.94);
+  color: #f6d7c1;
+  font-size: 0.85rem;
+  max-width: 22rem;
+}
+
 /* What the server refused. Under the bar, of the same make as the card: the panel grows downwards,
    the bar does not move. It fades away by itself after a few seconds. */
 #message {
@@ -418,35 +438,6 @@ body {
 #table-seats .free {
   color: #9c8c6f;
   font-style: italic;
-}
-
-/* The scenario chooser, on the seat lines' pattern: the label on the left, the list on the
-   right. As for the card, `hidden` must win over `display: flex`: the row is out of the dialog
-   until the list has arrived, and altogether when no game can be started from there. */
-#table-scenario {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.8rem;
-  margin-top: 0.6rem;
-  padding: 0.35rem 0.5rem;
-  border: 1px solid #6b5a44;
-  border-radius: 2px;
-  background: #2a2320;
-}
-
-#table-scenario[hidden] {
-  display: none;
-}
-
-#table-scenario select {
-  font: inherit;
-  padding: 0.2rem 0.4rem;
-  border: 1px solid #6b5a44;
-  border-radius: 2px;
-  background: #241f1b;
-  color: inherit;
-  max-width: 14rem;
 }
 
 #table-footer {

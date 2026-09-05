@@ -23,6 +23,8 @@ from tenebrae.engine import scenario as engine_scenario
 from tenebrae.engine.models.game import Game
 from tenebrae.engine.scenario import scenario
 
+from tests.application.test_server import read_hidden_field, the_board
+
 WAR_OF_THE_DWARVES = 4
 REISSLAND = 6
 
@@ -118,13 +120,23 @@ def test_an_anonymous_visitor_may_read_the_list(anonymous_client, scenarios_dire
 # --- Opening a new game on a chosen scenario ---
 
 
-def test_a_new_game_opens_on_the_chosen_scenario(client, scenarios_directory):
-    answer = client.post("/game/new", json={"scenario": REISSLAND})
+def opened_page(client, number):
+    """Opens a game on a scenario and returns the board it lands on.
 
-    assert answer.status_code == 200
+    `POST /game/new` answers with an address and no longer with the game itself: what the player
+    sees is the page at that address, and that is what these tests read.
+    """
+    answer = client.post("/game/new", json={"scenario": number})
+    assert answer.status_code == 200, answer.get_json()
+    return client.get(answer.get_json()["url"]).get_data(as_text=True)
+
+
+def test_a_new_game_opens_on_the_chosen_scenario(client, scenarios_directory):
+    page = opened_page(client, REISSLAND)
+
     assert current_game.SCENARIO_NUMBER == REISSLAND
     assert current_game.BOARD.to_dict() == scenario(REISSLAND).placement
-    assert len(answer.get_json()["pieces"]) == len(scenario(REISSLAND))
+    assert len(read_hidden_field(page, "pieces")) == len(scenario(REISSLAND))
     assert Game.objects.first().scenario == REISSLAND
 
 
@@ -132,16 +144,16 @@ def test_the_turn_follows_the_new_scenarios_armies(client, scenarios_directory):
     """The turn is the new set-up's: its sides, its army names, from the first phase."""
     armies = {army["camp"]: army["armee"] for army in scenario(REISSLAND).armies}
 
-    phase = client.post("/game/new", json={"scenario": REISSLAND}).get_json()["phase"]
+    phase = read_hidden_field(opened_page(client, REISSLAND), "phase")
     assert phase["number"] == 1
     assert phase["side"] == scenario(REISSLAND).sides[0]
     assert phase["army"] == armies[phase["side"]]
 
 
 def test_the_table_names_the_new_scenarios_armies(client, scenarios_directory):
-    answer = client.post("/game/new", json={"scenario": REISSLAND}).get_json()
-    assert answer["armies"] == {army["camp"]: army["armee"]
-                                for army in scenario(REISSLAND).armies}
+    table = read_hidden_field(opened_page(client, REISSLAND), "table")
+    assert table["armies"] == {army["camp"]: army["armee"]
+                               for army in scenario(REISSLAND).armies}
 
 
 def test_no_scenario_asked_for_keeps_the_one_being_played(client, scenarios_directory):
@@ -224,7 +236,7 @@ def test_the_saved_game_is_resumed_on_its_own_scenario(client, scenarios_directo
     client.post("/game/new", json={"scenario": REISSLAND})
     current_game.switch_to_the_scenario(scenario(WAR_OF_THE_DWARVES))
 
-    assert client.get("/").status_code == 200
+    assert the_board(client).status_code == 200
     assert current_game.SCENARIO_NUMBER == REISSLAND
     assert current_game.BOARD.to_dict() == scenario(REISSLAND).placement
 
@@ -234,7 +246,7 @@ def test_a_game_under_way_on_a_disabled_scenario_is_still_resumed(client, scenar
     client.post("/game/new", json={"scenario": REISSLAND})
     disable(scenarios_directory, REISSLAND)
 
-    assert client.get("/").status_code == 200
+    assert the_board(client).status_code == 200
     assert current_game.SCENARIO_NUMBER == REISSLAND
     assert offered(client) == on_file(scenarios_directory, REISSLAND)
 
@@ -245,7 +257,7 @@ def test_a_saved_scenario_whose_file_has_gone_opens_a_new_game(client, scenarios
     current_game.switch_to_the_scenario(scenario(WAR_OF_THE_DWARVES))
     next(scenarios_directory.glob(f"scenario-{REISSLAND:02d}-*.json")).unlink()
 
-    assert client.get("/").status_code == 200
+    assert the_board(client).status_code == 200
     assert current_game.SCENARIO_NUMBER == WAR_OF_THE_DWARVES
     assert Game.objects.first().scenario == WAR_OF_THE_DWARVES
     assert current_game.BOARD.to_dict() == scenario(WAR_OF_THE_DWARVES).placement

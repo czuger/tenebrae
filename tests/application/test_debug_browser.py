@@ -45,7 +45,7 @@ def open_the_board(page, server, query=""):
     """
     page.set_viewport_size({"width": 1400, "height": 900})
     page.goto(f"{server}/login")
-    page.goto(f"{server}/{query}")
+    page.goto(f"{server}/game{query}")
     page.wait_for_function("document.getElementById('scale').textContent !== '—'")
     return page
 
@@ -99,13 +99,13 @@ def test_the_address_turns_the_log_on(talkative_board, console):
 
 def test_the_choice_is_kept_for_the_next_loads(talkative_board, server, console):
     """The parameter is remembered: one turns the log on once, and then plays."""
-    talkative_board.goto(f"{server}/")
+    talkative_board.goto(f"{server}/game")
     talkative_board.wait_for_function("document.getElementById('scale').textContent !== '—'")
     assert talkative_board.evaluate("() => tenebraeDebug.enabled()") is True
 
 
 def test_the_address_turns_it_off_again(talkative_board, server):
-    talkative_board.goto(f"{server}/?debug=0")
+    talkative_board.goto(f"{server}/game?debug=0")
     talkative_board.wait_for_function("document.getElementById('scale').textContent !== '—'")
     assert talkative_board.evaluate("() => tenebraeDebug.enabled()") is False
     assert talkative_board.evaluate("() => localStorage.getItem('tenebrae.debug')") is None

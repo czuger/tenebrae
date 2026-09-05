@@ -94,5 +94,10 @@ class TestingConfig(Config):
     # Fixed, and never used anywhere else: the suite does not depend on a local `.env`.
     SECRET_KEY = "worthless-test-key"
 
+    # Pinned for the same reason: a `.env` still naming the route's old path would have every test
+    # login warn that the return lands nowhere, and the fake client closes the flow on the real
+    # route whatever this says.
+    DISCORD_REDIRECT_URI = "http://127.0.0.1:5000/login/return"
+
     # The test player, the one `tests/application/conftest.py` puts into the session.
     ADMINISTRATORS = ["100000000000000001"]

@@ -23,6 +23,7 @@ from urllib.request import Request, urlopen
 
 from flask import url_for
 
+from tenebrae.application.logs.general_log import failure, note
 from tenebrae.engine.repositories.player import PlayerRecord
 
 AUTHORIZE_URL = "https://discord.com/oauth2/authorize"
@@ -154,15 +155,26 @@ class DiscordClient:
         request = Request(url, data=body,
                           headers={"Accept": "application/json", "User-Agent": USER_AGENT,
                                    **(headers or {})})
+        # The general log follows the call: the body is not written - it carries the application
+        # secret - and the answer only by the names of its fields, one of which is the token.
+        note("Discord: calling", url=url, method="POST" if body else "GET",
+             bearer=bool(headers), timeout=TIMEOUT)
         try:
             with urlopen(request, timeout=TIMEOUT) as answer:
-                return json.load(answer)
+                content = json.load(answer)
+                # No status here: anything but a success raised, and is written below.
+                note("Discord: answered", url=url,
+                     fields=sorted(content) if isinstance(content, dict) else None)
+                return content
         except HTTPError as trouble:
             # The detail (`invalid_grant`, ...) is in the body, which `str(trouble)` does not show.
             detail = trouble.read().decode("utf-8", "replace")
+            failure("Discord refused the call", url=url, status=trouble.code,
+                    reason=trouble.reason, detail=detail)
             raise DiscordError(
                 f"Discord answered {trouble.code} {trouble.reason} to {url}: {detail}") from trouble
         except (URLError, ValueError, TimeoutError) as trouble:
+            failure("Discord did not answer", url=url, detail=repr(trouble))
             raise DiscordError(f"Discord did not answer {url}: {trouble!r}") from trouble
 
 

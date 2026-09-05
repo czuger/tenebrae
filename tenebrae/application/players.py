@@ -101,6 +101,53 @@ def is_administrator(player: Optional[PlayerRecord]) -> bool:
     return player is not None and player["discord_id"] in current_app.config["ADMINISTRATORS"]
 
 
+def nickname_of(occupant: Optional[str]) -> Optional[str]:
+    """The nickname behind a Discord identifier held at a table.
+
+    Args:
+        occupant: The identifier, or `None` for a free side.
+
+    Returns:
+        The nickname; the AI's name for the AI, which is not in base and only has one; `None` for
+        a free side as for an identifier no account carries any more.
+    """
+    if occupant is None:
+        return None
+    if occupant == ai.AI_PLAYER:
+        return ai.AI_NAME
+    seated = player_repository().by_discord_id(occupant)
+    return seated["nickname"] if seated else None
+
+
+def the_visitor() -> dict[str, object]:
+    """Who is looking, and nothing of what they are looking at.
+
+    What a page that shows no game needs of the session - the landing page, which lists games
+    without playing any of them, and therefore has no table of its own to speak of.
+
+    Returns:
+        `connected`, `nickname`, `avatar` and `administrator` for the session's player.
+    """
+    return visitor_for(current_player())
+
+
+def visitor_for(player: Optional[PlayerRecord]) -> dict[str, object]:
+    """Serialises one spectator: who they are, not what they hold.
+
+    Args:
+        player: The spectator, or `None` for an anonymous visitor.
+
+    Returns:
+        `connected`, `nickname`, `avatar`, `administrator`.
+    """
+    return {
+        "connected": player is not None,
+        "nickname": player["nickname"] if player else None,
+        "avatar": player["avatar"] if player else None,
+        "administrator": is_administrator(player),
+    }
+
+
 def the_table() -> dict[str, object]:
     """Serialises the table as the current request's visitor sees it.
 
@@ -117,30 +164,19 @@ def table_for(player: Optional[PlayerRecord]) -> dict[str, object]:
     player is passed rather than read from the session because the SSE stream composes this
     outside any request.
 
+    The sides and the armies are those of **the game the process is playing** (`current_game`), not
+    of any game one might be looking at: a page that shows a game is a page the process is on.
+
     Args:
         player: The spectator, or `None` for an anonymous visitor.
 
     Returns:
         `connected`, `nickname`, `avatar`, `administrator`, `sides`, `armies`, `seats`.
     """
-
-    def nickname_at(side: str) -> Optional[str]:
-        """The nickname of whoever holds this side; the AI is not in base, it only has a name."""
-        occupant = SEATS.occupant(side)
-        if occupant is None:
-            return None
-        if occupant == ai.AI_PLAYER:
-            return ai.AI_NAME
-        seated = player_repository().by_discord_id(occupant)
-        return seated["nickname"] if seated else None
-
-    return {
-        "connected": player is not None,
-        "nickname": player["nickname"] if player else None,
-        "avatar": player["avatar"] if player else None,
-        "administrator": is_administrator(player),
+    return visitor_for(player) | {
         # A list: ordinarily zero or one side, but the test suite seats one player on both.
         "sides": SEATS.sides_of(player["discord_id"]) if player else [],
         "armies": {army["camp"]: army["armee"] for army in current_game.SCENARIO.armies},
-        "seats": {side: nickname_at(side) for side in current_game.SCENARIO.sides},
+        "seats": {side: nickname_of(SEATS.occupant(side))
+                  for side in current_game.SCENARIO.sides},
     }

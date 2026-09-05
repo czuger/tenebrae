@@ -16,12 +16,14 @@ from flask import Blueprint, request
 from flask.typing import ResponseReturnValue
 
 from tenebrae.application import current_game
-from tenebrae.application.current_game import (BOARD, CASUALTIES, REGISTER, TURN, save_the_game,
-                                               unavailable_units)
+from tenebrae.application.current_game import (BOARD, CASUALTIES, REGISTER, TURN,
+                                               close_the_game_if_a_side_is_wiped_out,
+                                               save_the_game, unavailable_units)
 from tenebrae.application.logs.battle_log import LOG
 from tenebrae.application.logs.combat_sentences import (combat_message, describe_the_ratio,
                                                         retreat_messages)
-from tenebrae.application.routes.authorization import active_side_required
+from tenebrae.application.routes.authorization import (active_side_required,
+                                                       while_the_game_lasts)
 from tenebrae.application.routes.reading import read_a_hexagon
 from tenebrae.engine import combat
 from tenebrae.engine.hexagon import Hex
@@ -122,6 +124,7 @@ def sort_the_attackers(squares: list[object], target: Hex) -> tuple[list[Hex], l
 
 @blueprint.route("/combat", methods=["POST"])
 @active_side_required
+@while_the_game_lasts
 def fight() -> ResponseReturnValue:
     """Resolves a combat: one opposing target, one or more attackers of the active side.
 
@@ -165,6 +168,9 @@ def fight() -> ResponseReturnValue:
     for sentence in retreat_messages(result):
         LOG.info(sentence)
     LOG.info(message)
+    # The combat may have taken the last unit of a side: the game then closes here, before the
+    # move is marked, so that the browsers receive the sentence with the position it speaks of.
+    close_the_game_if_a_side_is_wiped_out()
     save_the_game()
     return {
         "resolved": True,

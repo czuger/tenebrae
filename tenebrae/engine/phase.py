@@ -82,7 +82,18 @@ class Turn:
     @property
     def active_army(self) -> str:
         """The readable name of the army that plays - "Nains", "Orques" -, failing that its side."""
-        return self._names.get(self.active_side, self.active_side)
+        return self.army_of(self.active_side)
+
+    def army_of(self, side: str) -> str:
+        """The readable name of a side's army, whichever side plays.
+
+        Args:
+            side: `"alliance"` or `"tenebres"`.
+
+        Returns:
+            The set-up's name for that army - "Nains", "Orques" -, failing that the side itself.
+        """
+        return self._names.get(side, side)
 
     @property
     def label(self) -> str:

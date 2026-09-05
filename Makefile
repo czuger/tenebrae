@@ -35,7 +35,8 @@ test: mongo
 	MONGODB_URI_TEST=$(URI) python3 -m pytest $(ARGS)
 
 test-browser: mongo
-	MONGODB_URI_TEST=$(URI) python3 -m pytest tests/application/test_board_browser.py \
+	MONGODB_URI_TEST=$(URI) python3 -m pytest tests/application/test_games_browser.py \
+		tests/application/test_board_browser.py \
 		tests/application/test_map_fix_browser.py \
 		tests/application/test_scenarios_browser.py \
 		tests/application/test_resume_browser.py \

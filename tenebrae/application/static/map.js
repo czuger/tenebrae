@@ -65,16 +65,12 @@ const nextPhaseButton = document.getElementById("next-phase");
 
 const playerButton = document.getElementById("player");
 const messageArea = document.getElementById("message");
+const displacedArea = document.getElementById("displaced");
 const tableDialog = document.getElementById("table-dialog");
 const tableTitle = document.getElementById("table-title");
 const tableSeats = document.getElementById("table-seats");
 const leaveButton = document.getElementById("table-leave");
-const againstAIButton = document.getElementById("table-against-ai");
-const scenarioRow = document.getElementById("table-scenario");
-const scenarioChoice = document.getElementById("table-scenario-choice");
-
-// The nickname the server gives to the seat held by the AI (see `tenebrae/engine/ai.py`).
-const AI_NAME = "IA";
+const gamesButton = document.getElementById("table-games");
 
 // How long the counters of one fall-back wait between two of them, in milliseconds. The same half
 // second the AI waits between two of its own actions (`PAUSE_BETWEEN_AI_ACTIONS` in
@@ -86,6 +82,11 @@ const FALL_BACK_PAUSE = 500;
 function pause(delay) {
   return new Promise((over) => { setTimeout(over, delay); });
 }
+
+// Which saved game this page was served for. The server plays one at a time and several have an
+// address of their own: what the stream pushes says which, and a message carrying another one
+// means this page is no longer looking at its own game (see `checkTheGame`).
+const game = document.getElementById("game").value;
 
 let pieces = JSON.parse(document.getElementById("pieces").value);
 const grid = JSON.parse(document.getElementById("grid").value);
@@ -644,11 +645,20 @@ function removeThePiece(hexagon) {
   image.remove();
 }
 
+// The label is the server's, phase or end of game: a game that has been won shows how it ended
+// where the phase was (`current_phase`), and says as much through a class, the one thing the bar
+// ever has to shout.
+function showThePhaseLabel() {
+  phaseLabel.textContent = phase.label;
+  phaseLabel.classList.toggle("over", Boolean(phase.over));
+}
+
+
 function refreshThePhase(fresh) {
   trace.info("phase change", { from: phase?.label, to: fresh?.label, type: fresh?.type,
                                side: fresh?.side, number: fresh?.number });
   phase = fresh;
-  phaseLabel.textContent = phase.label;
+  showThePhaseLabel();
   clearTheGhosts();
   clearTheCombat();
   // A new combat phase starts again with all its units: the server sends empty lists, and the
@@ -837,10 +847,15 @@ function itIsMyTurn() {
 
 // A button that cannot be pressed goes off rather than returning a refusal. `#toolbar
 // button:disabled` is already styled by zoom.css: the dimming comes without one more line.
+// A game that has been won takes nothing more: the server refuses the move, the combat and the
+// phase change alike (`while_the_game_lasts`), and the two buttons say so beforehand rather than
+// let the player find out by being refused.
 function updatePlayerButtons() {
-  nextPhaseButton.disabled = !itIsMyTurn();
-  attackButton.disabled = !itIsMyTurn();
-  trace.trace("player buttons", { mine: itIsMyTurn(), sides: table.sides, active: phase.side });
+  const playable = itIsMyTurn() && !phase.over;
+  nextPhaseButton.disabled = !playable;
+  attackButton.disabled = !playable;
+  trace.trace("player buttons", { mine: itIsMyTurn(), over: Boolean(phase.over),
+                                  sides: table.sides, active: phase.side });
 }
 
 function updateAccountButton() {
@@ -904,50 +919,7 @@ function buildTheSeats() {
     tableSeats.appendChild(line);
   }
   leaveButton.hidden = table.sides.length === 0;
-  // Starting from scratch against the AI requires being seated, and the other side being there to
-  // give: free, or already held by the AI. A side held by a human is not there to give.
-  const opposing = Object.keys(table.armies).filter((side) => !table.sides.includes(side));
-  againstAIButton.hidden = table.sides.length === 0
-    || !opposing.every((side) => !table.seats[side] || table.seats[side] === AI_NAME);
-  trace.trace("dialog buttons", { leave: !leaveButton.hidden, againstAI: !againstAIButton.hidden,
-                                  opposing });
-}
-
-// The scenarios a new game may be opened on - those whose file does not disable them. Fetched at
-// every opening of the dialog rather than laid in the page: the list is the server's, as it stands
-// now, and the server checks it again when the game is asked for.
-async function fillTheScenarios(keepTheChoice) {
-  trace.enter("fillTheScenarios", { keepTheChoice });
-  scenarioRow.hidden = true;
-  if (againstAIButton.hidden) {
-    trace.trace("no scenario list: nothing can be started from here anyway");
-    return; // nothing can be started from here anyway
-  }
-  const answer = await trace.fetch("/game/scenarios").catch(() => null);
-  if (!answer || !answer.ok) {
-    trace.warn("the scenario list did not arrive", { status: answer?.status ?? null });
-    return;
-  }
-  const { scenarios, current } = await answer.json();
-  // The dialog is rebuilt at every move played, ours or the opponent's: a scenario picked a
-  // moment ago must survive that, or one could never pick anything while the other side plays.
-  const chosen = keepTheChoice ? scenarioChoice.value : "";
-  scenarioChoice.textContent = "";
-  for (const entry of scenarios) {
-    const option = document.createElement("option");
-    option.value = entry.number;
-    option.textContent = `n° ${entry.number} — ${entry.name}`;
-    scenarioChoice.appendChild(option);
-  }
-  // Failing a choice, the set-up being played is the proposal; it is not in the list when it has
-  // been disabled since, and the chooser then falls back on the first one still offered.
-  scenarioChoice.value = chosen || String(current);
-  if (!scenarioChoice.value && scenarios.length) {
-    scenarioChoice.value = String(scenarios[0].number);
-  }
-  scenarioRow.hidden = scenarios.length === 0;
-  trace.exit("fillTheScenarios", { offered: scenarios.length, current,
-                                   chosen: scenarioChoice.value });
+  trace.trace("dialog buttons", { leave: !leaveButton.hidden });
 }
 
 function openTheTable() {
@@ -956,8 +928,6 @@ function openTheTable() {
     ? `Vous jouez ${table.sides.map((side) => table.armies[side]).join(", ")}`
     : "Prenez place à un camp pour jouer";
   buildTheSeats();
-  // Already open: this is the rebuild that follows a move, not a player opening the dialog.
-  fillTheScenarios(tableDialog.open);
   tableDialog.showModal();
 }
 
@@ -998,35 +968,6 @@ async function leaveTheSeat() {
     return;
   }
   updateTheTable(await answer.json());
-}
-
-async function newGameAgainstAI() {
-  // No scenario chosen - the list has not arrived, or has nothing to offer - leaves the server on
-  // the set-up being played.
-  const chosen = scenarioRow.hidden ? null : Number(scenarioChoice.value);
-  trace.enter("newGameAgainstAI", { scenario: chosen, offered: !scenarioRow.hidden });
-  const answer = await trace.fetch("/game/new", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ against_ai: true, scenario: chosen }),
-  });
-  // A scenario withdrawn between the dialog opening and this click is refused here, and the
-  // player is told rather than left before an unchanged board.
-  if (!answer.ok) {
-    const { message } = await answer.json().catch(() => ({}));
-    trace.warn("the new game was refused", { status: answer.status, message });
-    report(message ?? "Nouvelle partie refusée.");
-    return;
-  }
-  const result = await answer.json();
-  trace.info("new game opened against the AI", { pieces: result.pieces.length,
-                                                 phase: result.phase.label });
-  // The answer carries the whole fresh game - and if the AI opened the scenario, its first turn is
-  // already played: the pieces arrive as it left them.
-  layThePiecesOut(result.pieces);
-  refreshThePhase(result.phase);
-  updateTheTable(result);
-  tableDialog.close();
 }
 
 async function logOut() {
@@ -1136,8 +1077,37 @@ let stream = null;
 let streamFailures = 0;
 let pollTimer = null;
 
+// Whether this page is still looking at the game it was served for.
+//
+// The server plays one game at a time and every game has an address: someone opening another one
+// takes the whole table with them, and what arrives here is then a board that is not ours. The
+// version says nothing about it - it counts the moves of the **process**, not of one game - so the
+// snapshot carries the identifier and we compare it.
+//
+// Once displaced, the page stops following rather than reloading onto its own game: reloading
+// would take the table back from whoever has just opened theirs, and two tabs would pull at it
+// forever. It says so and stops there.
+let displaced = false;
+
+function checkTheGame(state) {
+  if (displaced) return false;
+  if (state.game === game) return true;
+  trace.error("another game has been opened on the server", { ours: game, theirs: state.game });
+  displaced = true;
+  closeTheStream();
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  displacedArea.textContent = "Une autre partie a été ouverte sur ce serveur : "
+    + "cette page ne suit plus la sienne. Revenez à la liste des parties pour la rouvrir.";
+  displacedArea.hidden = false;
+  return false;
+}
+
 // Lay the scene out again, wherever the state comes from - the stream or the fallback poll.
 function resumeTheGame(state) {
+  if (!checkTheGame(state)) return;
   trace.info("state received", { from: version, to: state.version, pieces: state.pieces.length,
                                  phase: state.phase.label, logLines: state.log.length });
   version = state.version;
@@ -1214,6 +1184,9 @@ async function followTheGame() {
     return; // the server is restarting: we will retry in three seconds
   }
   const state = await answer.json();
+  // Checked **before** the "nothing has moved" shortcut: the version is the process's and the game
+  // under it may have been swapped without it rising a single step.
+  if (!checkTheGame(state)) return;
   version = state.version;
   if (!state.changed) {
     trace.trace("poll: nothing has moved", { version });
@@ -1276,7 +1249,7 @@ function start() {
                         connected: table.connected });
   placeThePieces();
   fixTheCardWidth();
-  phaseLabel.textContent = phase.label;
+  showThePhaseLabel();
   markTheUnavailable(phase.unavailable);
   refreshTheLog(logEntries);
   document.getElementById("next-phase").addEventListener("click", () => {
@@ -1312,9 +1285,9 @@ function start() {
     trace.info("\"quitter ma place\" clicked");
     leaveTheSeat();
   });
-  againstAIButton.addEventListener("click", () => {
-    trace.info("\"contre l'IA\" clicked");
-    newGameAgainstAI();
+  gamesButton.addEventListener("click", () => {
+    trace.info("\"les parties\" clicked");
+    location.href = "/";
   });
   document.getElementById("table-logout").addEventListener("click", logOut);
   document.getElementById("table-close").addEventListener("click", () => {

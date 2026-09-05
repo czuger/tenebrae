@@ -24,7 +24,7 @@ from tenebrae.engine.retreat import RetreatOutcome
 from tenebrae.engine.piece import CATALOGUE
 from tenebrae.application.stream import Broadcaster
 
-from tests.application.test_server import read_hidden_field
+from tests.application.test_server import read_hidden_field, the_board
 
 PLAIN = {"q": 1, "r": 26, "s": -27}
 NEIGHBOUR = {"q": 2, "r": 26, "s": -28}
@@ -97,7 +97,7 @@ def test_the_page_and_the_state_both_carry_the_log(client):
     """The page carries it so a tab opens with the game already told; `/game/state` carries it so
     the fallback poll keeps up with it."""
     battle_log.LOG.info("New game: scenario 4")
-    carried = read_hidden_field(client.get("/").get_data(as_text=True), "initial-log")
+    carried = read_hidden_field(the_board(client).get_data(as_text=True), "initial-log")
     assert "New game: scenario 4" in texts(carried)
 
     battle_log.LOG.info("Combat résolu : Défenseur Éliminé — dé 1, rapport 6-1")

@@ -1,9 +1,13 @@
-"""The scenario chooser in the table dialog, in Chromium: what it offers, and what it opens.
+"""Choosing the set-up on the landing page, in Chromium: what it offers, and what it opens.
 
-These tests require Chromium (`make browser`). The chooser is filled when the dialog opens, from
-`/game/scenarios` rather than from the page: that is what lets a scenario disabled in its file
-leave the list without a reload, and it is exercised here on a diverted directory - nothing writes
-into `tenebrae/scenarios/`.
+These tests require Chromium (`make browser`). The chooser used to sit in the board's table dialog
+and be fetched from `/game/scenarios` at every opening: the dialog could be hours old, and a set-up
+disabled meanwhile had to leave it without a reload. It is on the list of games now, and that page
+was served a moment ago - so the list is laid **in the page**, and the guard against a stale choice
+is the one that always did the work: `POST /game/new` reads the files again and refuses. What the
+browser has to show is that refusal.
+
+Everything runs on a diverted directory: nothing writes into `tenebrae/scenarios/`.
 """
 
 import json
@@ -15,7 +19,6 @@ from tenebrae.application import current_game
 from tenebrae.engine import scenario as engine_scenario
 from tenebrae.engine.scenario import scenario
 
-ALLIANCE = "alliance"
 WAR_OF_THE_DWARVES = 4
 REISSLAND = 6
 
@@ -55,24 +58,6 @@ def write_the_field(path, enabled):
     path.write_text(json.dumps(values, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def open_the_board(page, server):
-    """Loads the board logged in, and waits for the scene to be laid out."""
-    page.set_viewport_size({"width": 1400, "height": 900})
-    page.goto(f"{server}/login")
-    page.goto(server)
-    page.wait_for_function(
-        "document.querySelectorAll('img.piece').length === %d" % len(current_game.SCENARIO))
-    page.wait_for_function("document.getElementById('scale').textContent !== '—'")
-    return page
-
-
-def sit_down_at_the_alliance(page):
-    """Takes the Alliance seat through the dialog, as a player would, and closes it."""
-    page.locator("#player").click()
-    page.locator(f"#table-seats .side[data-side='{ALLIANCE}'] button").click()
-    page.wait_for_function("!document.getElementById('table-dialog').open")
-
-
 def on_file(directory, *withdrawn):
     """The numbers of the scenarios in that directory, in order, less those named.
 
@@ -84,73 +69,75 @@ def on_file(directory, *withdrawn):
             if int(path.name.split("-")[1]) not in withdrawn]
 
 
-def open_the_chooser(page):
-    """Reopens the table and waits for the chooser to have been filled from the server."""
-    page.locator("#player").click()
-    page.wait_for_function(
-        "!document.getElementById('table-scenario').hidden"
-        " && document.getElementById('table-scenario-choice').options.length > 0")
-    return page.locator("#table-scenario-choice")
+def open_the_list(page, server):
+    """Loads the list of games logged in, and waits for the form to have been filled."""
+    page.set_viewport_size({"width": 1400, "height": 900})
+    page.goto(f"{server}/login")  # the login lands on the list
+    page.wait_for_function("document.getElementById('new-scenario').options.length > 0")
+    return page
 
 
-def test_the_chooser_offers_the_scenarios_on_file(page, server, scenarios_directory):
-    open_the_board(page, server)
-    sit_down_at_the_alliance(page)
-    chooser = open_the_chooser(page)
-
-    assert chooser.evaluate("select => [...select.options].map((option) => Number(option.value))") \
-        == on_file(scenarios_directory)
-    # The set-up being played is the proposal.
-    assert chooser.input_value() == str(WAR_OF_THE_DWARVES)
+def chosen_numbers(page):
+    """The scenario numbers the form offers, in the order it offers them."""
+    return page.locator("#new-scenario").evaluate(
+        "select => [...select.options].map((option) => Number(option.value))")
 
 
-def test_a_player_without_a_seat_has_no_chooser(page, server, scenarios_directory):
-    """Nothing can be started from the dialog without a seat: the row stays out of it."""
-    open_the_board(page, server)
-    page.locator("#player").click()
-    assert page.locator("#table-scenario").is_hidden()
+def test_the_form_offers_the_scenarios_on_file(page, server, scenarios_directory):
+    open_the_list(page, server)
+
+    assert chosen_numbers(page) == on_file(scenarios_directory)
+    # The first on file is the proposal: there is no set-up "being played" on a page that plays
+    # nothing.
+    assert page.locator("#new-scenario").input_value() == str(WAR_OF_THE_DWARVES)
 
 
-def test_a_scenario_disabled_in_its_file_leaves_the_chooser(page, server, scenarios_directory):
-    """No reload: the list is fetched at every opening of the dialog."""
-    open_the_board(page, server)
-    sit_down_at_the_alliance(page)
-    assert open_the_chooser(page).locator("option").count() == len(on_file(scenarios_directory))
+def test_a_scenario_disabled_in_its_file_leaves_the_form(page, server, scenarios_directory):
+    """The page is served with the list, so a file changed since is honoured at the next load."""
+    open_the_list(page, server)
+    assert REISSLAND in chosen_numbers(page)
 
-    page.locator("#table-close").click()
     disable(scenarios_directory, REISSLAND)
+    open_the_list(page, server)
 
-    chooser = open_the_chooser(page)
-    assert chooser.locator("option").count() == len(on_file(scenarios_directory, REISSLAND))
-    assert chooser.input_value() == str(WAR_OF_THE_DWARVES)
+    assert chosen_numbers(page) == on_file(scenarios_directory, REISSLAND)
 
 
-def test_the_choice_survives_the_dialog_being_rebuilt(page, server, scenarios_directory):
-    """A move played while the dialog is open must not put the chooser back on the current one."""
-    open_the_board(page, server)
-    sit_down_at_the_alliance(page)
-    open_the_chooser(page).select_option(str(REISSLAND))
+def test_a_scenario_disabled_since_the_page_was_served_is_refused(page, server,
+                                                                  scenarios_directory):
+    """The page holds a list that has just gone stale; the server reads the files again and says
+    so, and the player is told rather than left before an unchanged list."""
+    open_the_list(page, server)
+    page.select_option("#new-scenario", str(REISSLAND))
 
-    # What a move arriving through the stream does: the table comes back as it stands, and the
-    # dialog is rebuilt around it. The refill is asynchronous - it goes to the server - so the
-    # assertion waits for the options to have been written again rather than firing at once.
-    page.evaluate("""
-        window.refilled = false;
-        new MutationObserver(() => { window.refilled = true; }).observe(
-          document.getElementById('table-scenario-choice'), { childList: true });
-        updateTheTable(table);
-    """)
-    page.wait_for_function("window.refilled")
-    assert page.locator("#table-scenario-choice").input_value() == str(REISSLAND)
+    disable(scenarios_directory, REISSLAND)
+    page.click("#new-game-submit")
+
+    page.wait_for_selector("#new-game-error:not([hidden])")
+    assert f"n° {REISSLAND}" in page.locator("#new-game-error").inner_text()
+
+
+def test_the_sides_offered_are_the_chosen_scenarios(page, server, scenarios_directory):
+    """Another set-up is another pair of armies: a side kept from the one before would be a side
+    the game has not."""
+    open_the_list(page, server)
+    page.select_option("#new-scenario", str(REISSLAND))
+
+    armies = {army["camp"]: army["armee"] for army in scenario(REISSLAND).armies}
+    sides = page.locator("#new-side")
+    assert sides.evaluate(
+        "select => [...select.options].map((option) => option.value)") == list(armies)
+    assert sides.evaluate(
+        "select => [...select.options].map((option) => option.textContent)") \
+        == list(armies.values())
 
 
 def test_the_chosen_scenario_is_the_one_laid_out(page, server, scenarios_directory):
-    open_the_board(page, server)
-    sit_down_at_the_alliance(page)
-    open_the_chooser(page).select_option(str(REISSLAND))
+    open_the_list(page, server)
+    page.select_option("#new-scenario", str(REISSLAND))
 
-    page.locator("#table-against-ai").click()
-    page.wait_for_function("!document.getElementById('table-dialog').open")
+    page.click("#new-game-submit")
+    page.wait_for_url(f"{server}/game/*")
 
     assert current_game.SCENARIO_NUMBER == REISSLAND
     page.wait_for_function("document.querySelectorAll('img.piece').length > 0")

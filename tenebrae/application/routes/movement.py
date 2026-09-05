@@ -11,7 +11,8 @@ from flask import Blueprint, request
 from flask.typing import ResponseReturnValue
 
 from tenebrae.application.current_game import BOARD, TURN, save_the_game
-from tenebrae.application.routes.authorization import active_side_required
+from tenebrae.application.routes.authorization import (active_side_required,
+                                                       while_the_game_lasts)
 from tenebrae.application.routes.reading import read_a_hexagon, read_a_piece
 from tenebrae.engine.hexagon import Hex
 from tenebrae.engine.piece import Piece
@@ -37,6 +38,7 @@ def moves() -> ResponseReturnValue:
 
 @blueprint.route("/move", methods=["POST"])
 @active_side_required
+@while_the_game_lasts
 def move() -> ResponseReturnValue:
     """Moves a unit from `origin` to `destination`, if the rules allow it.
 

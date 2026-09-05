@@ -17,6 +17,7 @@ French, as they are in `tenebrae/game_box/`.
 | `combat_register.py` | the register of one combat per unit and per target, per phase (`CombatRegister`) |
 | `retreat.py` | what becomes of a unit a combat forces to fall back: the chain of pushes, or its elimination |
 | `casualties.py` | the units removed from play, kept for the count at the end of the game (`Casualties`) |
+| `victory.py` | who has been annihilated: the booklet's first victory condition, counted |
 | `ai.py` | the artificial opponent: the side the server plays on its own |
 | `models/` | the game entities, one file per model: `Game`, `Player`, `Seats` |
 | `repositories/` | their database access, one module per subject: `game.py`, `player.py` |
@@ -64,7 +65,7 @@ state dicts — never a document.
 
 | Repository | File | Role |
 | --- | --- | --- |
-| `MongoGameRepository` | `repositories/game.py` | the most recent game prevails; the previous ones stay in base |
+| `MongoGameRepository` | `repositories/game.py` | one document per game, each played and saved by its own identifier; `games()` lists them, `load(id)` reads one, `save(id, state)` writes into that one and no other |
 | `MongoPlayerRepository` | `repositories/player.py` | one document per known Discord account |
 
 It is `create_app` that hooks them onto the application — and the routes know nothing of MongoDB.
@@ -588,6 +589,30 @@ anything, or knows who is watching. Omit them and the AI plays exactly the same 
 On the application's side, the AI occupies its seat under the `AI_PLAYER` sentinel (`"ia"`, which
 no Discord identifier — strings of digits — can carry) and is displayed under `AI_NAME`. The
 engine, for its part, knows nothing of this: `play_turn` plays the active side, whichever it is.
+
+## The end of a game — `victory.py`
+
+```python
+
+from tenebrae.engine import victory
+
+victory.annihilated_sides(board, ("alliance", "tenebres"))   # → ["tenebres"]
+```
+
+The booklet's "Object of the game": *"To crush the opponent by annihilating their troops; or else
+to fulfil the scenario's victory conditions."* The second half is out of reach — the conditions
+differ from scenario to scenario, several count ground held or a capital taken, and none is
+transcribed — so what is held here is the first, which every scenario shares: **a side with no unit
+left on the board has been crushed.**
+
+`troops_of` lists the squares where a side still has a unit, and `annihilated_sides` names those,
+among the sides a set-up fields, that have none. Troops, not pieces: a marker left on the map is
+neutral and fights nobody, and a counter with nothing printed on it is not a unit (`Piece.is_a_unit`)
+— a side can be annihilated with its markers still lying about.
+
+**The module counts; it does not decide.** A board carrying no unit of either side is an empty
+table as much as a mutual annihilation, and only the caller knows which: it is the application that
+holds whether a game is being played at all (`A_GAME_IS_ON` in `current_game.py`).
 
 ## Caveats on the interpretation
 

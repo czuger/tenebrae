@@ -20,8 +20,18 @@ def isolated_board(deserted_map):
 
     The server's board survives from one request to the next: without this cleanup, the
     scenario's forty-eight units would stay under the next test's feet. Tests that want a
-    populated board load "/" themselves.
+    populated board call `the_board` themselves.
     """
+
+
+def the_board(client):
+    """Loads the board through "/game", the entry that needs no identifier.
+
+    "/" is the list of saved games; "/game" is the last one played, laid out afresh where there is
+    none, and it **redirects** to that game's own address - one game, one URL - which is why the
+    redirect is followed here. Every test that wants a board on the server goes through this.
+    """
+    return client.get("/game", follow_redirects=True)
 
 
 def read_hidden_field(page, identifier):
@@ -36,7 +46,7 @@ def read_hidden_field(page, identifier):
 
 def test_the_page_carries_both_armies_of_the_scenario(client):
     """Scenario no. 4 puts 18 dwarves against 30 orcs: the page carries them all."""
-    pieces = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
+    pieces = read_hidden_field(the_board(client).get_data(as_text=True), "pieces")
     assert len(pieces) == len(current_game.SCENARIO) == 48
     sides = [piece["side"] for piece in pieces]
     assert sides.count(ALLIANCE) == 18
@@ -53,7 +63,7 @@ def test_the_page_places_each_piece_on_the_scenarios_square(client):
     that the server decomposes each key into a **cube** triple, since it is that triple, and not
     the key, that the browser places.
     """
-    pieces = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
+    pieces = read_hidden_field(the_board(client).get_data(as_text=True), "pieces")
     placed = {f"{piece['q']},{piece['r']},{piece['s']}": piece["key"] for piece in pieces}
     assert placed == current_game.SCENARIO.placement
     for piece in pieces:
@@ -66,7 +76,7 @@ def test_each_placed_piece_carries_its_tilt(client):
     It is the server that draws it, when placing, and that keeps it - without which the piece
     would lie down differently every time the page lays the scene out again.
     """
-    pieces = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
+    pieces = read_hidden_field(the_board(client).get_data(as_text=True), "pieces")
     for piece in pieces:
         assert isinstance(piece["tilt"], float)
         assert abs(piece["tilt"]) <= MAXIMUM_TILT
@@ -80,7 +90,7 @@ def test_each_placed_piece_carries_its_counter_values(client):
     the raw value that `pions.json` sometimes leaves empty. The side is here too: it is read off
     the counter's faction like the rest, and has no reason to be walked over separately.
     """
-    pieces = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
+    pieces = read_hidden_field(the_board(client).get_data(as_text=True), "pieces")
     for piece in pieces:
         assert piece["key"] in CATALOGUE
         placed = CATALOGUE[piece["key"]]
@@ -107,7 +117,7 @@ def test_the_counter_values_are_those_read_off_the_photographs(client):
     crossbowmen carry the firing pair instead, and the orc infantry carries none.
     """
     pieces = {piece["key"]: piece
-              for piece in read_hidden_field(client.get("/").get_data(as_text=True), "pieces")}
+              for piece in read_hidden_field(the_board(client).get_data(as_text=True), "pieces")}
 
     crossbowmen = pieces["nains-03-4-arbaletriers-lourds"]
     assert (crossbowmen["strength"], crossbowmen["fire"], crossbowmen["range"]) == (8, 5, 2)
@@ -120,7 +130,7 @@ def test_the_counter_values_are_those_read_off_the_photographs(client):
 
 def test_the_set_up_populates_the_servers_board(client):
     """The server keeps what it has placed: that is where the zones of control come from."""
-    pieces = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
+    pieces = read_hidden_field(the_board(client).get_data(as_text=True), "pieces")
     assert len(current_game.BOARD) == len(pieces)
     for piece in pieces:
         placed = current_game.BOARD.piece_on(Hex(piece["q"], piece["r"], piece["s"]))
@@ -130,11 +140,11 @@ def test_the_set_up_populates_the_servers_board(client):
 def test_reloading_the_page_puts_the_pieces_back(client):
     """A move the base never saw is undone by a reload: "/" resumes the saved game, not memory."""
     origin = Hex.from_key(next(iter(current_game.SCENARIO.placement)))
-    client.get("/")
+    the_board(client)
     destination = current_game.BOARD.moves(origin)[0]
     assert current_game.BOARD.move(origin, destination)
 
-    client.get("/")
+    the_board(client)
     assert current_game.BOARD.piece_on(destination) is None
     assert current_game.BOARD.pieces.keys() == current_game.SCENARIO.placement.keys()
 
@@ -149,13 +159,13 @@ def test_the_catalogues_movements_are_those_of_the_counters():
 
 
 def test_the_piece_images_exist(client):
-    pieces = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
+    pieces = read_hidden_field(the_board(client).get_data(as_text=True), "pieces")
     for piece in pieces:
         assert client.get(f"/pieces/{piece['image']}").status_code == 200
 
 
 def test_the_grid_alignment_is_transmitted(client):
-    grid = read_hidden_field(client.get("/").get_data(as_text=True), "grid")
+    grid = read_hidden_field(the_board(client).get_data(as_text=True), "grid")
     assert grid["origin"] == GRID_ORIGIN
     assert grid["matrix"] == GRID_MATRIX
     assert grid["piece_size"] == PIECE_SIZE
@@ -167,8 +177,8 @@ def test_the_set_up_does_not_change_from_one_load_to_the_next(client):
     Tilts included: the second load resumes the game the first one saved, and finds the counters
     lying as it left them (see `test_persistence.py` for what happens across a restart).
     """
-    first = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
-    second = read_hidden_field(client.get("/").get_data(as_text=True), "pieces")
+    first = read_hidden_field(the_board(client).get_data(as_text=True), "pieces")
+    second = read_hidden_field(the_board(client).get_data(as_text=True), "pieces")
     assert first == second
 
 
@@ -410,10 +420,11 @@ ARCHER = "yzent-03-8-archers"          # darkness, strength 2, fire 4, range 3
 
 
 def test_the_page_carries_the_current_phase(client):
-    phase = read_hidden_field(client.get("/").get_data(as_text=True), "phase")
+    phase = read_hidden_field(the_board(client).get_data(as_text=True), "phase")
     assert phase == {"side": ALLIANCE, "type": "mouvement", "army": "Nains",
                      "label": "Phase de mouvement — Nains", "number": 1,
-                     "unavailable": {"attackers": [], "targets": []}}
+                     "unavailable": {"attackers": [], "targets": []},
+                     "over": False, "winner": None}
 
 
 def test_next_phase_skips_magic_and_alternates_the_players(client):
@@ -718,7 +729,7 @@ def test_the_unavailable_are_told_to_the_browser(combat_phase):
 
 
 def test_the_state_returns_the_game_to_whoever_knows_no_version(client):
-    client.get("/")
+    the_board(client)
     answer = client.get("/game/state").json
     assert answer["changed"] is True
     assert len(answer["pieces"]) == len(current_game.SCENARIO)
@@ -726,14 +737,16 @@ def test_the_state_returns_the_game_to_whoever_knows_no_version(client):
 
 
 def test_the_state_returns_only_the_number_while_nothing_moves(client):
-    client.get("/")
+    """And the game it is the state of: the version counts the moves of the process, not of one
+    game, so a tab whose game was swapped out under it would otherwise read "nothing has moved"."""
+    the_board(client)
     version = client.get("/game/state").json["version"]
     answer = client.get("/game/state", query_string={"version": version}).json
-    assert answer == {"version": version, "changed": False}
+    assert answer == {"game": current_game.GAME_ID, "version": version, "changed": False}
 
 
 def test_a_move_played_raises_the_version(client):
-    client.get("/")
+    the_board(client)
     version = client.get("/game/state").json["version"]
     client.post("/phase/next")
     assert client.get("/game/state").json["version"] > version
@@ -741,7 +754,7 @@ def test_a_move_played_raises_the_version(client):
 
 def test_the_state_tells_the_phase_the_opponent_reached(client):
     """The use case: the other has passed their phase, and the page learns it without reloading."""
-    client.get("/")
+    the_board(client)
     version = client.get("/game/state").json["version"]
     client.post("/phase/next")
 
@@ -752,7 +765,7 @@ def test_the_state_tells_the_phase_the_opponent_reached(client):
 
 
 def test_a_move_shows_in_the_state(client, deserted_map):
-    client.get("/")
+    the_board(client)
     origin = Hex.from_key(next(iter(current_game.SCENARIO.placement)))
     destination = current_game.BOARD.moves(origin)[0]
     version = client.get("/game/state").json["version"]
@@ -773,7 +786,7 @@ def test_the_state_returns_the_same_tilts_every_time(client):
     The browser lays the scene out again at every version change; if the angle were redrawn at
     every send, every counter would spin under the player's eyes at each move played opposite.
     """
-    client.get("/")
+    the_board(client)
     first = client.get("/game/state").json["pieces"]
     client.post("/phase/next")
     second = client.get("/game/state").json["pieces"]
@@ -781,7 +794,7 @@ def test_the_state_returns_the_same_tilts_every_time(client):
 
 
 def test_only_the_moved_piece_changes_tilt_in_the_state(client):
-    client.get("/")
+    the_board(client)
     origin = Hex.from_key(next(iter(current_game.SCENARIO.placement)))
     destination = current_game.BOARD.moves(origin)[0]
     before = {(piece["q"], piece["r"], piece["s"]): piece["tilt"]
@@ -803,6 +816,6 @@ def test_the_state_is_public(anonymous_client):
 
 
 def test_the_state_says_who_holds_which_side(client):
-    client.get("/")
+    the_board(client)
     table = client.get("/game/state").json["table"]
     assert table["seats"] == {side: "Joueuse d'essai" for side in current_game.SCENARIO.sides}

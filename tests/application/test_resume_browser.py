@@ -41,7 +41,7 @@ def open_the_board(page, address):
     """
     if not page.context.cookies():
         page.goto(f"{address}/login")
-    page.goto(address)
+    page.goto(f"{address}/game")
     page.wait_for_function(
         "document.querySelectorAll('img.piece').length === %d" % len(current_game.SCENARIO))
     page.wait_for_function(

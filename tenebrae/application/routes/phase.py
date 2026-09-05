@@ -11,7 +11,8 @@ from flask.typing import ResponseReturnValue
 from tenebrae.application.current_game import (REGISTER, TURN, current_phase, let_the_ai_play,
                                                save_the_game)
 from tenebrae.application.logs.battle_log import LOG
-from tenebrae.application.routes.authorization import active_side_required
+from tenebrae.application.routes.authorization import (active_side_required,
+                                                       while_the_game_lasts)
 
 blueprint = Blueprint("phase", __name__)
 
@@ -28,6 +29,7 @@ def phase() -> ResponseReturnValue:
 
 @blueprint.route("/phase/next", methods=["POST"])
 @active_side_required
+@while_the_game_lasts
 def next_phase() -> ResponseReturnValue:
     """Steps to the next phase; magic is stepped over by itself, the combat register emptied.
 

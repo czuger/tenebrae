@@ -31,10 +31,14 @@ def views(application):
 
 @pytest.fixture
 def board(page, server, application, seat_the_player, views):
-    """Opens the page logged in, and waits for the map to be laid out and the zoom mounted."""
+    """Opens the page logged in, and waits for the map to be laid out and the zoom mounted.
+
+    The login lands on the list of games, so the board is asked for by name.
+    """
     seat_the_player(application)
     page.set_viewport_size({"width": 1400, "height": 900})
     page.goto(f"{server}/login")
+    page.goto(f"{server}/game")
     wait_for_the_map(page)
     return page
 
@@ -118,7 +122,7 @@ def test_scrolling_stores_the_view(board, views):
 def test_an_anonymous_visitor_stores_nothing(page, server, views):
     """The map is public, but a passing visitor has nowhere to store it."""
     page.set_viewport_size({"width": 1400, "height": 900})
-    page.goto(f"{server}/")
+    page.goto(f"{server}/game")
     wait_for_the_map(page)
     zoom_in(page)
     page.wait_for_timeout(int(PATIENCE * 200))
@@ -136,7 +140,7 @@ def test_the_zoom_and_the_position_survive_a_reload(board, server, views):
     board.evaluate("() => document.getElementById('frame').scrollBy(500, 300)")
     before = wait_for_the_view(views, lambda view: view["x"] != zoomed["x"])
 
-    board.goto(f"{server}/")
+    board.goto(f"{server}/game")
     wait_for_the_map(board)
 
     after = read_view(board)
@@ -154,7 +158,7 @@ def test_a_fitted_view_is_found_fitted_again(board, server, views):
     wait_for_the_view(views, lambda view: view["fitted"])
 
     board.set_viewport_size({"width": 900, "height": 700})
-    board.goto(f"{server}/")
+    board.goto(f"{server}/game")
     wait_for_the_map(board)
 
     after = read_view(board)

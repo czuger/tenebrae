@@ -17,7 +17,7 @@ from tenebrae.engine.models.player import Player
 from tenebrae.engine.phase import COMBAT, MOVEMENT
 from tenebrae.engine.piece import CATALOGUE
 
-from tests.application.test_server import read_hidden_field
+from tests.application.test_server import read_hidden_field, the_board
 
 # The same squares and the same counters as test_server.py: two neighbouring plains, a dwarf of
 # strength 12 and an orc of strength 8 - enough to fight a combat leaving nothing to chance.
@@ -48,7 +48,7 @@ def place(hexagon, key):
 
 class TestOpeningTheGame:
     def test_the_first_load_writes_the_set_up_and_the_next_resumes_it(self, client):
-        client.get("/")
+        the_board(client)
         assert Game.objects.count() == 1
         game = Game.objects.first()
         assert game.scenario == current_game.SCENARIO_NUMBER
@@ -59,14 +59,14 @@ class TestOpeningTheGame:
         assert game.created_at is not None and game.updated_at is not None
 
         # And loading again resumes that one rather than opening a second.
-        client.get("/")
+        the_board(client)
         assert Game.objects.count() == 1
 
 
 class TestResumingTheGame:
     def test_a_move_is_resumed_after_a_restart(self, client):
         """The heart of persistence: the piece is found at its destination, not at its origin."""
-        client.get("/")
+        the_board(client)
         origin = Hex.from_key(next(iter(current_game.SCENARIO.placement)))
         destination = current_game.BOARD.moves(origin)[0]
         answer = client.post("/move", json={
@@ -77,14 +77,14 @@ class TestResumingTheGame:
         # The server restarts: memory is empty, only the base knows where the game stood.
         current_game.BOARD.clear()
         current_game.TURN.restart()
-        client.get("/")
+        the_board(client)
 
         assert current_game.BOARD.piece_on(origin) is None
         assert current_game.BOARD.piece_on(destination) is not None
         assert dict(Game.objects.first().placement)[destination.key] is not None
 
     def test_a_refused_move_does_not_touch_the_saved_game(self, client):
-        client.get("/")
+        the_board(client)
         before = dict(Game.objects.first().placement)
         origin = Hex.from_key(next(iter(current_game.SCENARIO.placement)))
         # A square at the other end of the map: out of reach, the move is refused.
@@ -96,12 +96,12 @@ class TestResumingTheGame:
         assert dict(Game.objects.first().placement) == before
 
     def test_the_phase_is_resumed(self, client):
-        client.get("/")
+        the_board(client)
         client.post("/phase/next")
         assert Game.objects.first().phase_type == COMBAT
 
         current_game.TURN.restart()
-        client.get("/")
+        the_board(client)
         assert current_game.TURN.phase_type == COMBAT
 
     def test_a_saved_game_whose_scenario_has_no_file_is_discarded(self, client):
@@ -110,9 +110,9 @@ class TestResumingTheGame:
         A save on a scenario still on file is resumed on that scenario instead - the server puts
         itself back on it (see `test_scenario_choice.py`).
         """
-        client.get("/")
+        the_board(client)
         Game.objects.update(set__scenario=99)
-        client.get("/")
+        the_board(client)
         assert Game.objects.count() == 2
         assert Game.objects.first().scenario == current_game.SCENARIO_NUMBER
 
@@ -120,7 +120,7 @@ class TestResumingTheGame:
 class TestPersistedCombat:
     def test_an_eliminated_unit_does_not_come_back(self, client, monkeypatch):
         monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
-        client.get("/")
+        the_board(client)
         current_game.BOARD.clear()
         place(PLAIN, DWARF)      # strength 12
         place(NEIGHBOUR, ORC)    # strength 8
@@ -139,7 +139,7 @@ class TestPersistedCombat:
         """The target falls back: it is the square it **reached** that is saved as engaged, or it
         could be attacked again this phase from its new square."""
         monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
-        client.get("/")
+        the_board(client)
         current_game.BOARD.clear()
         place(PLAIN, DWARF)
         place(NEIGHBOUR, ORC)   # ratio 1-1, die 1 -> DR: the orc falls back one square
@@ -154,7 +154,7 @@ class TestPersistedCombat:
         assert game.engaged_targets == [fallen_back.key]
 
         current_game.REGISTER.reset()
-        client.get("/")
+        the_board(client)
         assert not current_game.REGISTER.can_attack(Hex(**PLAIN).key)
         assert not current_game.REGISTER.can_be_targeted(fallen_back.key)
 
@@ -162,7 +162,7 @@ class TestPersistedCombat:
         """The booklet counts the eliminated units at the end of the game: they must survive a
         restart, like the board and the turn."""
         monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
-        client.get("/")
+        the_board(client)
         current_game.BOARD.clear()
         place(PLAIN, DWARF)       # strength 12
         place(NEIGHBOUR, ARCHER)  # strength 2 -> ratio 6-1, die 1 -> DE
@@ -176,33 +176,33 @@ class TestPersistedCombat:
         assert (saved[0].side, saved[0].taken_by) == ("tenebres", "alliance")
 
         current_game.CASUALTIES.reset()
-        client.get("/")
+        the_board(client)
         assert current_game.CASUALTIES.points_taken_by("alliance") == 2
 
     def test_a_game_saved_before_the_fallen_were_kept_is_still_resumed(self, client):
         """The field did not exist: an old game reads back with an empty register."""
-        client.get("/")
+        the_board(client)
         game = Game.objects.first()
         game.casualties = []
         game.save()
 
-        client.get("/")
+        the_board(client)
         assert len(current_game.CASUALTIES) == 0
 
     def test_an_emptied_board_is_still_saved(self, client):
         """Nothing left standing is a game state like any other: the save must not refuse it."""
-        client.get("/")
+        the_board(client)
         current_game.BOARD.clear()
         assert client.post("/phase/next").status_code == 200
         assert dict(Game.objects.first().placement) == {}
 
         current_game.BOARD.clear()
-        client.get("/")
+        the_board(client)
         assert current_game.BOARD.pieces == {}
 
     def test_changing_phase_empties_the_register_in_base(self, client, monkeypatch):
         monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
-        client.get("/")
+        the_board(client)
         current_game.BOARD.clear()
         place(PLAIN, DWARF)
         place(NEIGHBOUR, ORC)
@@ -215,7 +215,7 @@ class TestPersistedCombat:
 
 class TestNewGame:
     def test_it_lays_the_scenario_out_again_and_opens_a_second_document(self, client):
-        client.get("/")
+        the_board(client)
         origin = Hex.from_key(next(iter(current_game.SCENARIO.placement)))
         destination = current_game.BOARD.moves(origin)[0]
         client.post("/move", json={
@@ -223,12 +223,13 @@ class TestNewGame:
             "piece": current_game.BOARD.piece_on(origin).key})
 
         answer = client.post("/game/new").json
-        assert len(answer["pieces"]) == len(current_game.SCENARIO)
-        assert answer["phase"]["type"] == MOVEMENT
+        assert answer["url"] == f"/game/{answer['id']}"
+        assert current_game.BOARD.to_dict() == current_game.SCENARIO.placement
+        assert current_game.TURN.phase_type == MOVEMENT
         assert Game.objects.count() == 2
-        # The most recent is the one just opened, and "/" resumes that one.
+        # The most recent is the one just opened, and "/game" resumes that one.
         assert dict(Game.objects.first().placement) == current_game.SCENARIO.placement
-        client.get("/")
+        the_board(client)
         assert current_game.BOARD.piece_on(origin) is not None
 
     def test_two_games_of_the_same_second_stay_in_order(self, client):
@@ -237,7 +238,7 @@ class TestNewGame:
         Without the identifier as a second criterion, "start again" then reload could resume the
         game one had just abandoned.
         """
-        client.get("/")
+        the_board(client)
         origin = Hex.from_key(next(iter(current_game.SCENARIO.placement)))
         destination = current_game.BOARD.moves(origin)[0]
         client.post("/move", json={
@@ -266,7 +267,7 @@ class TestRepository:
             current_game.BOARD.clear()
             current_game.TURN.restart()
             current_game.REGISTER.reset()
-            current_game.restore_the_game(state)
+            current_game.restore_the_game("a-game-of-no-consequence-here", state)
 
             assert current_game.snapshot_the_game() == state
 
@@ -274,8 +275,8 @@ class TestRepository:
         with application.test_request_context():
             place(PLAIN, DWARF)
             state = current_game.snapshot_the_game()
-            persistence.game_repository().save(state)
-            assert persistence.game_repository().load() == state
+            identifier = persistence.game_repository().save(None, state)
+            assert persistence.game_repository().load(identifier) == state
 
     def test_loading_finds_nothing_in_an_empty_base(self, application):
         with application.test_request_context():
@@ -288,24 +289,24 @@ class TestPersistedSeats:
     def test_the_seats_are_written_with_the_game_and_resumed_with_it(self, client):
         # The fixture seats the test player at both sides; we rebuild the table with two.
         current_game.SEATS.clear().seat("alliance", DWARF_PLAYER).seat("tenebres", ORC_PLAYER)
-        client.get("/")
+        the_board(client)
         assert dict(Game.objects.first().seats) == {"alliance": DWARF_PLAYER,
                                                     "tenebres": ORC_PLAYER}
 
         # The server restarts: the table in memory is lifted, only the base knows it.
         current_game.SEATS.clear()
-        client.get("/")
+        the_board(client)
 
         assert current_game.SEATS.occupant("alliance") == DWARF_PLAYER
         assert current_game.SEATS.occupant("tenebres") == ORC_PLAYER
 
     def test_a_game_saved_without_seats_stays_resumable(self, client):
         """Games from before players existed have no `seats` field: the table is empty."""
-        client.get("/")
+        the_board(client)
         Game.objects.update(unset__seats=1)
         current_game.SEATS.clear().seat("alliance", DWARF_PLAYER)
 
-        client.get("/")
+        the_board(client)
 
         assert current_game.SEATS.is_free("alliance")
 
@@ -333,7 +334,7 @@ class TestPersistedTilts:
     """
 
     def test_the_tilts_are_written_with_the_game_and_resumed_with_it(self, client):
-        client.get("/")
+        the_board(client)
         tilts = dict(Game.objects.first().tilts)
         assert set(tilts) == set(current_game.SCENARIO.placement)
         assert tilts == current_game.BOARD.tilts
@@ -343,7 +344,7 @@ class TestPersistedTilts:
         # The server restarts: memory is empty, only the base knows how the pieces were lying.
         current_game.BOARD.clear()
         current_game.TURN.restart()
-        client.get("/")
+        the_board(client)
 
         assert current_game.BOARD.tilts == before
 
@@ -353,14 +354,14 @@ class TestPersistedTilts:
         It is the `/game/state` poll that gives the browser the pieces to lay out again; it is
         played here twice in a row, around a load of "/" that rereads the saved game.
         """
-        client.get("/")
+        the_board(client)
         first = client.get("/game/state").json["pieces"]
-        client.get("/")
+        the_board(client)
         second = client.get("/game/state").json["pieces"]
         assert [piece["tilt"] for piece in second] == [piece["tilt"] for piece in first]
 
     def test_a_move_writes_the_new_tilt(self, client):
-        client.get("/")
+        the_board(client)
         origin = Hex.from_key(next(iter(current_game.SCENARIO.placement)))
         destination = current_game.BOARD.moves(origin)[0]
         before = current_game.BOARD.tilt_on(origin)
@@ -380,11 +381,11 @@ class TestPersistedTilts:
         They resume all the same: the board draws the angles it lacks, and the first move played
         writes them. They are fixed from then on.
         """
-        client.get("/")
+        the_board(client)
         Game.objects.update(unset__tilts=1)
         current_game.BOARD.clear()
 
-        client.get("/")
+        the_board(client)
         resumed = current_game.BOARD.tilts
         assert set(resumed) == set(current_game.SCENARIO.placement)
 
@@ -392,7 +393,7 @@ class TestPersistedTilts:
         assert dict(Game.objects.first().tilts) == resumed
 
         current_game.BOARD.clear()
-        client.get("/")
+        the_board(client)
         assert current_game.BOARD.tilts == resumed
 
 
@@ -412,7 +413,7 @@ class TestPersistedGameAgainstTheAI:
         current_game.SEATS.clear()
         current_game.BOARD.clear()
         current_game.TURN.restart()
-        client.get("/")
+        the_board(client)
 
         assert current_game.SEATS.occupant("tenebres") == ai.AI_PLAYER
 
@@ -438,7 +439,7 @@ class TestPersistedView:
     def test_the_view_is_resumed_after_a_restart(self, client):
         """That is the requirement: only the base knows where the player was."""
         client.post("/view", json=self.VIEW)
-        assert read_hidden_field(client.get("/").get_data(as_text=True), "view") == self.VIEW
+        assert read_hidden_field(the_board(client).get_data(as_text=True), "view") == self.VIEW
 
     def test_a_second_adjustment_does_not_create_a_second_document(self, client):
         """No zoom history is kept: one document per player."""
@@ -454,14 +455,14 @@ class TestWhatMongoStores:
     def test_the_squares_pass_into_base_as_they_are(self, client):
         """The placement keys are Mongo document keys - "1,26,-27", commas and minus signs, where
         Mongo refuses a leading dot or dollar: they must be admitted there."""
-        client.get("/")
+        the_board(client)
         placement = dict(Game.objects.first().placement)
         assert placement == current_game.SCENARIO.placement
         assert all("," in square for square in placement)
         assert any(square.count("-") for square in placement)
 
     def test_the_dates_come_back_readable(self, client):
-        client.get("/")
+        the_board(client)
         game = Game.objects.first()
         assert game.created_at is not None
         assert game.updated_at >= game.created_at

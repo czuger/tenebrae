@@ -173,8 +173,7 @@ def open_the_board(page, server, application, seat_the_player, query=""):
     seat_the_player(application)
     page.set_viewport_size({"width": 1400, "height": 900})
     page.goto(f"{server}/login")
-    if query:
-        page.goto(f"{server}/{query}")
+    page.goto(f"{server}/game{query}")
     wait_for_the_counters(page)
     return page
 
@@ -695,7 +694,7 @@ def test_the_address_is_remembered_like_the_button(page, server, application, se
     board.wait_for_function(
         "() => document.getElementById('pawn-style').getAttribute('aria-pressed') === 'true'")
 
-    board.goto(server)
+    board.goto(f"{server}/game")
     wait_for_the_counters(board)
     board.wait_for_function(
         "() => document.getElementById('pawn-style').getAttribute('aria-pressed') === 'true'")
@@ -707,7 +706,7 @@ def test_the_address_puts_the_counters_back(page, server, application, seat_the_
     board.wait_for_function(
         "() => document.getElementById('pawn-style').getAttribute('aria-pressed') === 'true'")
 
-    board.goto(f"{server}/?icons=0")
+    board.goto(f"{server}/game?icons=0")
     wait_for_the_counters(board)
     assert announced_face(board) == "false"
     assert all(pawn["photograph"] for pawn in pawn_faces(board))
@@ -717,7 +716,7 @@ def test_an_address_that_says_nothing_leaves_the_stored_choice(board, server):
     """The parameter decides when it is there, and only then."""
     swap_the_face(board)
 
-    board.goto(server)
+    board.goto(f"{server}/game")
     wait_for_the_counters(board)
     board.wait_for_function(
         "() => document.getElementById('pawn-style').getAttribute('aria-pressed') === 'true'")

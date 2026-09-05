@@ -2,9 +2,11 @@
 
 The map stays public, but everything that changes the state requires being logged in and holding
 the side whose phase it is: that is what `login_required`, `seat_required` and
-`active_side_required` set out. `administrator_required` reserves the administration pages -
-fixing the map, composing a scenario - to the accounts in `ADMIN_DISCORD_IDS`. Each refusal is a
-French message, with the status the browser reads: 401 for the anonymous, 403 for everyone else.
+`active_side_required` set out. `while_the_game_lasts` closes the same routes once one side has
+been annihilated - a game that is over takes no more moves. `administrator_required` reserves the
+administration pages - fixing the map, composing a scenario - to the accounts in
+`ADMIN_DISCORD_IDS`. Each refusal is a French message, with the status the browser reads: 401 for
+the anonymous, 403 for everyone else.
 """
 
 from collections.abc import Callable
@@ -12,6 +14,7 @@ from functools import wraps
 
 from flask.typing import ResponseReturnValue
 
+import tenebrae.application.current_game as current_game
 from tenebrae.application.current_game import SEATS, TURN
 from tenebrae.application.players import current_player, is_administrator, logged_in_player
 
@@ -99,5 +102,31 @@ def administrator_required(view: RouteFunction) -> RouteFunction:
             return {"allowed": False,
                     "message": "Cette page d'administration demande un compte déclaré dans "
                                "ADMIN_DISCORD_IDS."}, 403
+        return view(*args, **kwargs)
+    return wrapper
+
+
+def while_the_game_lasts(view: RouteFunction) -> RouteFunction:
+    """Refuses the route once the game has been won.
+
+    A game ends when a combat leaves a side without a single unit ("Object of the game": "to crush
+    the opponent by annihilating their troops"). Nothing is played on it afterwards - no move, no
+    combat, no phase change - until a set-up is laid out again, which `POST /game/new` does and
+    which this guard does not stand in the way of.
+
+    `GAME_IS_OVER` is read from the module at call time, not imported by name: it is rebound at the
+    end of a game and again at the opening of the next one.
+
+    Args:
+        view: The route to protect.
+
+    Returns:
+        The wrapped route, answering 403 once the game is over.
+    """
+    @wraps(view)
+    def wrapper(*args: object, **kwargs: object) -> ResponseReturnValue:
+        """Answers 403 on a game that is over, or lets the route through."""
+        if current_game.GAME_IS_OVER:
+            return {"allowed": False, "message": "La partie est terminée."}, 403
         return view(*args, **kwargs)
     return wrapper

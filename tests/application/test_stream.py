@@ -22,6 +22,8 @@ from tenebrae.engine.piece import CATALOGUE
 from tenebrae.application.discord_client import DEFAULT_IDENTITY
 from tenebrae.application.stream import Broadcaster
 
+from tests.application.test_server import the_board
+
 ALLIANCE, DARKNESS = "alliance", "tenebres"
 
 # A second player, to exercise that the table differs from one subscriber to another.
@@ -147,7 +149,7 @@ def test_an_up_to_date_browser_receives_only_a_comment(client):
 
 def test_a_browser_behind_receives_the_whole_game(client):
     """It reopens its tab after an outage: the opponent may have played meanwhile."""
-    client.get("/")  # the board is a module global: we populate it before counting its pieces
+    the_board(client)  # the board is a module global: we populate it before counting its pieces
     answer = open_the_stream(client, version=current_game.VERSION - 1)
     state = data(read(answer)[0])
 
@@ -240,10 +242,11 @@ def test_a_move_pushes_the_board(client, deserted_map):
 
 
 def test_a_fresh_game_pushes_the_laid_out_scenario_and_not_an_empty_board(client):
-    """`lay_out_the_scenario` clears the board before filling it.
+    """`open_a_new_game` clears the board before filling it, and marks nothing in between.
 
-    Marking the move in between - which is what the code did before the stream - pushed the
-    photograph of a deserted board, and the opponent's browser erased all its pieces.
+    Marking the move there - which is what the code did before the stream - pushed the photograph
+    of a deserted board, and the opponent's browser erased all its pieces. The move is now marked
+    once, at the end, when the game also has its identifier to say which game it is of.
     """
     answer = open_the_stream(client, version=current_game.VERSION)
     iterator = answer.response

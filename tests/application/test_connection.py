@@ -18,6 +18,8 @@ from tenebrae.application.discord_client import DEFAULT_IDENTITY, DiscordError
 from tenebrae.engine.hexagon import Hex
 from tenebrae.engine.piece import CATALOGUE
 
+from tests.application.test_server import the_board
+
 # A second account, to seat someone opposite. Its identifier is not in
 # `TestingConfig.ADMINISTRATORS`: it is the ordinary player of the administration engine.
 OTHER_PLAYER = {"discord_id": "100000000000000002", "nickname": "Grishnak",
@@ -160,6 +162,19 @@ def test_a_departure_from_the_returns_host_says_nothing(anonymous_client, log):
     assert not log
 
 
+def test_a_return_path_that_is_not_a_route_is_logged_at_departure(anonymous_client, log,
+                                                                  application, monkeypatch):
+    """The case of a `.env` written before the route was renamed: Discord sends the browser back
+    to `/connexion/retour`, which nobody serves, and the code it carries is read by no one. Both
+    paths are known at departure, so at departure the log says what to change, and where."""
+    monkeypatch.setitem(application.config, "DISCORD_REDIRECT_URI",
+                        "http://127.0.0.1:5000/connexion/retour")
+    anonymous_client.get("/login", base_url=EXPECTED_HOST)
+    assert log[-1]["text"] == ("Login: DISCORD_REDIRECT_URI sends back to /connexion/retour, "
+                               "which this server does not serve — set it to /login/return in "
+                               ".env, and declare that URI in the Discord Developer Portal")
+
+
 def test_a_state_absent_from_the_session_is_logged(anonymous_client, log):
     anonymous_client.get("/login/return?code=x&state=a-state")
     assert log[-1]["text"] == ("Login refused: authentication state absent from the "
@@ -246,7 +261,7 @@ def test_logging_out_empties_the_session_but_keeps_the_seat(client):
 
 def test_an_anonymous_visitor_sees_the_map_and_consults_it(anonymous_client):
     """The board stays public: a passer-by watches the game and asks where a piece could go."""
-    assert anonymous_client.get("/").status_code == 200
+    assert the_board(anonymous_client).status_code == 200
     assert anonymous_client.get("/moves", query_string=PLAIN).status_code == 200
 
 
@@ -366,11 +381,15 @@ def test_leaving_gives_the_seat_back(client):
     assert current_game.SEATS.is_free(ALLIANCE) and current_game.SEATS.is_free(DARKNESS)
 
 
-def test_restarting_keeps_both_players_at_the_table(client):
-    """Starting again from the set-up sends nobody away: they are the same two people."""
-    client.post("/game/new")
-    assert (current_game.SEATS.sides_of(DEFAULT_IDENTITY["discord_id"])
-            == list(current_game.SCENARIO.sides))
+def test_a_new_game_opens_with_a_table_of_its_own(client):
+    """It used to keep everyone seated: one game, and starting again meant the same two people.
+
+    Each game is now a document carrying its own `places`, and one is opened from the list before
+    anybody sits down at it. So the seats of the game the process happened to be on are not carried
+    over - the creator takes the side they asked for, and that side alone.
+    """
+    client.post("/game/new", json={"side": "alliance"})
+    assert current_game.SEATS.sides_of(DEFAULT_IDENTITY["discord_id"]) == ["alliance"]
 
 
 # --- Fixing the map ------------------------------------------------------------------------------

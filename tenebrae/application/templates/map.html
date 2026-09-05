@@ -18,6 +18,10 @@
        sees that the opponent has played (see the "/game/state" route). -->
   <input type="hidden" id="table" value="{{ table }}">
   <input type="hidden" id="version" value="{{ version }}">
+  <!-- Which saved game this page was served for. The server plays one game at a time and several
+       have an address: when what the stream pushes carries another identifier, this page is
+       watching a board that is no longer its own and says so (see #displaced). -->
+  <input type="hidden" id="game" value="{{ game }}">
   <!-- The game log as it stands when the page opens; the rest arrives through the stream, with
        the pieces and the phase. -->
   <input type="hidden" id="initial-log" value="{{ log }}">
@@ -85,6 +89,11 @@
          the bar like the card: the panel grows downwards, the bar does not move. -->
     <div id="message" hidden></div>
 
+    <!-- Said once and left there: another game has been opened on the server, so this page no
+         longer follows its own. Not #message, which fades - this one does not go away, because
+         nothing on the page is true any more. -->
+    <div id="displaced" hidden></div>
+
     <!-- The card of the hovered unit, under the bar rather than following it: inside the bar it
          had to stay tiny so as not to lengthen it. The JavaScript fills it from what the hidden
          "pieces" field carries.
@@ -124,16 +133,12 @@
   <dialog id="table-dialog">
     <p id="table-title"></p>
     <div id="table-seats"></div>
-    <!-- The set-up the next game opens on. The list is fetched when the dialog opens, not laid
-         in the page: a scenario disabled in its file since the tab was loaded must leave the
-         chooser without a reload. Hidden as long as no new game can be started from here. -->
-    <div id="table-scenario" hidden>
-      <label for="table-scenario-choice">Scénario</label>
-      <select id="table-scenario-choice"></select>
-    </div>
 
+    <!-- No scenario chooser and no "contre l'IA" here any more: a game is opened on the landing
+         page, which is where one picks the set-up and the side one takes. What is left is what
+         belongs to the game one is at - its seats - and the way back to the list. -->
     <div id="table-footer">
-      <button type="button" id="table-against-ai" hidden>Nouvelle partie contre l'IA</button>
+      <button type="button" id="table-games">Les parties</button>
       <button type="button" id="table-leave" hidden>Quitter ma place</button>
       <button type="button" id="table-logout">Se déconnecter</button>
       <button type="button" id="table-close">Fermer</button>

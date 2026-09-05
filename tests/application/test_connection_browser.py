@@ -38,7 +38,7 @@ def open_the_board(page, server, logged_in=True):
     page.set_viewport_size({"width": 1400, "height": 900})
     if logged_in:
         page.goto(f"{server}/login")
-    page.goto(server)
+    page.goto(f"{server}/game")
     page.wait_for_function(
         "document.querySelectorAll('img.piece').length === %d" % len(current_game.SCENARIO))
     page.wait_for_function("document.getElementById('scale').textContent !== '—'")

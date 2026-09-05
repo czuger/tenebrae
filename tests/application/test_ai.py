@@ -45,61 +45,92 @@ def darkness_client(application, seat_the_player):
 
 @pytest.fixture
 def seatless_client(application, seat_the_player):
-    """Logged in, but standing: enough to exercise `seat_required`."""
+    """Logged in, but standing: which is how everyone arrives on the landing page."""
     client = application.test_client()
     seat_the_player(application, client, sides=[])
     return client
 
 
 class TestNewGameAgainstTheAI:
+    """A game is opened from the list of games, where nobody is seated at anything yet.
+
+    That is what turned two of these tests round. As long as `/game/new` was reached from the board
+    it required a seat and read the AI's sides off the table; from the landing page there is no
+    table to read - the game does not exist yet - so an account is enough, and the side comes from
+    the form. The refusals those seats justified ("Aucun camp à confier à l'IA", "Ce camp est déjà
+    tenu") have nothing left to refuse: a new game's table is its own and starts empty.
+    """
+
     def test_the_anonymous_visitor_is_refused(self, anonymous_client, deserted_map):
         assert anonymous_client.post("/game/new", json={"against_ai": True}).status_code == 401
 
-    def test_without_a_seat_it_is_refused(self, seatless_client, deserted_map):
-        answer = seatless_client.post("/game/new", json={"against_ai": True})
-        assert answer.status_code == 403
+    def test_a_player_holding_no_side_may_open_one(self, seatless_client, deserted_map):
+        """The inversion: one opens a game before sitting down at it, not after."""
+        answer = seatless_client.post("/game/new", json={"against_ai": True, "side": "alliance"})
+        assert answer.status_code == 200
+        assert current_game.SEATS.occupant("alliance") == DEFAULT_IDENTITY["discord_id"]
+        assert current_game.SEATS.occupant("tenebres") == ai.AI_PLAYER
 
-    def test_a_side_held_by_a_human_is_not_given_away(self, alliance_client, deserted_map):
+    def test_the_new_games_table_is_its_own(self, alliance_client, deserted_map):
+        """Seats held at the game the process happened to be on are not carried into a new one:
+        they belong to that document, and a new game nobody has joined starts empty of them."""
         current_game.SEATS.seat("tenebres", GRISHNAK["discord_id"])
-        answer = alliance_client.post("/game/new", json={"against_ai": True})
-        assert answer.status_code == 409
-        assert answer.json["message"] == "Ce camp est déjà tenu."
-        # Refused means left as it was: the set-up has not been rebuilt.
-        assert len(current_game.BOARD) == 0
-        assert current_game.SEATS.occupant("tenebres") == GRISHNAK["discord_id"]
-
-    def test_the_game_is_created_and_the_ai_seated(self, alliance_client, deserted_map):
-        answer = alliance_client.post("/game/new", json={"against_ai": True})
+        answer = alliance_client.post("/game/new", json={"against_ai": True, "side": "alliance"})
         assert answer.status_code == 200
         assert current_game.SEATS.occupant("tenebres") == ai.AI_PLAYER
-        assert answer.json["seats"]["tenebres"] == ai.AI_NAME
+
+    def test_a_side_the_scenario_has_not_is_refused(self, alliance_client, deserted_map):
+        answer = alliance_client.post("/game/new", json={"side": "sahuagins"})
+        assert answer.status_code == 409
+        assert answer.json["message"] == "Ce camp n'est pas celui de ce scénario."
+        # Refused means left as it was: the set-up has not been rebuilt.
+        assert len(current_game.BOARD) == 0
+
+    def test_the_game_is_created_and_the_ai_seated(self, alliance_client, deserted_map):
+        answer = alliance_client.post("/game/new", json={"against_ai": True, "side": "alliance"})
+        assert answer.status_code == 200
+        assert current_game.SEATS.occupant("tenebres") == ai.AI_PLAYER
+        assert answer.json["url"] == f"/game/{current_game.GAME_ID}"
         # The Alliance - the human player - opens the scenario: the AI has played nothing.
-        assert answer.json["phase"]["side"] == "alliance"
+        assert current_game.TURN.active_side == "alliance"
         assert current_game.BOARD.to_dict() == current_game.SCENARIO.placement
 
     def test_the_ai_plays_immediately_when_it_opens(self, darkness_client, deserted_map,
                                                     monkeypatch):
         monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
-        answer = darkness_client.post("/game/new", json={"against_ai": True})
+        answer = darkness_client.post("/game/new", json={"against_ai": True, "side": "tenebres"})
         assert answer.status_code == 200
         assert current_game.SEATS.occupant("alliance") == ai.AI_PLAYER
-        # The AI played its opening turn straight away: play is with the Darkness, and the pieces
-        # in the answer are those it left, not those of the set-up.
-        assert answer.json["phase"]["side"] == "tenebres"
-        assert answer.json["phase"]["type"] == "mouvement"
+        # The AI played its opening turn straight away: play is back with the Darkness, and the
+        # board is not the set-up any more.
+        assert current_game.TURN.active_side == "tenebres"
+        assert current_game.TURN.phase_type == "mouvement"
         assert current_game.BOARD.to_dict() != current_game.SCENARIO.placement
 
     def test_starting_again_against_the_ai_stays_allowed(self, alliance_client, deserted_map):
-        alliance_client.post("/game/new", json={"against_ai": True})
-        answer = alliance_client.post("/game/new", json={"against_ai": True})
+        alliance_client.post("/game/new", json={"against_ai": True, "side": "alliance"})
+        answer = alliance_client.post("/game/new", json={"against_ai": True, "side": "alliance"})
         assert answer.status_code == 200
         assert current_game.SEATS.occupant("tenebres") == ai.AI_PLAYER
 
-    def test_without_the_flag_nothing_changes(self, client, deserted_map):
+    def test_each_new_game_is_a_document_of_its_own(self, alliance_client, deserted_map):
+        """Two games opened one after the other are two games, not one laid out twice."""
+        first = alliance_client.post("/game/new", json={"side": "alliance"}).json["id"]
+        second = alliance_client.post("/game/new", json={"side": "alliance"}).json["id"]
+        assert first != second
+
+    def test_without_the_flag_the_machine_holds_nothing(self, client, deserted_map):
         answer = client.post("/game/new")
         assert answer.status_code == 200
         assert ai.AI_PLAYER not in (current_game.SEATS.occupant(side)
                                     for side in current_game.SCENARIO.sides)
+
+    def test_without_a_side_the_creator_takes_the_first_of_the_scenario(self, client,
+                                                                        deserted_map):
+        """The form always sends one; the route still has to decide without it."""
+        client.post("/game/new")
+        first = current_game.SCENARIO.sides[0]
+        assert current_game.SEATS.occupant(first) == DEFAULT_IDENTITY["discord_id"]
 
 
 class TestTriggeringTheAI:

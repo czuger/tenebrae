@@ -413,6 +413,119 @@ class TestFight:
         assert result.eliminated == []
 
 
+class TestWeighing:
+    """The forces at stake, read off the board before any die - what the browser shows.
+
+    It is `fight`'s own reading, and that is the whole point: a forecast computed apart would be
+    free to disagree with the resolution, and the player would be shown one ratio and dealt
+    another.
+    """
+
+    @pytest.fixture
+    def pair(self):
+        a = well_surrounded_plain()
+        c, *_ = ring_of(a)
+        return a, c
+
+    def test_it_weighs_both_sides(self, pair):
+        target, attacker = pair
+        board = Board([(target, piece(ORC)), (attacker, piece(DWARF))])
+        weighed = combat.weigh(board, target, [attacker])
+        assert (weighed.attacking_strength, weighed.defending_strength) == (12, 8)
+        assert weighed.ratio == (1, 1)
+
+    def test_the_attackers_add_up(self, pair):
+        target, attacker = pair
+        _, second, *_ = ring_of(target)
+        board = Board([(target, piece(ORC)), (attacker, piece(DWARF)), (second, piece(ELF))])
+        weighed = combat.weigh(board, target, [attacker, second])
+        assert weighed.strengths == [12, 7]
+        assert weighed.ratio == (2, 1)
+
+    def test_the_defenders_terrain_is_counted(self):
+        """Walls multiply the defence before the ratio is read, as they do in the resolution."""
+        ruins = hexagon_of_terrain("ruines")
+        _, attacker, *_ = ring_of(ruins)
+        board = Board([(ruins, piece(ORC)), (attacker, piece(DWARF))])
+        weighed = combat.weigh(board, ruins, [attacker])
+        assert (weighed.terrain, weighed.multiplier, weighed.defending_strength) == ("ruines", 2,
+                                                                                     16)
+        assert weighed.ratio == (1, 2)
+
+    def test_there_is_nothing_to_weigh_without_a_target(self, pair):
+        target, attacker = pair
+        board = Board([(attacker, piece(DWARF))])
+        assert combat.weigh(board, target, [attacker]) is None
+
+    def test_there_is_nothing_to_weigh_without_a_legible_attacker(self, pair):
+        """A marker has no strength printed: it counts for nothing here as it counts for nothing
+        in the resolution."""
+        target, attacker = pair
+        board = Board([(target, piece(ORC)), (attacker, piece(MARKER))])
+        assert combat.weigh(board, target, [attacker]) is None
+
+    def test_a_target_with_no_legible_strength_cannot_be_weighed(self, pair):
+        target, attacker = pair
+        board = Board([(target, piece(MARKER)), (attacker, piece(DWARF))])
+        assert combat.weigh(board, target, [attacker]) is None
+
+    def test_the_weighing_is_the_one_the_resolution_reads(self, pair):
+        """The invariant that matters: what is shown before the die and what is played after it
+        are the same weighing, not two computations that happen to agree."""
+        target, attacker = pair
+        board = Board([(target, piece(ORC)), (attacker, piece(DWARF))])
+        weighed = combat.weigh(board, target, [attacker])
+        result = combat.fight(board, target, [attacker], roll=1)
+        assert result.ratio == weighed.ratio
+        assert result.breakdown.attacking_strength == weighed.attacking_strength
+        assert result.breakdown.defending_strength == weighed.defending_strength
+
+    def test_the_die_turns_a_weighing_into_a_breakdown(self):
+        """`with_the_die` adds the throw and changes nothing of what was weighed - the terrain's
+        bonus included, which the ground gives and not the throw."""
+        hill = hexagon_of_terrain("colline")
+        _, attacker, *_ = ring_of(hill)
+        board = Board([(hill, piece(ORC)), (attacker, piece(DWARF))])
+        weighed = combat.weigh(board, hill, [attacker])
+        breakdown = weighed.with_the_die(3)
+        assert isinstance(breakdown, combat.RatioBreakdown)
+        assert breakdown.ratio == weighed.ratio
+        assert (breakdown.roll, breakdown.die_bonus, breakdown.die) == (3, 2, 5)
+
+    def test_the_six_faces_of_the_die_are_listed(self):
+        """The bar shows them inline: `DR,DR,DR,DR,DR;AR` for a 3-1."""
+        target = well_surrounded_plain()
+        first, second, *_ = ring_of(target)
+        # DWARF 12 + ELF 7 = 19 against ORC 8 -> the 2-1 column.
+        board = Board([(target, piece(ORC)), (first, piece(DWARF)), (second, piece(ELF))])
+        weighed = combat.weigh(board, target, [first, second])
+        assert weighed.ratio == (2, 1)
+        assert weighed.outcomes == (DR, DR, DR, DR, AR, AR)
+
+    def test_the_faces_listed_are_the_ones_the_ground_allows(self):
+        """On a hill the ground adds 2 to the throw: the first face reads on the third row, and
+        the last three all read on the sixth. Listing the table's rows would announce outcomes
+        that cannot happen there."""
+        hill = hexagon_of_terrain("colline")
+        _, attacker, *_ = ring_of(hill)
+        board = Board([(hill, piece(ORC)), (attacker, piece(DWARF))])
+        weighed = combat.weigh(board, hill, [attacker])
+        assert weighed.die_bonus == 2
+        assert [weighed.die_read_at(roll) for roll in range(1, 7)] == [3, 4, 5, 6, 6, 6]
+        assert weighed.outcomes == tuple(combat.TABLE_I[row][weighed.column]
+                                         for row in (3, 4, 5, 6, 6, 6))
+
+    def test_each_face_listed_is_what_that_throw_resolves_to(self):
+        """The list is not a second reading of the table: face by face, it is what `fight` plays."""
+        target = well_surrounded_plain()
+        attacker, *_ = ring_of(target)
+        announced = combat.weigh(Board([(target, piece(ORC)), (attacker, piece(DWARF))]),
+                                 target, [attacker]).outcomes
+        for roll in range(1, 7):
+            board = Board([(target, piece(ORC)), (attacker, piece(DWARF))])
+            assert combat.fight(board, target, [attacker], roll=roll).outcome == announced[roll - 1]
+
+
 class TestRatioBreakdown:
     """The computation kept piece by piece: enough to tell its story, not to redo it.
 

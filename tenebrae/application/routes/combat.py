@@ -97,8 +97,57 @@ def check_target() -> ResponseReturnValue:
     return {"available": available, "message": message}
 
 
+def read_a_key(key: str) -> Hex:
+    """Reads a hexagon written as the map's own key, `"q,r,s"`.
+
+    The form a repeated parameter takes - `a=1,26,-27&a=2,25,-27` - where three parameters per
+    attacker would be unreadable.
+
+    Args:
+        key: The key, as the query string carries it.
+
+    Returns:
+        The hexagon; 400 if unreadable, 404 if off the map, as `read_a_hexagon` decides.
+    """
+    coordinates = key.split(",")
+    return read_a_hexagon(dict(zip(("q", "r", "s"), coordinates)) if len(coordinates) == 3 else {})
+
+
+@blueprint.route("/combat/ratio")
+def weigh_the_forces() -> ResponseReturnValue:
+    """Weighs the combat being composed: the ratio, and the points on either side.
+
+    Read while the player is still designating attackers - the toolbar shows it as
+    `Ratio : 3/1 (36/12)` - so it must say what the resolution would read and not something close
+    to it: the attackers go through the same filter `POST /combat` puts them through, and the
+    weighing is the engine's `combat.weigh`, the very one `fight` uses.
+
+    The target is `cq/cr/cs`, as for `/combat/range`; the attackers are one `a=q,r,s` per unit,
+    the key a hexagon is known by on the map.
+
+    **Nothing is logged here.** A refused click has its line where it is refused; a weighing is
+    recomputed at every attacker taken or withdrawn, and would fill the player's column.
+
+    Returns:
+        `ratio` (a pair, attacker first), `attack` and `defence` in points, and `outcomes` - what
+        each of the six faces of the die would give, the defender's terrain counted. `ratio` is
+        `null` where there is nothing to weigh - no valid attacker, an absent target, an illegible
+        strength.
+    """
+    target = read_prefixed_hexagon("c", request.args)
+    attackers = [read_a_key(key) for key in request.args.getlist("a")]
+    valid, _ = keep_the_valid_attackers(attackers, target)
+    weighed = combat.weigh(BOARD, target, valid)
+    if weighed is None:
+        return {"ratio": None, "attack": 0, "defence": 0, "outcomes": []}
+    return {"ratio": list(weighed.ratio),
+            "attack": weighed.attacking_strength,
+            "defence": weighed.defending_strength,
+            "outcomes": list(weighed.outcomes)}
+
+
 def sort_the_attackers(squares: list[object], target: Hex) -> tuple[list[Hex], list[str]]:
-    """Keeps the attackers the rules allow against a target, and explains each refusal.
+    """Reads the attackers a request names, and keeps those the rules allow against a target.
 
     Args:
         squares: The attackers' coordinates, as the browser sent them.
@@ -107,9 +156,26 @@ def sort_the_attackers(squares: list[object], target: Hex) -> tuple[list[Hex], l
     Returns:
         The valid attackers, and one French message per refused one.
     """
+    return keep_the_valid_attackers(
+        [read_a_hexagon(square if isinstance(square, Mapping) else {}) for square in squares],
+        target)
+
+
+def keep_the_valid_attackers(attackers: list[Hex], target: Hex) -> tuple[list[Hex], list[str]]:
+    """Keeps the attackers the rules allow against a target, and explains each refusal.
+
+    The rules, and no reading of the request: the resolution and the weighing shown in the toolbar
+    both come here, from a JSON body for the one and from a query string for the other.
+
+    Args:
+        attackers: The attackers' squares.
+        target: The target's square.
+
+    Returns:
+        The valid attackers, and one French message per refused one.
+    """
     valid, messages = [], []
-    for square in squares:
-        attacker = read_a_hexagon(square if isinstance(square, Mapping) else {})
+    for attacker in attackers:
         attacking_piece = BOARD.piece_on(attacker)
         if attacking_piece is None or attacking_piece.side != TURN.active_side:
             messages.append("Cette unité ne peut pas attaquer cette cible.")

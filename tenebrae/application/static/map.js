@@ -60,6 +60,7 @@ const pawnStyleButton = document.getElementById("pawn-style");
 const phaseLabel = document.getElementById("phase-label");
 const attackButton = document.getElementById("attack");
 const cancelButton = document.getElementById("cancel-combat");
+const ratioLabel = document.getElementById("combat-ratio");
 const locateButton = document.getElementById("locate");
 const nextPhaseButton = document.getElementById("next-phase");
 
@@ -470,6 +471,53 @@ function updateCombatButtons() {
   trace.trace("combat buttons", { inCombat, target: target ? key(target.dataset) : null,
                                   attackers: attackers.size,
                                   attackShown: !attackButton.hidden });
+  showTheRatio();
+}
+
+// What the combat being composed weighs: "Ratio : 3/1 (36/12)" - the column of Table I the attack
+// would be read on, and the points on either side, the defender's terrain counted. The server
+// weighs it: the terrain of a square is not in the page, and the ratio is a rule.
+//
+// One request per change of selection, as the range check is one per click. They can come back out
+// of order - two clicks, two answers - so each one carries the number of the selection it was
+// asked for, and an answer that is no longer the current one is dropped rather than shown.
+let weighing = 0;
+
+async function showTheRatio() {
+  const asked = ++weighing;
+  if (!(phase.type === "combat" && target && attackers.size > 0)) {
+    ratioLabel.hidden = true;
+    ratioLabel.textContent = "";
+    return;
+  }
+  const c = target.dataset;
+  const squares = [...attackers].map((image) => `a=${key(image.dataset)}`).join("&");
+  // Nothing is awaited on this call: a weighing that fails leaves the bar as it was, and the
+  // attack itself does not depend on it.
+  const answer = await send(`/combat/ratio?cq=${c.q}&cr=${c.r}&cs=${c.s}&${squares}`)
+    .catch(() => null);
+  if (!answer || asked !== weighing) {
+    trace.trace("weighing dropped", { asked, current: weighing, answered: Boolean(answer) });
+    return;
+  }
+  const { ratio, attack, defence, outcomes } = await answer.json();
+  if (asked !== weighing) return;
+  ratioLabel.hidden = !ratio;
+  ratioLabel.textContent = ratio
+    ? `Ratio : ${ratio[0]}/${ratio[1]} (${attack}/${defence}) — ${punctuate(outcomes)}`
+    : "";
+  trace.info("combat weighed", { ratio, attack, defence, outcomes });
+}
+
+// The six faces of the die, in the order they can fall, punctuated so that the eye counts them
+// without reading them: a comma between two faces that give the same thing, a semicolon where the
+// outcome changes. Five chances of pushing the defender back and one of giving ground reads as
+// "DR,DR,DR,DR,DR;AR" - the repetition is the information, which "5×DR" would take away.
+function punctuate(outcomes) {
+  return outcomes.reduce((written, outcome, face) => {
+    if (face === 0) return outcome;
+    return `${written}${outcome === outcomes[face - 1] ? "," : ";"}${outcome}`;
+  }, "");
 }
 
 function clearTheCombat() {

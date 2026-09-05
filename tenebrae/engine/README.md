@@ -426,6 +426,30 @@ breakdown.ratio, breakdown.column, breakdown.outcome
 is consulted**: `resolve` and `fight` both go through it, and therefore cannot say two different
 things about it. `result.ratio` and `result.die` are the breakdown's.
 
+**What is known before the die**, and what the die adds, are two classes and not one.
+`StrengthRatio` is the weighing — the strengths, the defender's terrain and its multiplier, hence
+`attacking_strength`, `defending_strength`, `column` and `ratio`; `RatioBreakdown` **is one**, with
+the roll and the terrain's die bonus on top, hence `die` and `outcome`. A weighing becomes a
+breakdown by `with_the_die(die_bonus, roll)`, and by nothing else.
+
+```python
+weighed = combat.weigh(board, target_hexagon, attacker_hexagons)   # None: nothing to weigh
+weighed.ratio, weighed.attacking_strength, weighed.defending_strength
+weighed.outcomes        # ("DR", "DR", "DR", "DR", "DR", "AR") — one per face of the die
+weighed.die_read_at(1)  # the row of Table I that face is read on, the terrain's bonus counted
+```
+
+`outcomes` lists the **faces of the die**, not the rows of the table. On a hill the ground adds 2
+to the throw, so a 1 is read on the third row and three of the six faces on the sixth: the row read
+as it stands would announce outcomes that cannot happen there. The die bonus therefore belongs to
+the weighing — the ground gives it, not the throw — and `RatioBreakdown` adds only the roll.
+
+`weigh` is the **one** place where a combat's forces are collected off the board — an attacker with
+no legible strength does not count, an absent target or one with no legible strength is no combat
+at all — and `fight` starts there. That is what lets the game show a ratio **before** the attack is
+ordered (the toolbar's `Ratio : 3/1 (36/12)`, `GET /combat/ratio`) without the forecast and the
+resolution being free to disagree: they are the same weighing, read once.
+
 The engine builds **no sentence**: it returns numbers and a terrain name. Putting it into French is
 the application's business (`describe_the_ratio` in `tenebrae/application/logs/combat_sentences.py`), which makes it
 the log line `Rapport 2-1 : attaque 12 + 8 = 20 contre défense 8 × 3 = 24 (montagne) — dé 4`.

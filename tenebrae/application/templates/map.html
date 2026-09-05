@@ -74,6 +74,12 @@
       <!-- The current phase and its progress, in line with the zoom buttons. -->
       <span id="phase-label"></span>
       <button type="button" id="next-phase">Phase suivante</button>
+      <!-- The weighing of the combat being composed, between the phase and the button that
+           resolves it: what is at stake, then the act. It is there only while a target and at
+           least one attacker are designated, which is exactly when the two buttons below are, so
+           the bar gains nothing when nothing is being aimed at. The server weighs it - the
+           defender's terrain multiplies its strength, and the map's terrain is not in the page. -->
+      <span id="combat-ratio" hidden></span>
       <button type="button" id="attack" hidden>Attaquer</button>
       <button type="button" id="cancel-combat" hidden>Annuler</button>
 

@@ -8,6 +8,7 @@ import math
 import pytest
 
 from tenebrae.application import current_game, pieces
+from tenebrae.engine import combat
 from tenebrae.application.grid import GRID_MATRIX, GRID_ORIGIN, PIECE_SIZE
 from tenebrae.engine.hexagon import MAP, Hex
 from tenebrae.engine.piece import CATALOGUE, OPPONENTS
@@ -1255,6 +1256,61 @@ def test_the_combat_cycle_highlights_the_units_then_frees_them(board, monkeypatc
         "!document.querySelector('img.piece.target')"
         " && !document.querySelector('img.piece.attacker')")
     board.wait_for_selector("#attack", state="hidden")
+
+
+def punctuated(outcomes):
+    """The six faces as the bar writes them: `DR,DR,DR,DR,DR;AR`.
+
+    A comma between two faces that give the same thing, a semicolon where the outcome changes -
+    the eye counts them without reading them.
+    """
+    written = outcomes[0]
+    for before, outcome in zip(outcomes, outcomes[1:]):
+        written += ("," if outcome == before else ";") + outcome
+    return written
+
+
+def test_the_bar_weighs_the_combat_being_composed(board):
+    """The ratio and the points appear with the attackers, and go with the selection.
+
+    What is checked against is the engine's own weighing, read on the server's board: the bar must
+    show what the attack will be read on, and not a figure of the page's own.
+    """
+    dwarf, contact, orc = a_pair_for_combat(board)
+
+    dwarf.click()
+    board.wait_for_function("document.querySelectorAll('img.ghost').length > 0")
+    click_the_hexagon(board, contact)
+    board.wait_for_function("document.querySelectorAll('img.ghost').length === 0")
+    move_to_the_combat_phase(board)
+
+    # A target alone weighs nothing: it takes an attacker for there to be a ratio.
+    click_the_hexagon(board, orc)
+    board.wait_for_selector("img.piece.target")
+    assert board.locator("#combat-ratio").is_hidden()
+
+    bar = board.evaluate("() => document.getElementById('toolbar').getBoundingClientRect().height")
+
+    click_the_hexagon(board, contact)
+    board.wait_for_selector("#combat-ratio", state="visible")
+    # The bar keeps its reference height: the weighing never wraps (map.css).
+    assert board.evaluate(
+        "() => document.getElementById('toolbar').getBoundingClientRect().height") == bar
+    weighed = combat.weigh(current_game.BOARD, orc, [contact])
+    assert board.locator("#combat-ratio").inner_text() == (
+        f"Ratio : {weighed.ratio[0]}/{weighed.ratio[1]}"
+        f" ({weighed.attacking_strength}/{weighed.defending_strength})"
+        f" — {punctuated(weighed.outcomes)}")
+
+    # The bar is clipped on the right, and the account button is what sits there: the weighing
+    # must not push it out of sight.
+    bar = board.locator("#toolbar").bounding_box()
+    button = board.locator("#player").bounding_box()
+    assert button["x"] + button["width"] <= bar["x"] + bar["width"] + 1
+
+    # Cancelled, the selection takes the weighing with it.
+    board.locator("#cancel-combat").click()
+    board.wait_for_selector("#combat-ratio", state="hidden")
 
 
 def test_the_units_that_have_fought_are_greyed_and_refuse_the_click(board, monkeypatch):

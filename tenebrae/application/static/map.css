@@ -362,6 +362,16 @@ body {
   white-space: nowrap;
 }
 
+/* What the combat being composed weighs, beside the button that would resolve it. It is only ever
+   there during the combat phase, with a target and an attacker designated, so it lengthens the bar
+   only while it is being read - and never wraps, which would double the bar's height. Gold, as the
+   attackers are on the map: the eye goes from the counters it has picked to what they weigh. */
+#combat-ratio {
+  flex: none;
+  white-space: nowrap;
+  color: #d4af37;
+}
+
 /* Said once and left there: another game has been opened on the server, and this page no longer
    follows its own (see `checkTheGame` in map.js). The refusal message's make, without the fade -
    what it says does not stop being true, and the board under it is somebody else's. */

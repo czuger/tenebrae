@@ -162,22 +162,115 @@ def in_range(attacker_hex: Hex, attacking_piece: Piece, target_hex: Hex) -> bool
     return attacker_hex.distance(target_hex) <= combat_range(attacking_piece)
 
 
-class RatioBreakdown:
-    """The computation leading to the strength ratio, piece by piece: enough to tell its story.
+class StrengthRatio:
+    """What a combat weighs, and everything that is known of it **before the die is rolled**.
 
-    Between the strength printed on the counters and the column of Table I there is the
-    **defender's terrain**, which multiplies its strength and adds to the attacker's die. This
-    object keeps every term; it is the application that puts them into French
-    (`describe_the_ratio` in `tenebrae/application/logs/combat_sentences.py`).
+    The two sides of Table I's column: what the attackers total, and what the defender opposes once
+    its terrain has multiplied it. That much is settled the moment the attackers are designated —
+    which is why the browser can show it during the combat phase, while the player is still
+    choosing whom to send in (`GET /combat/ratio`).
+
+    `RatioBreakdown` is this, plus what the die adds.
     """
 
-    __slots__ = ("strengths", "target_strength", "terrain", "multiplier", "die_bonus", "roll")
+    __slots__ = ("strengths", "target_strength", "terrain", "multiplier", "die_bonus")
 
     strengths: list[int]
     target_strength: int
     terrain: Optional[str]
     multiplier: int
     die_bonus: int
+
+    def __init__(self, strengths: Iterable[int], target_strength: int, terrain: Optional[str],
+                 multiplier: int, die_bonus: int) -> None:
+        """Keeps the terms the ratio is read from.
+
+        Args:
+            strengths: The strength of each attacker.
+            target_strength: The defender's printed strength.
+            terrain: The defender's terrain.
+            multiplier: What that terrain multiplies the defence by.
+            die_bonus: What that terrain adds to the die - known before the die is thrown, since
+                it is the ground that gives it and not the throw.
+        """
+        self.strengths = list(strengths)
+        self.target_strength = target_strength
+        self.terrain = terrain
+        self.multiplier = multiplier
+        self.die_bonus = die_bonus
+
+    @property
+    def attacking_strength(self) -> int:
+        """What the group of attackers totals; terrain does not play on this side."""
+        return sum(self.strengths)
+
+    @property
+    def defending_strength(self) -> int:
+        """The defender's strength, its terrain counted."""
+        return self.target_strength * self.multiplier
+
+    @property
+    def column(self) -> int:
+        """The index of the Table I column where the combat is read."""
+        return ratio_column(self.attacking_strength, self.defending_strength)
+
+    @property
+    def ratio(self) -> tuple[int, int]:
+        """The strength ratio as the booklet writes it: a pair, attacker in the numerator."""
+        return COLUMNS[self.column]
+
+    @property
+    def outcomes(self) -> tuple[str, ...]:
+        """What each face of the die would give on this ratio, from 1 to 6.
+
+        The **faces**, not the rows of Table I: on a hill the ground adds 2 to the throw, so a 1
+        reads on the third row and three of the six faces read on the sixth. Listing the rows
+        instead would announce outcomes that cannot happen there.
+
+        Returns:
+            Six outcomes, in the order the die can fall.
+        """
+        return tuple(TABLE_I[self.die_read_at(roll)][self.column] for roll in range(1, 7))
+
+    def die_read_at(self, roll: int) -> int:
+        """The row of Table I a throw is read on: the roll, terrain added, kept between 1 and 6.
+
+        Args:
+            roll: The die as thrown.
+
+        Returns:
+            The row, 1 to 6.
+        """
+        return min(6, max(1, roll + self.die_bonus))
+
+    def with_the_die(self, roll: int) -> "RatioBreakdown":
+        """The same weighing once the die is rolled: what Table I is then read with.
+
+        Args:
+            roll: The die as rolled, before terrain.
+
+        Returns:
+            The breakdown, the weighing unchanged in it.
+        """
+        return RatioBreakdown(self.strengths, self.target_strength, self.terrain,
+                              self.multiplier, self.die_bonus, roll)
+
+    def __repr__(self) -> str:
+        """The two strengths and the terrain."""
+        return (f"StrengthRatio({self.attacking_strength} against {self.defending_strength} "
+                f"in {self.terrain})")
+
+
+class RatioBreakdown(StrengthRatio):
+    """The whole computation leading to an outcome, piece by piece: enough to tell its story.
+
+    The weighing, and what the **defender's terrain** adds to the attacker's die on top of
+    multiplying the defence. This object keeps every term; it is the application that puts them
+    into French (`describe_the_ratio` in `tenebrae/application/logs/combat_sentences.py`).
+    """
+
+    __slots__ = ("roll",)
+
     roll: int
 
     def __init__(self, strengths: Iterable[int], target_strength: int, terrain: Optional[str],
@@ -192,37 +285,13 @@ class RatioBreakdown:
             die_bonus: What that terrain adds to the die.
             roll: The die as rolled, before terrain.
         """
-        self.strengths = list(strengths)
-        self.target_strength = target_strength
-        self.terrain = terrain
-        self.multiplier = multiplier
-        self.die_bonus = die_bonus
+        super().__init__(strengths, target_strength, terrain, multiplier, die_bonus)
         self.roll = roll
-
-    @property
-    def attacking_strength(self) -> int:
-        """What the group of attackers totals; terrain does not play on this side."""
-        return sum(self.strengths)
-
-    @property
-    def defending_strength(self) -> int:
-        """The defender's strength, its terrain counted."""
-        return self.target_strength * self.multiplier
 
     @property
     def die(self) -> int:
         """The die as the table reads it: the roll, terrain added, brought back between 1 and 6."""
-        return min(6, max(1, self.roll + self.die_bonus))
-
-    @property
-    def column(self) -> int:
-        """The index of the Table I column where the combat is read."""
-        return ratio_column(self.attacking_strength, self.defending_strength)
-
-    @property
-    def ratio(self) -> tuple[int, int]:
-        """The strength ratio as the booklet writes it: a pair, attacker in the numerator."""
-        return COLUMNS[self.column]
+        return self.die_read_at(self.roll)
 
     @property
     def outcome(self) -> str:
@@ -233,6 +302,37 @@ class RatioBreakdown:
         """The two strengths, the terrain and the die."""
         return (f"RatioBreakdown({self.attacking_strength} against {self.defending_strength} "
                 f"in {self.terrain}, die {self.die})")
+
+
+def weigh(board: Board, target_hexagon: Hex,
+          attacker_hexagons: Sequence[Hex]) -> Optional[StrengthRatio]:
+    """Weighs a combat on the board, before any die: what the ratio will be read from.
+
+    The **one** place where a combat's forces are collected off the board, `fight` included: an
+    attacker with no legible strength does not count, and a target that is absent or has no legible
+    strength is no combat at all. The forecast the browser shows during the combat phase is
+    therefore the very weighing the resolution will use, and the two cannot come to disagree.
+
+    The attackers are held to be valid - in range, on the right side: it is up to the caller to
+    have filtered them, as for `fight`.
+
+    Args:
+        board: The board the combat would be played on.
+        target_hexagon: The defender's square.
+        attacker_hexagons: The attackers' squares.
+
+    Returns:
+        The weighing, or `None` where there is nothing to weigh.
+    """
+    target_piece = board.piece_on(target_hexagon)
+    attacking_pieces = [board.piece_on(hexagon) for hexagon in attacker_hexagons]
+    strengths = [piece.strength for piece in attacking_pieces
+                 if piece is not None and piece.strength is not None]
+    if target_piece is None or target_piece.strength is None or not strengths:
+        return None
+    return StrengthRatio(strengths, target_piece.strength, target_hexagon.terrain,
+                         defence_multiplier(target_hexagon, target_piece),
+                         terrain_die_bonus(target_hexagon))
 
 
 def break_down(attacking_strengths: Iterable[int], defending_piece: Piece,
@@ -466,21 +566,18 @@ def fight(board: Board, target_hexagon: Hex, attacker_hexagons: Sequence[Hex], r
     Returns:
         The result; its `outcome` is `None` if the target is absent or has no legible strength.
     """
-    target_piece = board.piece_on(target_hexagon)
-    attacking_pieces = [board.piece_on(hexagon) for hexagon in attacker_hexagons]
-    strengths = [piece.strength for piece in attacking_pieces
-                 if piece is not None and piece.strength is not None]
-    if target_piece is None or target_piece.strength is None or not strengths:
+    weighed = weigh(board, target_hexagon, attacker_hexagons)
+    if weighed is None:
         return CombatResult(None, [], None, None)
 
-    breakdown = break_down(strengths, target_piece, target_hexagon, roll)
+    breakdown = weighed.with_the_die(roll)
     outcome = breakdown.outcome
 
     eliminated: list[Hex] = []
     if outcome == AE:
         eliminated.extend(attacker_hexagons)
     elif outcome == EX:
-        eliminated.extend(exchanged_attackers(board, attacker_hexagons, target_piece.strength))
+        eliminated.extend(exchanged_attackers(board, attacker_hexagons, weighed.target_strength))
     if outcome in (DE, EX):
         eliminated.append(target_hexagon)
     for hexagon in eliminated:

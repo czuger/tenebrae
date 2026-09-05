@@ -380,6 +380,7 @@ implemented, `Turn.advance()` skips it — it is never the current one.
 | `POST /phase/next` | the next phase, same shape; logged. 403 `La partie est terminée.` once a side has been annihilated, like `/move` and `/combat` (see "The end of a game") |
 | `GET /combat/range?cq=&cr=&cs=&aq=&ar=&as=` | `{"in_range": bool, "available": bool, "message": str\|null}`; a refusal goes to the log |
 | `GET /combat/target?cq=&cr=&cs=` | `{"available": bool, "message": str\|null}`; a refusal goes to the log |
+| `GET /combat/ratio?cq=&cr=&cs=&a=q,r,s&a=…` | `{"ratio": [3, 1]\|null, "attack": 36, "defence": 12, "outcomes": ["DR", …]}` — the combat being composed, weighed; **nothing is logged** |
 | `POST /combat` — body `{"target": {q,r,s}, "attackers": [{q,r,s}, …]}` | see below |
 
 `GET /game/<id>` carries `#phase`; the JavaScript takes from it the toolbar's label and **what a click
@@ -392,6 +393,37 @@ does**: in the movement phase, only the active side shows its ghosts; in the com
    the attackers, highlighted in **gold**; if not, nothing moves and the refusal is in the log;
 3. "Attaquer" (visible as soon as there is a target and an attacker) → `POST /combat`;
 4. "Annuler", or a new click on the target → the selection empties and the highlights fall away.
+
+**The bar says what the attack weighs**, between the phase and the button that resolves it:
+
+```
+Phase de combat — Nains    Ratio : 3/1 (36/12) — DR,DR,DR,DR,DR;AR    [Attaquer] [Annuler]
+```
+
+`A/D` is the column of Table I the attack would be read on, `(PA/PD)` the points on either side —
+the attackers' total, and the defender's strength **its terrain counted** — and then **what each
+face of the die would give**, in the order the die can fall. A comma between two faces that give
+the same thing, a semicolon where the outcome changes: five chances of pushing the defender back
+and one of giving ground read as `DR,DR,DR,DR,DR;AR` without a figure being read. The repetition is
+the information, which `5×DR` would take away.
+
+Those six are the **faces**, not the row of Table I: on a hill the ground adds 2 to the throw, so
+the same 3-1 reads `DR,DR,DR;AR,AR,AR` there (`weighed.outcomes`, `tenebrae/engine/README.md`).
+That is why the figure is the server's: the terrain of a square is not in the page, and the ratio
+is a rule. It is asked
+for at every change of selection (`GET /combat/ratio`, one request per click as `/combat/range` is
+one per click), and it is `combat.weigh` that answers — the very weighing `fight` will read, so
+what is shown is what is dealt (`tenebrae/engine/README.md` § "The breakdown of the computation").
+Answers can come back out of order, so each carries the number of the selection it was asked for
+and a stale one is dropped.
+
+It is there only while a target **and** at least one attacker are designated — exactly when the two
+buttons are — so the bar is lengthened only while it is being read, and it never wraps: the
+reference height holds (`#combat-ratio` in `map.css`). Gold, as the attackers are on the map.
+
+It does lengthen the bar, by some forty characters, and the bar is clipped on the right where the
+account button sits. A browser test therefore checks that the button is still whole with the
+weighing shown; on a window narrow enough the clipping is the one that was always there.
 
 `POST /combat` revalidates everything on the server side — phase, the target's side, each
 attacker's range, and the phase register — rolls the die (`app.roll_the_die`, isolated for the

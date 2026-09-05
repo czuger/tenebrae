@@ -463,6 +463,105 @@ def test_the_combat_range_follows_the_distance(client):
     assert far["message"] == "Cette unité n'est pas à portée de la cible"
 
 
+def coordinates(hexagon):
+    """The three coordinates of a hexagon, as a request carries them - `to_dict` adds its
+    terrain."""
+    return {"q": hexagon.q, "r": hexagon.r, "s": hexagon.s}
+
+
+def ratio_of(client, target, attackers):
+    """Asks the server to weigh a combat being composed, as the browser does at every click."""
+    return client.get("/combat/ratio", query_string={
+        "cq": target["q"], "cr": target["r"], "cs": target["s"],
+        "a": [f"{a['q']},{a['r']},{a['s']}" for a in attackers]}).json
+
+
+def test_the_ratio_weighs_the_combat_being_composed(client):
+    """What the toolbar shows while the attackers are being designated: the column, the points on
+    either side, and what each face of the die would give."""
+    place(PLAIN, DWARF)       # strength 12
+    place(NEIGHBOUR, ORC)     # strength 8, on the plain: nothing multiplies it
+    assert ratio_of(client, NEIGHBOUR, [PLAIN]) == {
+        "ratio": [1, 1], "attack": 12, "defence": 8,
+        "outcomes": ["DR", "DR", "DR", "AR", "AR", "AR"]}
+
+
+def test_the_ratio_adds_the_attackers_up(client):
+    second = {"q": 2, "r": 25, "s": -27}  # the target's other neighbour
+    place(PLAIN, DWARF)
+    place(second, DWARF)
+    place(NEIGHBOUR, ORC)
+    assert ratio_of(client, NEIGHBOUR, [PLAIN, second]) == {
+        "ratio": [3, 1], "attack": 24, "defence": 8,
+        "outcomes": ["DR", "DR", "DR", "DR", "DR", "AR"]}
+
+
+def test_the_faces_announced_are_the_ones_the_ground_allows(client):
+    """A hill adds 2 to the throw: the faces the list gives are those the die can really reach
+    there, and not the table's row read as it stands."""
+    hill = Hex.from_key(next(key for key, elements in MAP.items() if elements[0] == "colline"))
+    attacker = next(square for square in hill.neighbours() if square.is_on_map)
+    place(coordinates(hill), ORC)
+    place(coordinates(attacker), DWARF)
+    weighed = ratio_of(client, coordinates(hill), [coordinates(attacker)])
+    assert weighed["outcomes"] == ["DR", "AR", "AR", "AR", "AR", "AR"]
+
+
+def test_the_ratio_counts_the_defenders_terrain(client):
+    """The reason the weighing is the server's: the terrain of a square is not in the page."""
+    ruins = Hex.from_key(next(key for key, elements in MAP.items() if elements[0] == "ruines"))
+    attacker = next(square for square in ruins.neighbours() if square.is_on_map)
+    place(coordinates(ruins), ORC)
+    place(coordinates(attacker), DWARF)
+    weighed = ratio_of(client, coordinates(ruins), [coordinates(attacker)])
+    assert (weighed["ratio"], weighed["attack"], weighed["defence"]) == ([1, 2], 12, 16)
+
+
+def test_an_attacker_out_of_range_does_not_weigh(client):
+    """The same filter `POST /combat` applies: what would not fight does not count."""
+    place(DISTANT, DWARF)
+    place(NEIGHBOUR, ORC)
+    assert ratio_of(client, NEIGHBOUR, [DISTANT]) == {
+        "ratio": None, "attack": 0, "defence": 0, "outcomes": []}
+
+
+def test_an_empty_target_weighs_nothing(client):
+    place(PLAIN, DWARF)
+    assert ratio_of(client, NEIGHBOUR, [PLAIN]) == {
+        "ratio": None, "attack": 0, "defence": 0, "outcomes": []}
+
+
+def test_weighing_writes_nothing_in_the_players_column(client):
+    """It is recomputed at every attacker taken or withdrawn: a line each time would bury the
+    account of the game."""
+    place(DISTANT, DWARF)
+    place(NEIGHBOUR, ORC)
+    before = len(log_lines())
+    ratio_of(client, NEIGHBOUR, [DISTANT])   # refused, and silent
+    assert len(log_lines()) == before
+
+
+def test_the_ratio_announced_is_the_one_the_combat_reads(client, monkeypatch):
+    """The forecast and the resolution are one weighing: the player is dealt what was shown."""
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
+    place(PLAIN, DWARF)
+    place(NEIGHBOUR, ORC)
+    client.post("/phase/next")  # the Dwarves' combat phase
+    announced = ratio_of(client, NEIGHBOUR, [PLAIN])
+
+    resolved = client.post("/combat", json={"target": NEIGHBOUR, "attackers": [PLAIN]}).json
+    assert resolved["ratio"] == announced["ratio"]
+    # The die was fixed at 1: the outcome played is the one the first face announced.
+    assert resolved["outcome"] == announced["outcomes"][0]
+
+
+def test_an_unreadable_attacker_key_is_refused(client):
+    place(NEIGHBOUR, ORC)
+    assert client.get("/combat/ratio", query_string={
+        "cq": NEIGHBOUR["q"], "cr": NEIGHBOUR["r"], "cs": NEIGHBOUR["s"],
+        "a": "over-there"}).status_code == 400
+
+
 def test_a_combat_outside_its_phase_is_refused(client):
     place(PLAIN, DWARF)
     place(NEIGHBOUR, ARCHER)

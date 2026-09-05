@@ -615,6 +615,36 @@ their values — applied to everything.
 `tests/application/test_general_log.py` checks all three: what is written, what is never written,
 and what stays elsewhere — none of these lines reaches the browser's column.
 
+## The bar, in groups
+
+The bar carries five families of button, and reads as five: a **pipe** stands between two groups.
+
+```
+→  ♟ | −  100 %  +  ajuster  localiser | Phase de combat — Nains  Phase suivante
+| Ratio : 3/1 (36/12) — DR,DR,DR,DR,DR;AR  Attaquer  Annuler | Joueuse
+```
+
+| Group | What it answers |
+| --- | --- |
+| `#display-group` | how the page is laid out — the panel's edge, the face the pawns show |
+| `#view-group` | where one is looking — zoom, scale, `ajuster`, `localiser` |
+| `#turn-group` | where the game stands — the phase, and `Phase suivante` |
+| `#combat-group` | the attack being composed — its weighing, `Attaquer`, `Annuler` |
+| `#account-group` | who is playing |
+
+The order **inside** a group is the one it always had, and so is the order of the groups: the
+panel's handle first because the bar is clipped on the right, the account button last for the same
+reason. Grouping changed no placement; it only says out loud what the bar already meant.
+
+Two things make it work. The spacing is **tighter inside a group than between two** (0.35 rem
+against the bar's 0.5 rem) — that difference is what makes the grouping read, the pipe only
+confirming it. And the pipe is drawn by the group that **follows** it
+(`#toolbar .group + .group::before`), never by the one before, so a group that is not there leaves
+no pipe hanging: `#combat-group` appears with the target designated and goes with it, and the
+account button then follows the turn directly. A browser test holds that invariant — as many pipes
+on screen as there are groups, less one — and another that nothing in the bar sits outside a group:
+what is added to it tomorrow joins one or makes one.
+
 ## The log column
 
 The log reads **in a column under the card**, in the same panel (`#panel`) and of the same make as

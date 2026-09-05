@@ -61,6 +61,7 @@ const phaseLabel = document.getElementById("phase-label");
 const attackButton = document.getElementById("attack");
 const cancelButton = document.getElementById("cancel-combat");
 const ratioLabel = document.getElementById("combat-ratio");
+const combatGroup = document.getElementById("combat-group");
 const locateButton = document.getElementById("locate");
 const nextPhaseButton = document.getElementById("next-phase");
 
@@ -466,6 +467,9 @@ function hexagonOfPiece(image) {
 
 function updateCombatButtons() {
   const inCombat = phase.type === "combat";
+  // The whole group goes with the target: outside a combat being composed the bar carries neither
+  // its buttons nor the pipe that would announce them.
+  combatGroup.hidden = !(inCombat && target);
   cancelButton.hidden = !(inCombat && target);
   attackButton.hidden = !(inCombat && target && attackers.size > 0);
   trace.trace("combat buttons", { inCombat, target: target ? key(target.dataset) : null,

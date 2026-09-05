@@ -732,6 +732,63 @@ def test_the_cards_elements_are_stacked(board):
     assert places["thumbnail"]["right"] <= places["text"]["left"]
 
 
+# --- The bar in groups ---------------------------------------------------------------------------
+
+
+def test_the_bar_reads_in_groups_separated_by_a_pipe(board):
+    """Five groups, each a question of its own, and a pipe drawn by the group that follows.
+
+    Drawn by the follower and not by the leader: that is what makes a hidden group leave no pipe
+    hanging behind it (see the combat group).
+    """
+    groups = board.evaluate("""() => [...document.querySelectorAll('#toolbar > .group')].map(
+        (group) => ({ id: group.id,
+                      pipe: getComputedStyle(group, '::before').content }))""")
+
+    assert [group["id"] for group in groups] == ["display-group", "view-group", "turn-group",
+                                                 "combat-group", "account-group"]
+    assert groups[0]["pipe"] == "none", "the first group opens the bar: nothing precedes it"
+    assert all(group["pipe"] == '"|"' for group in groups[1:]), groups
+
+
+def bar_groups(page):
+    """The groups of the bar: their identifiers, whether each is on screen, and the pipe it draws.
+
+    The pipe is a `::before`, so it is in no `innerText`: it is read off the computed style, and a
+    group that is not laid out (`display: none`) draws nothing whatever its style says.
+    """
+    return page.evaluate("""() => [...document.querySelectorAll('#toolbar > .group')].map(
+        (group) => ({ id: group.id,
+                      shown: group.getClientRects().length > 0,
+                      pipe: getComputedStyle(group, '::before').content }))""")
+
+
+def pipes_drawn(page):
+    """How many pipes the bar really shows: those of the groups that are on screen."""
+    return len([group for group in bar_groups(page)
+                if group["shown"] and group["pipe"] != "none"])
+
+
+def groups_shown(page):
+    return len([group for group in bar_groups(page) if group["shown"]])
+
+
+def test_everything_in_the_bar_belongs_to_a_group(board):
+    """Nothing floats between two pipes: what is added to the bar joins a group or makes one."""
+    stray = board.evaluate(
+        "() => [...document.getElementById('toolbar').children]"
+        ".filter((child) => !child.classList.contains('group')).map((child) => child.id)")
+    assert stray == []
+
+
+def test_the_bar_carries_no_combat_group_outside_a_combat(board):
+    """A group with nothing in it would leave the bar a pipe leading nowhere: one pipe fewer than
+    there are groups on screen, always."""
+    assert board.locator("#combat-group").is_hidden()
+    assert groups_shown(board) == 4
+    assert pipes_drawn(board) == 3
+
+
 def toolbar_height(page):
     return page.evaluate(
         "() => Math.round(document.getElementById('toolbar').getBoundingClientRect().height)")
@@ -1268,6 +1325,21 @@ def punctuated(outcomes):
     for before, outcome in zip(outcomes, outcomes[1:]):
         written += ("," if outcome == before else ";") + outcome
     return written
+
+
+def test_the_combat_group_appears_with_the_target_and_goes_with_it(board):
+    move_to_the_combat_phase(board)
+    orc = Hex.from_key(next(key for key, p in current_game.BOARD.pieces.items()
+                            if p.side == "tenebres"))
+    assert board.locator("#combat-group").is_hidden()
+
+    click_the_hexagon(board, orc)
+    board.wait_for_selector("#combat-group", state="visible")
+    assert (groups_shown(board), pipes_drawn(board)) == (5, 4)
+
+    board.locator("#cancel-combat").click()
+    board.wait_for_selector("#combat-group", state="hidden")
+    assert (groups_shown(board), pipes_drawn(board)) == (4, 3)
 
 
 def test_the_bar_weighs_the_combat_being_composed(board):

@@ -43,52 +43,76 @@
        the top right one - the first button of the bar sends it from one to the other, and the
        whole block goes with it (see #panel.right in map.css). -->
   <div id="panel">
+    <!-- The bar reads in groups, each one a question of its own, separated by a pipe:
+
+             →  ♟ | −  100 %  +  ajuster  localiser | Phase de combat — Nains  Phase suivante
+             | Ratio : 3/1 (36/12) — DR,DR,DR,DR,DR;AR  Attaquer  Annuler | Joueuse
+
+         how the page is laid out, then where one is looking, then where the game stands, then the
+         attack being composed, then who is playing. The order inside a group is the one it always
+         had: the handle of the panel comes first because the bar is clipped on the right, and the
+         account button last for the same reason. The pipe is drawn by the group that follows it
+         (`#toolbar .group + .group::before` in map.css), so a hidden group leaves none behind. -->
     <div id="toolbar">
-      <!-- Sends the whole panel to the other edge of the window - the bar, the card, the message
-           and the log with it. The block lies over the map, and wherever it sits it covers pieces;
-           two edges and nothing between them, hence a single button, which shows the edge it would
-           go to. It comes first in the bar because the bar is clipped on the right: the handle of
-           the block must not be what disappears. -->
-      <button type="button" id="panel-side" title="Déplacer le panneau à droite">→</button>
+      <!-- What this browser shows, and not what is being played: two choices of display, kept
+           together at the left end where the clipping on the right cannot reach them. -->
+      <div class="group" id="display-group">
+        <!-- Sends the whole panel to the other edge of the window - the bar, the card, the message
+             and the log with it. The block lies over the map, and wherever it sits it covers
+             pieces; two edges and nothing between them, hence a single button, which shows the
+             edge it would go to. It comes first in the bar because the bar is clipped on the
+             right: the handle of the block must not be what disappears. -->
+        <button type="button" id="panel-side" title="Déplacer le panneau à droite">→</button>
 
-      <!-- The face the pawns show: the counters photographed, or an icon per kind of unit in the
-           colour of its army (see static/pawns.js). Two faces and nothing between them, hence a
-           single button - which keeps its sign rather than swapping it, the bar being held to its
-           reference size and a second glyph not being held to the width of the first. What it
-           says is in "aria-pressed" and in the tooltip. It sits beside the button that moves the
-           panel because it is of the same kind: a choice of display, this browser's alone, which
-           the clipping on the right must not reach. -->
-      <button type="button" id="pawn-style" aria-pressed="false"
-              title="Afficher les pions en icônes">♟&#xFE0E;</button>
+        <!-- The face the pawns show: the counters photographed, or an icon per kind of unit in the
+             colour of its army (see static/pawns.js). Two faces and nothing between them, hence a
+             single button - which keeps its sign rather than swapping it, the bar being held to
+             its reference size and a second glyph not being held to the width of the first. What
+             it says is in "aria-pressed" and in the tooltip. It sits beside the button that moves
+             the panel because it is of the same kind: a choice of display, this browser's alone,
+             which the clipping on the right must not reach. -->
+        <button type="button" id="pawn-style" aria-pressed="false"
+                title="Afficher les pions en icônes">♟&#xFE0E;</button>
+      </div>
 
-      <button type="button" id="zoom-out" title="Reculer">−</button>
-      <span id="scale">—</span>
-      <button type="button" id="zoom-in" title="Approcher">+</button>
-      <button type="button" id="fit">ajuster</button>
-      <!-- Brings the last clicked piece back to the centre of the window. As long as no piece has
-           been clicked there is nothing to aim at: the button stays off. -->
-      <button type="button" id="locate" title="Centrer sur le dernier pion cliqué" disabled>
-        localiser
-      </button>
+      <!-- Where one is looking on the map: the scale, and the two ways of coming back to
+           something - the whole board, or the piece last clicked. -->
+      <div class="group" id="view-group">
+        <button type="button" id="zoom-out" title="Reculer">−</button>
+        <span id="scale">—</span>
+        <button type="button" id="zoom-in" title="Approcher">+</button>
+        <button type="button" id="fit">ajuster</button>
+        <!-- Brings the last clicked piece back to the centre of the window. As long as no piece
+             has been clicked there is nothing to aim at: the button stays off. -->
+        <button type="button" id="locate" title="Centrer sur le dernier pion cliqué" disabled>
+          localiser
+        </button>
+      </div>
 
-      <!-- The current phase and its progress, in line with the zoom buttons. -->
-      <span id="phase-label"></span>
-      <button type="button" id="next-phase">Phase suivante</button>
-      <!-- The weighing of the combat being composed, between the phase and the button that
-           resolves it: what is at stake, then the act. It is there only while a target and at
-           least one attacker are designated, which is exactly when the two buttons below are, so
-           the bar gains nothing when nothing is being aimed at. The server weighs it - the
+      <!-- Where the game stands, and the one thing one does to it outside the map: hand play on. -->
+      <div class="group" id="turn-group">
+        <span id="phase-label"></span>
+        <button type="button" id="next-phase">Phase suivante</button>
+      </div>
+
+      <!-- The attack being composed: what it weighs, and the two acts open on it. The whole group
+           appears with the target and goes with it, so the bar carries nothing of the combat while
+           nothing is being aimed at - and no pipe either. The weighing is the server's: the
            defender's terrain multiplies its strength, and the map's terrain is not in the page. -->
-      <span id="combat-ratio" hidden></span>
-      <button type="button" id="attack" hidden>Attaquer</button>
-      <button type="button" id="cancel-combat" hidden>Annuler</button>
+      <div class="group" id="combat-group" hidden>
+        <span id="combat-ratio" hidden></span>
+        <button type="button" id="attack" hidden>Attaquer</button>
+        <button type="button" id="cancel-combat" hidden>Annuler</button>
+      </div>
 
       <!-- The player: a single button, whatever the state. Anonymous, it sends to Discord;
            connected, it opens the table dialog. Nothing else goes into the bar - its reference
            size is documented in map.css, and one more addition would make it overflow to the
            right. What the bar takes is a sign, like the one that moves the panel: a word would
            cost the room this button needs. -->
-      <button type="button" id="player"></button>
+      <div class="group" id="account-group">
+        <button type="button" id="player"></button>
+      </div>
     </div>
 
     <!-- What the server refused - playing out of turn, without a seat, without an account. Under

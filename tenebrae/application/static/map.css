@@ -362,6 +362,32 @@ body {
   white-space: nowrap;
 }
 
+/* The bar reads in groups - the display, the view, the turn, the combat, the account (map.html) -
+   and a pipe stands between two of them. It is drawn by the group that **follows** it, so a group
+   that is not there leaves no pipe hanging: the combat group goes with the target designated, and
+   the account button then follows the turn directly.
+
+   Tighter inside a group than between two (0.35rem against the bar's 0.5rem): that difference is
+   what makes the grouping read, the pipe only confirming it. The pipe's own margin gives it back
+   the same air on both sides. */
+#toolbar .group {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+/* `hidden` must win over `display: flex` here as it does on the card: without that guard the
+   combat group would stay in the bar with nothing in it. */
+#toolbar .group[hidden] {
+  display: none;
+}
+
+#toolbar .group + .group::before {
+  content: "|";
+  margin-right: 0.15rem;
+  color: #6b5a44;
+}
+
 /* What the combat being composed weighs, beside the button that would resolve it. It is only ever
    there during the combat phase, with a target and an attacker designated, so it lengthens the bar
    only while it is being read - and never wraps, which would double the bar's height. Gold, as the

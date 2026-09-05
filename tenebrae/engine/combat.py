@@ -16,9 +16,10 @@ unit that is firing, so a missile unit assaulted in its own square gives ground 
 defender in a fort or a castle escapes `DR` too. Special abilities, the cavalry charge, phalanxes
 and the day/night alternation are out of reach - see `tenebrae/engine/README.md`.
 
-The advance after combat is not played: the booklet lets the attacker occupy the square the
-defender has just left, "the decision must be announced immediately after the combat", and that is
-a player's decision, which nothing here asks for.
+The advance after combat **is** played, on demand: the booklet lets the attacker occupy the square
+the defender has just left, "without regard to zones of control or to its own movement limits", the
+decision being "announced immediately after the combat" - so `fight` takes it as an argument, the
+player having announced it by the button they pressed (`advance_after_combat`).
 
 What a combat phase has already consumed is kept apart, in `tenebrae.engine.combat_register`, and
 the units removed from play in `tenebrae.engine.casualties`.
@@ -394,7 +395,7 @@ class CombatResult:
     ground (`tenebrae/engine/retreat.py`).
     """
 
-    __slots__ = ("outcome", "eliminated", "ratio", "die", "breakdown", "retreats")
+    __slots__ = ("outcome", "eliminated", "ratio", "die", "breakdown", "retreats", "advance")
 
     outcome: Optional[str]
     eliminated: list[Hex]
@@ -402,11 +403,13 @@ class CombatResult:
     die: Optional[int]
     breakdown: Optional[RatioBreakdown]
     retreats: list[RetreatOutcome]
+    advance: Optional[tuple[Hex, Hex]]
 
     def __init__(self, outcome: Optional[str], eliminated: Iterable[Hex],
                  ratio: Optional[tuple[int, int]], die: Optional[int],
                  breakdown: Optional[RatioBreakdown] = None,
-                 retreats: Iterable[RetreatOutcome] = ()) -> None:
+                 retreats: Iterable[RetreatOutcome] = (),
+                 advance: Optional[tuple[Hex, Hex]] = None) -> None:
         """Keeps the result of a combat.
 
         Args:
@@ -416,6 +419,8 @@ class CombatResult:
             die: The die as the table read it.
             breakdown: The computation behind the ratio.
             retreats: What each unit forced to fall back did.
+            advance: The attacker's own move into the square the defender left, `(origin,
+                destination)`; `None` where none was asked for or none was possible.
         """
         self.outcome = outcome
         self.eliminated = list(eliminated)
@@ -423,6 +428,7 @@ class CombatResult:
         self.die = die
         self.breakdown = breakdown
         self.retreats = list(retreats)
+        self.advance = advance
 
     @property
     def moves(self) -> list[tuple[Hex, Hex]]:
@@ -447,12 +453,17 @@ class CombatResult:
         for origin, destination in self.moves:
             if origin == square:
                 square = destination
+        # The advance comes last, as it is played last: the attacker that occupies the square is
+        # counted there and not on the one it left, or it could attack again from its new one.
+        if self.advance is not None and self.advance[0] == square:
+            square = self.advance[1]
         return square
 
     def __repr__(self) -> str:
-        """The outcome, the squares cleared and the units that gave ground."""
+        """The outcome, the squares cleared, the units that gave ground and the advance."""
         return (f"CombatResult({self.outcome!r}, {len(self.eliminated)} eliminated, "
-                f"{len(self.moves)} fell back)")
+                f"{len(self.moves)} fell back, "
+                f"{'advanced' if self.advance else 'held its ground'})")
 
 
 def suffers_a_retreat(piece: Optional[Piece], hexagon: Hex, as_defender: bool) -> bool:
@@ -543,7 +554,7 @@ def exchanged_attackers(board: Board, attacker_hexagons: Sequence[Hex],
 
 
 def fight(board: Board, target_hexagon: Hex, attacker_hexagons: Sequence[Hex], roll: int,
-          casualties: Optional[Casualties] = None) -> CombatResult:
+          casualties: Optional[Casualties] = None, advance: bool = False) -> CombatResult:
     """Resolves a combat on the board, **removing** the eliminated pieces and falling back the rest.
 
     The attackers are held to be valid - in range, on the right side: it is up to the caller to
@@ -562,6 +573,9 @@ def fight(board: Board, target_hexagon: Hex, attacker_hexagons: Sequence[Hex], r
         roll: The die result, 1 to 6.
         casualties: The game's register of units removed from play, filled as they fall. Optional:
             a caller that keeps no count - a test questioning the table - passes none.
+        advance: Whether the attacker occupies the square the defender leaves, where one is left
+            free. The booklet has that decision "announced immediately after the combat", and it
+            is announced here by being asked for: the player pressed "Attaquer et avancer".
 
     Returns:
         The result; its `outcome` is `None` if the target is absent or has no legible strength.
@@ -590,7 +604,52 @@ def fight(board: Board, target_hexagon: Hex, attacker_hexagons: Sequence[Hex], r
     eliminated.extend(retreat.eliminated for retreat in retreats
                       if retreat.eliminated is not None)
 
-    return CombatResult(outcome, eliminated, breakdown.ratio, breakdown.die, breakdown, retreats)
+    # Last of all, once the square has been cleared or given up: nothing else moves afterwards.
+    advanced = advance_after_combat(board, target_hexagon, attacker_hexagons) if advance else None
+
+    return CombatResult(outcome, eliminated, breakdown.ratio, breakdown.die, breakdown, retreats,
+                        advanced)
+
+
+def advance_after_combat(board: Board, target_hexagon: Hex,
+                         attacker_hexagons: Sequence[Hex]) -> Optional[tuple[Hex, Hex]]:
+    """Moves one attacker into the square the defender has left, if the player asked for it.
+
+    The booklet ("Advance after combat"): "When the outcome of a combat forces the defender to
+    retreat, the attacking unit may, if it wishes, occupy the hex abandoned by the defender, and
+    this without regard to zones of control or to its own movement limits." Hence a move played
+    here by hand rather than through `Board.move`, which would weigh both.
+
+    Two readings, both stated in `tenebrae/engine/README.md`:
+
+    - the booklet names the **retreat** alone; the square a defender leaves by being eliminated is
+      occupied on the same terms, the hex being just as abandoned;
+    - "the attacking unit" is one unit, and a group of attackers does not say which: the **first
+      designated** that can take the square does, so the player chooses it by the order of their
+      clicks.
+
+    An attacker that fell in the combat cannot advance, nor can one that is not next to the square
+    - a unit firing from three hexes away does not "occupy" anything.
+
+    Args:
+        board: The board, modified in place, the combat already resolved on it.
+        target_hexagon: The defender's square.
+        attacker_hexagons: The attackers' squares, in the order they were designated.
+
+    Returns:
+        `(origin, destination)` of the unit that advanced, or `None` where none did - the defender
+        held its ground, or no attacker was left beside it.
+    """
+    if board.piece_on(target_hexagon) is not None:
+        return None
+    for hexagon in attacker_hexagons:
+        if board.piece_on(hexagon) is not None and hexagon.distance(target_hexagon) == 1:
+            piece = board.remove(hexagon)
+            if piece is not None:
+                # No tilt passed: the counter has been picked up, as after a move or a fall-back.
+                board.place(target_hexagon, piece)
+            return hexagon, target_hexagon
+    return None
 
 
 def fall_back_from(board: Board, target_hexagon: Hex, attacker_hexagons: Sequence[Hex],

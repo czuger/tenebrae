@@ -139,16 +139,24 @@ def test_a_side_already_held_is_not_offered(page, server, application, seat_the_
 
 
 def test_the_action_buttons_are_off_when_it_is_not_ones_turn(page, server):
-    """The Darkness player opens the game: the first phase is the Alliance's."""
+    """The Darkness player opens the game: the first phase is the Alliance's.
+
+    The two ways of attacking go off together: one of them advancing afterwards changes nothing to
+    whose turn it is.
+    """
     current_game.SEATS.seat(DARKNESS, DEFAULT_IDENTITY["discord_id"])
     open_the_board(page, server)
     assert page.locator("#next-phase").is_disabled()
+    assert page.locator("#attack").is_disabled()
+    assert page.locator("#attack-advance").is_disabled()
 
 
 def test_the_action_buttons_are_on_at_ones_turn(page, server):
     current_game.SEATS.seat(ALLIANCE, DEFAULT_IDENTITY["discord_id"])
     open_the_board(page, server)
     assert page.locator("#next-phase").is_enabled()
+    assert page.locator("#attack").is_enabled()
+    assert page.locator("#attack-advance").is_enabled()
 
 
 def test_a_visitor_without_a_seat_cannot_pass_the_phase(page, server):

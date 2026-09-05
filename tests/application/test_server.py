@@ -604,6 +604,63 @@ def test_a_retreat_falls_the_defender_back(client, monkeypatch):
     assert current_game.BOARD.piece_on(Hex(**PLAIN)).key == DWARF
 
 
+def test_the_attacker_can_take_the_square_the_defender_leaves(client, monkeypatch):
+    """"Attaquer et avancer": the decision the booklet has announced immediately after the combat
+    travels with the request, and the answer says where the counter went."""
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
+    place(PLAIN, DWARF)       # 12
+    place(NEIGHBOUR, ORC)     # 8 -> 1-1, die 1 -> DR
+    client.post("/phase/next")
+    answer = client.post("/combat", json={"target": NEIGHBOUR, "attackers": [PLAIN],
+                                          "advance": True}).json
+
+    assert answer["outcome"] == "DR"
+    assert {name: answer["advance"]["from"][name] for name in ("q", "r", "s")} == PLAIN
+    assert {name: answer["advance"]["to"][name] for name in ("q", "r", "s")} == NEIGHBOUR
+    assert answer["advance"]["tilt"] is not None
+    assert current_game.BOARD.piece_on(Hex(**NEIGHBOUR)).key == DWARF
+    assert current_game.BOARD.piece_on(Hex(**PLAIN)) is None
+
+
+def test_an_attack_without_the_advance_stays_where_it_is(client, monkeypatch):
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
+    place(PLAIN, DWARF)
+    place(NEIGHBOUR, ORC)
+    client.post("/phase/next")
+    answer = client.post("/combat", json={"target": NEIGHBOUR, "attackers": [PLAIN]}).json
+
+    assert answer["advance"] is None
+    assert current_game.BOARD.piece_on(Hex(**PLAIN)).key == DWARF
+
+
+def test_the_advance_is_told_in_the_log(client, monkeypatch):
+    """Under the fall-back it follows, above the outcome that allowed it - the column reads the
+    most recent line first, so it comes out the other way round."""
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
+    place(PLAIN, DWARF)
+    place(NEIGHBOUR, ORC)
+    client.post("/phase/next")
+    client.post("/combat", json={"target": NEIGHBOUR, "attackers": [PLAIN], "advance": True})
+
+    written = [line["text"] for line in log_lines()]
+    assert f"Avance : {Hex(**PLAIN).key} → {Hex(**NEIGHBOUR).key}" in written
+
+
+def test_the_unit_that_advanced_is_engaged_on_its_new_square(client, monkeypatch):
+    """The register counts it where it now stands: marked on the square it left, it could attack
+    again from the one it took."""
+    monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)
+    place(PLAIN, DWARF)
+    place(NEIGHBOUR, ORC)
+    client.post("/phase/next")
+    answer = client.post("/combat", json={"target": NEIGHBOUR, "attackers": [PLAIN],
+                                          "advance": True}).json
+
+    engaged = [{name: square[name] for name in ("q", "r", "s")}
+               for square in answer["unavailable"]["attackers"]]
+    assert engaged == [NEIGHBOUR]
+
+
 def test_a_retreat_is_told_in_the_log(client, monkeypatch):
     """One line per unit that gave ground, under the outcome it comes from."""
     monkeypatch.setattr(current_game, "roll_the_die", lambda: 1)

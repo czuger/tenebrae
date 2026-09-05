@@ -105,15 +105,19 @@ def lay_the_figure_out(board, application):
     return lay_out
 
 
-def attack(page, target, attackers):
-    """Composes the combat on the map - the target, then the attackers - and clicks "Attaquer"."""
+def attack(page, target, attackers, advance=False):
+    """Composes the combat on the map - the target, then the attackers - and resolves it.
+
+    `advance` presses "Attaquer et avancer" instead of "Attaquer": the booklet's advance after
+    combat, announced by the button rather than after the die has fallen.
+    """
     click_the_hexagon(page, target)
     page.wait_for_selector("img.piece.target")
     for attacker in attackers:
         click_the_hexagon(page, attacker)
     page.wait_for_function("(n) => document.querySelectorAll('img.piece.attacker').length === n",
                            arg=len(attackers))
-    page.locator("#attack").click()
+    page.locator("#attack-advance" if advance else "#attack").click()
     page.wait_for_selector("#attack", state="hidden")
 
 
@@ -134,6 +138,45 @@ def test_the_defender_that_gives_ground_moves_on_the_screen(board, lay_the_figur
 
     assert current_game.BOARD.piece_on(plain) is None
     assert squares_on_screen(board) == set(current_game.BOARD.pieces)
+    assert plain.key not in squares_on_screen(board)
+
+
+def test_the_attacker_advances_on_the_screen_into_the_square_left_free(board, lay_the_figure_out):
+    """"Attaquer et avancer": the orc gives ground, and the dwarf's counter is on its square - on
+    the tab that ordered the combat, which plays the answer rather than waiting for the scene."""
+    plain = a_clickable_plain(board)
+    dwarf, *_ = ring(plain)
+    lay_the_figure_out({plain: ORC, dwarf: DWARF})
+
+    attack(board, plain, [dwarf], advance=True)
+
+    assert current_game.BOARD.piece_on(plain).key == DWARF
+    assert current_game.BOARD.piece_on(dwarf) is None
+    assert squares_on_screen(board) == set(current_game.BOARD.pieces)
+    assert plain.key in squares_on_screen(board)
+
+
+def test_the_advanced_counter_lies_down_at_the_servers_angle(board, lay_the_figure_out):
+    """It has been picked up like any other: the angle it lies down at is the server's."""
+    plain = a_clickable_plain(board)
+    dwarf, *_ = ring(plain)
+    lay_the_figure_out({plain: ORC, dwarf: DWARF})
+
+    attack(board, plain, [dwarf], advance=True)
+
+    assert angles_by_square(board)[plain.key] == round(current_game.BOARD.tilts[plain.key], 2)
+
+
+def test_the_attack_that_holds_its_ground_leaves_the_square_empty(board, lay_the_figure_out):
+    """The same combat by the other button: the orc falls back and nobody takes its place."""
+    plain = a_clickable_plain(board)
+    dwarf, *_ = ring(plain)
+    lay_the_figure_out({plain: ORC, dwarf: DWARF})
+
+    attack(board, plain, [dwarf])
+
+    assert current_game.BOARD.piece_on(plain) is None
+    assert current_game.BOARD.piece_on(dwarf).key == DWARF
     assert plain.key not in squares_on_screen(board)
 
 

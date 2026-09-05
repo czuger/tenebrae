@@ -72,7 +72,7 @@
              the panel because it is of the same kind: a choice of display, this browser's alone,
              which the clipping on the right must not reach. -->
         <button type="button" id="pawn-style" aria-pressed="false"
-                title="Afficher les pions en icônes">♟&#xFE0E;</button>
+                title="Afficher les pions en icônes (S)">♟&#xFE0E;</button>
       </div>
 
       <!-- Where one is looking on the map: the scale, and the two ways of coming back to
@@ -84,7 +84,8 @@
         <button type="button" id="fit">ajuster</button>
         <!-- Brings the last clicked piece back to the centre of the window. As long as no piece
              has been clicked there is nothing to aim at: the button stays off. -->
-        <button type="button" id="locate" title="Centrer sur le dernier pion cliqué" disabled>
+        <button type="button" id="locate" title="Centrer sur le dernier pion cliqué (Q)"
+                disabled>
           localiser
         </button>
       </div>
@@ -92,7 +93,7 @@
       <!-- Where the game stands, and the one thing one does to it outside the map: hand play on. -->
       <div class="group" id="turn-group">
         <span id="phase-label"></span>
-        <button type="button" id="next-phase">Phase suivante</button>
+        <button type="button" id="next-phase" title="Phase suivante (D)">Phase suivante</button>
       </div>
 
       <!-- The attack being composed: what it weighs, and the two acts open on it. The whole group
@@ -101,8 +102,15 @@
            defender's terrain multiplies its strength, and the map's terrain is not in the page. -->
       <div class="group" id="combat-group" hidden>
         <span id="combat-ratio" hidden></span>
-        <button type="button" id="attack" hidden>Attaquer</button>
-        <button type="button" id="cancel-combat" hidden>Annuler</button>
+        <button type="button" id="attack" hidden title="Attaquer (A)">Attaquer</button>
+        <!-- The booklet's advance after combat: the attacker occupies the square the defender
+             leaves, "the decision must be announced immediately after the combat" - and it is
+             announced by pressing this button rather than the one beside it. The two are shown
+             together: before the die is thrown, nobody knows whether the square will be free. -->
+        <button type="button" id="attack-advance" hidden title="Attaquer et avancer (Z)">
+          Attaquer et avancer
+        </button>
+        <button type="button" id="cancel-combat" hidden title="Annuler (E)">Annuler</button>
       </div>
 
       <!-- The player: a single button, whatever the state. Anonymous, it sends to Discord;

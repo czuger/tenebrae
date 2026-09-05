@@ -59,6 +59,7 @@ const pawnStyleButton = document.getElementById("pawn-style");
 
 const phaseLabel = document.getElementById("phase-label");
 const attackButton = document.getElementById("attack");
+const advanceButton = document.getElementById("attack-advance");
 const cancelButton = document.getElementById("cancel-combat");
 const ratioLabel = document.getElementById("combat-ratio");
 const combatGroup = document.getElementById("combat-group");
@@ -472,6 +473,7 @@ function updateCombatButtons() {
   combatGroup.hidden = !(inCombat && target);
   cancelButton.hidden = !(inCombat && target);
   attackButton.hidden = !(inCombat && target && attackers.size > 0);
+  advanceButton.hidden = attackButton.hidden;
   trace.trace("combat buttons", { inCombat, target: target ? key(target.dataset) : null,
                                   attackers: attackers.size,
                                   attackShown: !attackButton.hidden });
@@ -622,8 +624,13 @@ function markTheUnavailable(unavailable) {
   trace.info("units already engaged, greyed out", { squares: [...squares] });
 }
 
-async function attack() {
-  trace.enter("attack", { target: target ? key(target.dataset) : null,
+// `advance` is the booklet's advance after combat, announced by the button pressed: "Attaquer et
+// avancer" takes the square the defender leaves, "Attaquer" stays where it is. The square is not
+// known to be free until the die has fallen, so the two buttons are shown together and the choice
+// travels with the request.
+async function attack(advance = false) {
+  trace.enter("attack", { advance,
+                          target: target ? key(target.dataset) : null,
                           attackers: [...attackers].map((image) => key(image.dataset)) });
   if (!target || attackers.size === 0) {
     trace.warn("attack asked with nothing selected");
@@ -635,6 +642,7 @@ async function attack() {
     body: JSON.stringify({
       target: hexagonOfPiece(target),
       attackers: [...attackers].map(hexagonOfPiece),
+      advance,
     }),
   });
   if (!answer) {
@@ -648,9 +656,46 @@ async function attack() {
     // has just left the board, and the square must be free before it gets there.
     for (const eliminated of result.eliminated) removeThePiece(eliminated);
     await fallThePiecesBack(result.retreats);
+    // And the advance last, as the server played it: the square it takes has just been left.
+    if (result.advance) await fallThePiecesBack([result.advance]);
   }
   clearTheCombat();
   markTheUnavailable(result.unavailable);
+}
+
+// --- The keyboard ---
+//
+// The six buttons one presses over and over, under the left hand while the right holds the mouse:
+// A, Z and E on the top row, Q, S and D under them. The letters are chosen for **where they sit on an
+// AZERTY keyboard** and not for what they spell, which is why they are read from `event.key` - the
+// letter the keyboard produces - rather than from `event.code`, which would name the key by its
+// place on an American one and put "Attaquer" under the Q of this keyboard.
+//
+// Each key does exactly what its button does, and nothing where the button is not there to be
+// pressed: a hidden or disabled button is not clicked, so the keyboard can no more attack outside
+// a combat than the bar can.
+const SHORTCUTS = {
+  a: "attack",
+  z: "attack-advance",
+  e: "cancel-combat",
+  q: "locate",
+  s: "pawn-style",
+  d: "next-phase",
+};
+
+function onKey(event) {
+  // A modifier means the key belongs to the browser - Ctrl+S saves the page - and a form field
+  // means it belongs to what is being typed in it.
+  if (event.ctrlKey || event.altKey || event.metaKey || tableDialog.open) return;
+  const identifier = SHORTCUTS[event.key.toLowerCase()];
+  if (!identifier) return;
+  const button = document.getElementById(identifier);
+  trace.info("shortcut pressed", { key: event.key, button: identifier,
+                                   available: Boolean(button && !button.hidden
+                                                      && !button.disabled) });
+  if (!button || button.hidden || button.disabled) return;
+  event.preventDefault();
+  button.click();
 }
 
 // A retreat moves counters - the unit that gives ground, and the friends it pushes to make room
@@ -906,6 +951,7 @@ function updatePlayerButtons() {
   const playable = itIsMyTurn() && !phase.over;
   nextPhaseButton.disabled = !playable;
   attackButton.disabled = !playable;
+  advanceButton.disabled = !playable;
   trace.trace("player buttons", { mine: itIsMyTurn(), over: Boolean(phase.over),
                                   sides: table.sides, active: phase.side });
 }
@@ -1312,6 +1358,11 @@ function start() {
     trace.info("\"attaquer\" clicked");
     attack();
   });
+  advanceButton.addEventListener("click", () => {
+    trace.info("\"attaquer et avancer\" clicked");
+    attack(true);
+  });
+  document.addEventListener("keydown", onKey);
   cancelButton.addEventListener("click", () => {
     trace.info("\"annuler\" clicked");
     clearTheCombat();

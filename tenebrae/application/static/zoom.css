@@ -44,7 +44,12 @@
   font-size: 0.85rem;
 }
 
+/* A bar of one line: a label that wrapped inside its button would double the bar's height, which
+   is the one size these pages hold to. It is the bar that is clipped on the right, never a word
+   that is broken in two. */
 #toolbar button {
+  flex: none;
+  white-space: nowrap;
   font: inherit;
   padding: 0.15rem 0.6rem;
   border: 1px solid #6b5a44;

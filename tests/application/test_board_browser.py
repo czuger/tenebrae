@@ -789,6 +789,107 @@ def test_the_bar_carries_no_combat_group_outside_a_combat(board):
     assert pipes_drawn(board) == 3
 
 
+# --- The keyboard ------------------------------------------------------------------------------
+#
+# Five keys under the left hand while the right holds the mouse: A, Z, E on the top row of an
+# AZERTY keyboard, Q and S under them. Each does what its button does, and nothing where the button
+# is not there to be pressed.
+
+
+def watch_the_buttons(page):
+    """Records which buttons are clicked, whatever clicked them - pointer or key."""
+    page.evaluate("""() => {
+        window.pressed = [];
+        const watched = ['attack', 'attack-advance', 'cancel-combat', 'locate', 'pawn-style',
+                         'next-phase'];
+        for (const id of watched) {
+            document.getElementById(id).addEventListener(
+                'click', () => window.pressed.push(id));
+        }
+    }""")
+
+
+def pressed(page):
+    return page.evaluate("() => window.pressed")
+
+
+def test_the_keys_press_the_buttons_they_stand_for(board):
+    """`S` is the one button always there to be pressed; `Q` waits for a piece to have been
+    clicked, and the three combat keys for a combat."""
+    watch_the_buttons(board)
+
+    board.keyboard.press("s")
+    board.keyboard.press("q")
+    assert pressed(board) == ["pawn-style"], "a disabled button is not pressed by its key"
+
+    a_centrable_piece(board).click()
+    board.keyboard.press("q")
+    assert pressed(board) == ["pawn-style", "locate"]
+
+
+def test_d_hands_play_on(board):
+    """The key of the button one presses at every end of phase."""
+    watch_the_buttons(board)
+    assert read_phase(board) == "Phase de mouvement — Nains"
+
+    board.keyboard.press("d")
+    board.wait_for_function(
+        "document.getElementById('phase-label').textContent === 'Phase de combat — Nains'")
+    assert pressed(board) == ["next-phase"]
+
+
+def test_the_combat_keys_do_nothing_outside_a_combat(board):
+    """The bar carries no attack button then, and neither does the keyboard."""
+    watch_the_buttons(board)
+    for shortcut in ("a", "z", "e"):
+        board.keyboard.press(shortcut)
+    assert pressed(board) == []
+
+
+def test_the_combat_keys_press_the_combat_buttons(board):
+    move_to_the_combat_phase(board)
+    orc = Hex.from_key(next(key for key, p in current_game.BOARD.pieces.items()
+                            if p.side == "tenebres"))
+    click_the_hexagon(board, orc)
+    board.wait_for_selector("img.piece.target")
+    watch_the_buttons(board)
+
+    # No attacker designated: only "Annuler" is there, and only `E` answers.
+    board.keyboard.press("a")
+    board.keyboard.press("z")
+    assert pressed(board) == []
+
+    board.keyboard.press("e")
+    assert pressed(board) == ["cancel-combat"]
+    board.wait_for_selector("img.piece.target", state="detached")
+
+
+def test_a_key_with_a_modifier_belongs_to_the_browser(board):
+    """Ctrl+S saves the page: it does not change the face of the pawns."""
+    watch_the_buttons(board)
+    board.keyboard.press("Control+s")
+    board.keyboard.press("Alt+s")
+    assert pressed(board) == []
+
+
+def test_the_keys_are_silent_while_the_table_is_open(board):
+    """The dialog has the keyboard: nothing behind it answers."""
+    watch_the_buttons(board)
+    board.locator("#player").click()
+    board.wait_for_selector("#table-dialog[open]")
+
+    board.keyboard.press("s")
+    assert pressed(board) == []
+
+
+def test_every_shortcut_is_written_on_its_button(board):
+    """A shortcut nobody can find is a shortcut nobody uses: each is in the button's tooltip."""
+    for identifier, letter in (("attack", "A"), ("attack-advance", "Z"), ("cancel-combat", "E"),
+                               ("locate", "Q"), ("pawn-style", "S"), ("next-phase", "D")):
+        title = board.locator(f"#{identifier}").get_attribute("title")
+        assert title.endswith(f"({letter})"), (identifier, title)
+
+
 def toolbar_height(page):
     return page.evaluate(
         "() => Math.round(document.getElementById('toolbar').getBoundingClientRect().height)")
@@ -1340,6 +1441,27 @@ def test_the_combat_group_appears_with_the_target_and_goes_with_it(board):
     board.locator("#cancel-combat").click()
     board.wait_for_selector("#combat-group", state="hidden")
     assert (groups_shown(board), pipes_drawn(board)) == (4, 3)
+
+
+def test_the_two_ways_of_attacking_appear_together(board):
+    """Before the die has fallen nobody knows whether the square will be free: the choice is
+    offered, not deduced."""
+    dwarf, contact, orc = a_pair_for_combat(board)
+    dwarf.click()
+    board.wait_for_function("document.querySelectorAll('img.ghost').length > 0")
+    click_the_hexagon(board, contact)
+    board.wait_for_function("document.querySelectorAll('img.ghost').length === 0")
+    move_to_the_combat_phase(board)
+
+    click_the_hexagon(board, orc)
+    board.wait_for_selector("img.piece.target")
+    assert board.locator("#attack").is_hidden()
+    assert board.locator("#attack-advance").is_hidden()
+
+    click_the_hexagon(board, contact)
+    board.wait_for_selector("#attack", state="visible")
+    assert board.locator("#attack-advance").is_visible()
+    assert board.locator("#attack-advance").inner_text() == "Attaquer et avancer"
 
 
 def test_the_bar_weighs_the_combat_being_composed(board):

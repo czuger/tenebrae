@@ -526,6 +526,139 @@ class TestWeighing:
             assert combat.fight(board, target, [attacker], roll=roll).outcome == announced[roll - 1]
 
 
+class TestAdvanceAfterCombat:
+    """The booklet: the attacking unit may occupy the hex the defender leaves, "without regard to
+    zones of control or to its own movement limits", the decision "announced immediately after the
+    combat" - here, by asking for it.
+    """
+
+    @pytest.fixture
+    def pair(self):
+        a = well_surrounded_plain()
+        c, *_ = ring_of(a)
+        return a, c
+
+    def test_the_attacker_takes_the_square_the_defender_gives_up(self, pair):
+        """`DR`: the orc falls back, and the dwarf that asked to advance is on its square."""
+        target, attacker = pair
+        board = Board([(target, piece(ORC)), (attacker, piece(DWARF))])
+        # DWARF 12 against ORC 8 -> 1-1; die 1 -> DR.
+        result = combat.fight(board, target, [attacker], roll=1, advance=True)
+
+        assert result.outcome == DR
+        assert result.advance == (attacker, target)
+        assert board.piece_on(target).key == DWARF
+        assert board.piece_on(attacker) is None
+
+    def test_it_takes_the_square_of_a_defender_eliminated_too(self, pair):
+        """**A reading**: the booklet names the retreat alone, and a hex left by an elimination is
+        just as abandoned. Stated in the engine's README."""
+        target, attacker = pair
+        board = Board([(target, piece(ARCHER)), (attacker, piece(DWARF))])
+        # DWARF 12 against ARCHER 2 -> 6-1; die 1 -> DE.
+        result = combat.fight(board, target, [attacker], roll=1, advance=True)
+
+        assert result.outcome == DE
+        assert result.advance == (attacker, target)
+        assert board.piece_on(target).key == DWARF
+
+    def test_nothing_moves_unless_it_was_asked_for(self, pair):
+        """The attack that stays where it is: the same combat, the button not pressed."""
+        target, attacker = pair
+        board = Board([(target, piece(ORC)), (attacker, piece(DWARF))])
+        result = combat.fight(board, target, [attacker], roll=1)
+
+        assert result.outcome == DR
+        assert result.advance is None
+        assert board.piece_on(target) is None
+        assert board.piece_on(attacker).key == DWARF
+
+    def test_there_is_nothing_to_occupy_when_the_defender_holds(self, pair):
+        """`AE`: the attackers fall, the orc is still on its square, and nobody advances."""
+        target, attacker = pair
+        board = Board([(target, piece(DWARF)), (attacker, piece(ARCHER))])
+        # ARCHER 2 against DWARF 12 -> 1-5; die 2 -> AE.
+        result = combat.fight(board, target, [attacker], roll=2, advance=True)
+
+        assert result.outcome == AE
+        assert result.advance is None
+        assert board.piece_on(target).key == DWARF
+
+    def test_the_first_attacker_designated_is_the_one_that_advances(self):
+        """"The attacking unit" is one unit, and a group does not say which: the order of the
+        clicks does."""
+        target = well_surrounded_plain()
+        first, second, *_ = ring_of(target)
+        board = Board([(target, piece(ORC)), (first, piece(DWARF)), (second, piece(DWARF))])
+        result = combat.fight(board, target, [second, first], roll=1, advance=True)
+
+        assert result.advance == (second, target)
+        assert board.piece_on(second) is None
+        assert board.piece_on(first).key == DWARF
+
+    def test_a_unit_firing_from_afar_does_not_occupy_anything(self):
+        """It never came into contact: "occupying the hex" is not a leap of three squares."""
+        target = well_surrounded_plain()
+        _, _, _, further = ring_of(target)
+        board = Board([(target, piece(ARCHER)), (further, piece(CROSSBOWMAN))])
+        assert further.distance(target) == 2
+        # CROSSBOWMAN 6 against ARCHER 2 -> 3-1; die 1 -> DR: the square is left, and stays empty.
+        result = combat.fight(board, target, [further], roll=1, advance=True)
+
+        assert result.outcome == DR
+        assert result.advance is None
+        assert board.piece_on(further).key == CROSSBOWMAN
+        assert board.piece_on(target) is None
+
+    def test_an_attacker_that_fell_in_the_exchange_does_not_advance(self):
+        """`EX` takes the defender and enough attackers to match it: the one left standing is the
+        one that occupies the square."""
+        target = well_surrounded_plain()
+        first, second, *_ = ring_of(target)
+        board = Board([(target, piece(ARCHER)), (first, piece(DWARF)), (second, piece(ELF))])
+        # DWARF 12 + ELF 7 against ARCHER 2 -> 6-1; die 6 -> EX.
+        result = combat.fight(board, target, [first, second], roll=6, advance=True)
+
+        assert result.outcome == EX
+        fallen, standing = (first, second) if board.piece_on(first) is None else (second, first)
+        assert result.advance == (standing, target)
+        assert board.piece_on(target) is not None
+        assert board.piece_on(fallen) is None
+
+    def test_no_movement_of_its_own_would_have_taken_that_square(self):
+        """"Without regard to zones of control or to its own movement limits": the square is held
+        by the enemy and flanked by another of its units, so no movement reaches it - and the
+        advance occupies it all the same."""
+        target = well_surrounded_plain()
+        attacker, beside, *_ = ring_of(target)
+        board = Board([(target, piece(ORC)), (attacker, piece(DWARF)), (beside, piece(ORC))])
+        assert beside.distance(target) == 1
+        assert target not in board.moves(attacker)
+
+        result = combat.fight(board, target, [attacker], roll=1, advance=True)
+
+        assert result.advance == (attacker, target)
+        assert board.piece_on(target).key == DWARF
+
+    def test_the_counter_lies_down_at_a_fresh_angle(self, pair):
+        """It has been picked up, like a counter that moves or gives ground."""
+        target, attacker = pair
+        board = Board([(target, piece(ORC)), (attacker, piece(DWARF))])
+        combat.fight(board, target, [attacker], roll=1, advance=True)
+
+        assert board.tilt_on(target) is not None
+        assert board.tilt_on(attacker) is None
+
+    def test_the_register_counts_the_advanced_unit_on_its_new_square(self, pair):
+        """`square_after` follows the advance as it follows a fall-back: a unit marked on the
+        square it left could attack again from the one it took."""
+        target, attacker = pair
+        board = Board([(target, piece(ORC)), (attacker, piece(DWARF))])
+        result = combat.fight(board, target, [attacker], roll=1, advance=True)
+
+        assert result.square_after(attacker) == target
+
+
 class TestRatioBreakdown:
     """The computation kept piece by piece: enough to tell its story, not to redo it.
 

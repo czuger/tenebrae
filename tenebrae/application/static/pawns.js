@@ -351,6 +351,6 @@ function turnThePawnStyleOver() {
 function labelThePawnStyleButton(button) {
   button.setAttribute("aria-pressed", String(pawnsAreDrawn()));
   button.title = pawnsAreDrawn()
-    ? "Revenir aux pions photographiés"
-    : "Afficher les pions en icônes";
+    ? "Revenir aux pions photographiés (S)"
+    : "Afficher les pions en icônes (S)";
 }

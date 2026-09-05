@@ -463,9 +463,17 @@ way a square is emptied, it comes back in `result.eliminated`; the fall-backs th
 (`casualties.py`). Two exemptions from the booklet are applied before falling anybody back: "a unit
 firing missiles can in no case suffer a retreat or exchange result" — read as covering the unit
 that is firing, so an **attacker** that fires, never a missile unit assaulted in its own square —
-and a defender in a fort or a castle does not suffer `DR`. The advance after combat is not
-played — the booklet makes it a decision announced by the attacker, and nothing here asks for one.
-See the caveats below.
+and a defender in a fort or a castle does not suffer `DR`.
+
+**The advance after combat is played, on demand.** The booklet: "the attacking unit may, if it
+wishes, occupy the hex abandoned by the defender, and this without regard to zones of control or to
+its own movement limits", the decision being "announced immediately after the combat". `fight`
+therefore takes it as an argument — the player has announced it by pressing `Attaquer et avancer`
+rather than `Attaquer` — and `advance_after_combat` plays it **last**, once the square has been
+cleared or given up, moving the counter by hand rather than through `Board.move`, which would weigh
+the zones of control and the movement points the booklet sets aside. `result.advance` carries
+`(origin, destination)`, and `square_after` follows it, so the combat register counts the unit on
+the square it took. Two readings, both in the caveats below: which square, and which unit.
 
 **The exchange takes as few attackers as it can.** The booklet has `EX` remove the defender "along
 with attacking units totalling a strength at least equal"; **which** units it leaves open, and
@@ -685,12 +693,20 @@ As for the map and the counter inventory, doubts are kept, not settled.
 - **Magic is not played.** The magic phase is provided for in the booklet's sequence;
   `Turn.advance()` steps over it without doing anything. Spells, magic potential, spellcasters and
   special abilities (fear, paralysis, protection rolls) are waiting.
-- **The advance after combat is not played.** The booklet lets the attacker occupy the square the
-  defender has just left, "the decision must be announced immediately after the combat": that is a
-  player's decision, and nothing asks for one. Neither cavalry charge (× 2), nor phalanx (× 3), nor
-  day/night alternation: apart from the two exemptions from retreat — an attacker that fires, and a
-  defender in a fort or a castle — the counter's strength and the defender's terrain are the only
-  factors.
+- **The advance after combat occupies a square left by an elimination too, and that reading is
+  ours.** The booklet names the **retreat** alone: "when the outcome of a combat forces the
+  defender to retreat, the attacking unit may […] occupy the hex abandoned by the defender". A
+  defender that is eliminated abandons its hex just as thoroughly, and `DE` and `EX` are read here
+  as leaving it open to the same advance. Reading the sentence narrowly would make the attacker
+  able to follow a unit that gives ground and not one it has just destroyed.
+- **"The attacking unit" is one unit, and a group does not say which.** Several units make a single
+  combat, and the booklet's advance is in the singular. The one that advances is the **first
+  attacker designated** that can — still standing, and beside the square: a unit firing from three
+  hexes away occupies nothing. The player therefore chooses it by the order of their clicks.
+- **The rest of the combat modifiers are not played.** Neither cavalry charge (× 2), nor phalanx
+  (× 3), nor day/night alternation: apart from the two exemptions from retreat — an attacker that
+  fires, and a defender in a fort or a castle — the counter's strength and the defender's terrain
+  are the only factors.
 - **The missile exemption goes to the attacker, and that reading is ours.** "A unit firing missiles
   can in no case suffer a retreat or exchange result" is applied to the unit that is firing: an
   attacker, since `fires_missiles` holds a missile unit to fire in every combat it declares. A

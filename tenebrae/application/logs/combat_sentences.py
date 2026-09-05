@@ -188,6 +188,21 @@ def _the_fall_back(retreat: RetreatOutcome) -> tuple[Hex, Hex]:
     return retreat.moves[0]
 
 
+def advance_sentence(advance: tuple[Hex, Hex]) -> str:
+    """Puts the attacker's advance into a French sentence.
+
+        Avance : 1,26,-27 → 1,27,-28
+
+    Args:
+        advance: The `(origin, destination)` of the unit that occupied the square.
+
+    Returns:
+        The sentence.
+    """
+    origin, destination = advance
+    return f"Avance : {origin.key} → {destination.key}"
+
+
 def retreat_messages(result: CombatResult) -> list[str]:
     """Puts every fall-back of a combat into French, in the order they happened.
 

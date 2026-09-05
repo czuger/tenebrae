@@ -18,6 +18,11 @@ body {
   z-index: 0;
 }
 
+/* The phase, in words: the longest label the bar carries, and the one that would wrap first. */
+#phase-label {
+  white-space: nowrap;
+}
+
 /* The end of a game where the phase was: the sentence is the server's, and it is the only thing
    the bar ever has to shout. Gold on the bar's own brown, as the selection is on the map. */
 #phase-label.over {
@@ -374,6 +379,10 @@ body {
   display: flex;
   align-items: center;
   gap: 0.35rem;
+  /* A group holds its size: let it shrink and its labels wrap, and the bar - which is held to one
+     line and one height - gains a row. It is the bar that is clipped on the right, never a group
+     that is squeezed. */
+  flex: none;
 }
 
 /* `hidden` must win over `display: flex` here as it does on the card: without that guard the

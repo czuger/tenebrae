@@ -381,7 +381,7 @@ implemented, `Turn.advance()` skips it — it is never the current one.
 | `GET /combat/range?cq=&cr=&cs=&aq=&ar=&as=` | `{"in_range": bool, "available": bool, "message": str\|null}`; a refusal goes to the log |
 | `GET /combat/target?cq=&cr=&cs=` | `{"available": bool, "message": str\|null}`; a refusal goes to the log |
 | `GET /combat/ratio?cq=&cr=&cs=&a=q,r,s&a=…` | `{"ratio": [3, 1]\|null, "attack": 36, "defence": 12, "outcomes": ["DR", …]}` — the combat being composed, weighed; **nothing is logged** |
-| `POST /combat` — body `{"target": {q,r,s}, "attackers": [{q,r,s}, …]}` | see below |
+| `POST /combat` — body `{"target": {q,r,s}, "attackers": [{q,r,s}, …], "advance": bool}` | see below |
 
 `GET /game/<id>` carries `#phase`; the JavaScript takes from it the toolbar's label and **what a click
 does**: in the movement phase, only the active side shows its ghosts; in the combat phase,
@@ -391,8 +391,19 @@ does**: in the movement phase, only the active side shows its ghosts; in the com
 2. a click on one of one's **own** units → the server (`/combat/range`) says whether it is in range
    (distance ≤ 1, or ≤ its firing range) and whether it has not already attacked; if so, it joins
    the attackers, highlighted in **gold**; if not, nothing moves and the refusal is in the log;
-3. "Attaquer" (visible as soon as there is a target and an attacker) → `POST /combat`;
+3. "Attaquer" or "Attaquer et avancer" (both visible as soon as there is a target and an attacker)
+   → `POST /combat`, the second with `"advance": true`;
 4. "Annuler", or a new click on the target → the selection empties and the highlights fall away.
+
+**The advance after combat** is the booklet's: the attacking unit may occupy the hex the defender
+abandons, "without regard to zones of control or to its own movement limits", and the decision
+"must be announced immediately after the combat". It is announced here **by the button pressed** —
+before the die falls nobody knows whether the square will be free, so the two ways of attacking are
+offered together and the choice travels with the request. The engine plays it last and answers with
+`advance: {"from": …, "to": …, "tilt": …}` or `null`; the tab that asked lays it out after the
+fall-backs, at the same half-second pace, and the log carries `Avance : 1,26,-27 → 1,27,-28`. Which
+square and which unit are two readings, set out in `tenebrae/engine/README.md`: a square left by an
+elimination counts, and the unit that advances is the first attacker designated that can.
 
 **The bar says what the attack weighs**, between the phase and the button that resolves it:
 
@@ -644,6 +655,31 @@ no pipe hanging: `#combat-group` appears with the target designated and goes wit
 account button then follows the turn directly. A browser test holds that invariant — as many pipes
 on screen as there are groups, less one — and another that nothing in the bar sits outside a group:
 what is added to it tomorrow joins one or makes one.
+
+### The keyboard
+
+Six keys, for the six buttons one presses over and over:
+
+| Key | Button |
+| --- | --- |
+| `A` | Attaquer |
+| `Z` | Attaquer et avancer |
+| `E` | Annuler |
+| `Q` | Localiser |
+| `S` | the face the pawns show |
+| `D` | Phase suivante |
+
+They are chosen for **where they sit on an AZERTY keyboard** and not for what they spell: `A Z E`
+on the top row, `Q S D` under them, all six under the left hand while the right holds the mouse.
+That is why they are read from `event.key` — the letter the keyboard produces — and not from
+`event.code`, which names a key by its place on an American one and would put "Attaquer" under this
+keyboard's `Q`.
+
+Each key **clicks its button** and does nothing else: a button that is hidden or disabled is not
+clicked, so the keyboard can no more attack outside a combat, or locate before a piece has been
+clicked, than the bar can. A modifier (`Ctrl`, `Alt`, `Cmd`) hands the key back to the browser —
+`Ctrl+S` saves the page — and an open table dialog keeps the keyboard to itself. Every shortcut is
+written in its button's tooltip, `Attaquer (A)`: one nobody can find is one nobody uses.
 
 ## The log column
 

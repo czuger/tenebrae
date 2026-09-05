@@ -20,8 +20,8 @@ from tenebrae.application.current_game import (BOARD, CASUALTIES, REGISTER, TURN
                                                close_the_game_if_a_side_is_wiped_out,
                                                save_the_game, unavailable_units)
 from tenebrae.application.logs.battle_log import LOG
-from tenebrae.application.logs.combat_sentences import (combat_message, describe_the_ratio,
-                                                        retreat_messages)
+from tenebrae.application.logs.combat_sentences import (advance_sentence, combat_message,
+                                                        describe_the_ratio, retreat_messages)
 from tenebrae.application.routes.authorization import (active_side_required,
                                                        while_the_game_lasts)
 from tenebrae.application.routes.reading import read_a_hexagon
@@ -194,14 +194,18 @@ def keep_the_valid_attackers(attackers: list[Hex], target: Hex) -> tuple[list[He
 def fight() -> ResponseReturnValue:
     """Resolves a combat: one opposing target, one or more attackers of the active side.
 
-    Body `{"target": {q, r, s}, "attackers": [{q, r, s}, ...]}`. The server revalidates
-    everything, discards attackers out of range or having already attacked, rolls the die, applies
-    the result to the board and logs the outcome in French. The combat is entered in the phase
-    register **whatever its outcome**.
+    Body `{"target": {q, r, s}, "attackers": [{q, r, s}, ...], "advance": bool}`. The server
+    revalidates everything, discards attackers out of range or having already attacked, rolls the
+    die, applies the result to the board and logs the outcome in French. The combat is entered in
+    the phase register **whatever its outcome**.
+
+    `advance` is the "Attaquer et avancer" button: the booklet has the decision to occupy the
+    square the defender leaves "announced immediately after the combat", and the player announces
+    it by the button they press. It is played by the engine, after everything else.
 
     Returns:
-        `resolved`, and on success the outcome, the eliminated squares, the fall-backs, the roll,
-        the die, the ratio and the units now unavailable.
+        `resolved`, and on success the outcome, the eliminated squares, the fall-backs, the
+        advance, the roll, the die, the ratio and the units now unavailable.
     """
     demand = request.get_json(silent=True) or {}
     if TURN.phase_type != COMBAT:
@@ -222,7 +226,8 @@ def fight() -> ResponseReturnValue:
 
     # Read from the module at call time: the tests fix the die there, for the AI as for this route.
     roll = current_game.roll_the_die()
-    result = combat.fight(BOARD, target, valid, roll, CASUALTIES)
+    result = combat.fight(BOARD, target, valid, roll, CASUALTIES,
+                          advance=bool(demand.get("advance")))
     REGISTER.record([result.square_after(hexagon).key for hexagon in valid],
                     result.square_after(target).key)
     message = combat_message(result)
@@ -233,6 +238,8 @@ def fight() -> ResponseReturnValue:
         LOG.info(describe_the_ratio(result))
     for sentence in retreat_messages(result):
         LOG.info(sentence)
+    if result.advance is not None:
+        LOG.info(advance_sentence(result.advance))
     LOG.info(message)
     # The combat may have taken the last unit of a side: the game then closes here, before the
     # move is marked, so that the browsers receive the sentence with the position it speaks of.
@@ -248,6 +255,11 @@ def fight() -> ResponseReturnValue:
         "retreats": [{"from": origin.to_dict(), "to": destination.to_dict(),
                       "tilt": BOARD.tilt_on(destination)}
                      for origin, destination in result.moves],
+        # The angle travels here too: the counter has been picked up like any other.
+        "advance": None if result.advance is None else {
+            "from": result.advance[0].to_dict(),
+            "to": result.advance[1].to_dict(),
+            "tilt": BOARD.tilt_on(result.advance[1])},
         "roll": roll,
         "die": result.die,
         "ratio": list(result.ratio) if result.ratio else None,
